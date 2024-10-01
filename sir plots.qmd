@@ -1,0 +1,233 @@
+---
+title: "SIR analysis"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+dat <- read_csv('~/sir experiment-table.csv', skip = 6) %>%
+  rename(rep = `[run number]`,
+         time = `[step]`) %>%
+  arrange(rep)
+```
+
+```{r}
+dat %>%
+  filter(duration == 2.5,
+         time <= 100,
+         (infectiousness) %in% (seq(0.01, 1, .03))) %>%
+ggplot(aes(time, infected, group = rep, color = infectiousness)) +
+         geom_line(size = 1.2) +
+  scale_color_viridis_c() +
+  theme_bw() +
+  labs(x = 'Days', y = 'Infected')
+```
+
+```{r}
+dat %>%
+  filter(infectiousness == 0.08,
+         time <= 50) %>%
+ggplot(aes(time, infected, group = rep, color = duration)) +
+         geom_line(alpha = 0.5) +
+  scale_color_viridis_c() +
+  theme_bw() +
+  labs(x = 'Days', y = 'Infected')
+```
+
+```{r, fig.width = 4}
+dat %>%
+  filter(infectiousness == 0.08) %>%
+ggplot(aes(time, dead, group = rep, color = duration)) +
+         geom_line(alpha = 0.5) +
+  scale_color_viridis_c() +
+  theme_bw() +
+  labs(x = 'Days', y = 'dead')
+
+dat %>%
+  filter(duration == 2.5,
+         time <= 100) %>%
+ggplot(aes(time, dead, group = rep, color = infectiousness)) +
+         geom_line(alpha = 0.8) +
+  #scale_color_viridis_c(name = expression(paste('Transmission rate,',days^-1))) +
+  scale_color_viridis_c(name = 'Transmission\nrate (per day)') +
+  theme_bw() +
+  labs(x = 'Days', y = 'Mortality')
+ggsave('mortality.png', width = 4, height = 2.5)
+```
+
+```{r}
+dat %>%
+  filter(infectiousness == 0.08) %>%
+ggplot(aes(time, susceptible, group = rep, color = duration)) +
+         geom_line(alpha = 0.5) +
+  scale_color_viridis_c() +
+  theme_bw() +
+  labs(x = 'Days', y = 'Susceptible')
+
+dat %>%
+  filter(duration == 2.5,
+         time <= 365) %>%
+ggplot(aes(time, susceptible, group = rep, color = infectiousness)) +
+         geom_line(alpha = 0.5) +
+  scale_color_viridis_c() +
+  theme_bw() +
+  labs(x = 'Days', y = 'Susceptible')
+```
+
+```{r}
+dat %>%
+  filter(time == 365) %>%
+ggplot(aes(infectiousness, duration, fill = dead)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  theme_bw() +
+  coord_equal()
+```
+
+```{r}
+bubonic <- read_csv('~/bubonic_sir bubonic-table.csv', skip = 6)
+```
+
+```{r}
+ggplot(bubonic, aes(`[step]`)) +
+    geom_line(aes(y = `infected-rats`), color = 'red', size = 1.2) +
+    geom_line(aes(y = fleas), color = 'blue', size = 1.2) +
+  geom_line(aes(y = infected), size = 1.2) +
+  theme_bw() +
+  labs(y = 'Infected individuals', x = 'Days')
+```
+
+```{r}
+ggplot(bubonic, aes(`[step]`)) +
+    geom_line(aes(y = `dead-rats`), color = 'red', size = 1.2) +
+  geom_line(aes(y = dead), size = 1.2) +
+  theme_bw() +
+  labs(y = 'Infected individuals', x = 'Days')
+```
+
+```{r}
+dat2 <- read_csv('~/bubonic_sir bubonic-flea-rate-table.csv', skip = 6)
+```
+
+```{r}
+ggplot(dat2, aes(`[step]`, color = `fleas-to-humans`)) +
+    geom_line(aes(y = `infected-rats`), color = 'red', size = 1.2) +
+    geom_line(aes(y = fleas), color = 'blue', size = 1.2) +
+  geom_line(aes(y = infected, group = `[run number]`), size = 1.2, alpha = .5) +
+  theme_bw() +
+  labs(y = 'Infected individuals', x = 'Days')
+```
+
+```{r}
+dat3 <- read_csv('~/bubonic_sir bubonic-flea-rate-rats-table.csv', skip = 6)
+```
+
+```{r}
+dat3 %>% 
+  select(-fleas) %>%
+  rename(humans = infected, rats = `infected-rats`) %>%
+  pivot_longer(c(humans, rats)) %>%
+  filter(`fleas-to-rats` %in% c(.5, 3), ) %>%
+  arrange(name, `fleas-to-rats`) %>%
+ggplot(aes(`[step]`, group = interaction(`[run number]`, name), size = name, linetype = name,color = as.factor(`fleas-to-rats`))) +
+  geom_line(aes(y = value)) +
+  scale_size_manual(values = c(1.2, .8)) +
+  scale_color_viridis_d() +
+  theme_bw() +
+  labs(y = 'Infected individuals', x = 'Days')
+```
+
+```{r}
+dat3 %>% 
+  select(-fleas) %>%
+  rename(humans = deaths, rats = `rat-deaths`) %>%
+  pivot_longer(c(humans, rats)) %>%
+  filter(`fleas-to-rats` %in% c(.5, 3), ) %>%
+  arrange(name, `fleas-to-rats`) %>%
+ggplot(aes(`[step]`, group = interaction(`[run number]`, name), size = name, linetype = name,color = as.factor(`fleas-to-rats`))) +
+  geom_line(aes(y = value)) +
+  scale_size_manual(values = c(1.2, .8)) +
+  scale_color_viridis_d() +
+  theme_bw() +
+  labs(y = 'Deaths', x = 'Days')
+```
+
+```{r}
+read_csv('~/bubonic_sir bubonic-flea-rate-rats-table.csv', skip = 6) %>% 
+  select(-fleas) %>%
+  filter(`[step]` <= 100) %>%
+  rename(humans = infected, rats = `infected-rats`) %>%
+  pivot_longer(c(humans, rats)) %>%
+  arrange(name, `fleas-to-rats`) %>%
+  mutate(`fleas-to-rats` = as.factor(`fleas-to-rats`)) %>%
+ggplot(aes(`[step]`, group = interaction(`[run number]`, name), fill = name,  size = name, linetype = name)) +
+  #geom_line(aes(y = value)) +
+  geom_area(aes(y = value), position = 'identity', alpha = 0.5) + 
+  scale_size_manual(values = c(1.2, .8)) +
+  facet_grid(`fleas-to-humans`~`fleas-to-rats`) +
+  scale_color_viridis_d() +
+  scale_fill_grey() +
+  theme_bw() +
+  labs(y = 'Infected individuals', x = 'Days')
+```
+
+![](http://127.0.0.1:60331/chunk_output/9D0BD45C072DCEB0/149286AF/cvcmd9sar1jb1/000045.png)
+
+so plot mortality over time for rats and humans and/or for humans through the different pathways
+
+```{r}
+read_csv('~/bubonic_sir bubonic-flea-rate-rats-table.csv', skip = 6) %>% 
+  select(-fleas) %>%
+  filter(`[step]` <= 100,
+         `fleas-to-rats` == 1.24,
+         `fleas-to-humans` == 0.19
+         ) %>%
+  rename(humans = infected, rats = `infected-rats`) %>%
+  pivot_longer(c(humans, rats)) %>%
+ggplot(aes(`[step]`, group = interaction(`[run number]`, name), fill = name)) +
+  geom_area(aes(y = value), position = 'identity', alpha = 0.7) + 
+  scale_fill_grey(name = 'Species') +
+  theme_bw() +
+  labs(y = 'Infected individuals', x = 'Days')
+```
+
+```{r}
+ggsave('rats-humans.png', width = 6, height = 4)
+```
+
+```{r}
+dat %>%
+  filter(duration == 2.5,
+         time <= 100,
+         infectiousness == 0.5) %>%
+ggplot(aes(time, infected)) +
+         geom_area(position = 'Identity', alpha = 0.7) +
+  scale_y_continuous(limits = c(0, 200)) +
+  theme_bw() +
+  labs(x = 'Days', y = 'Infected individuals')
+```

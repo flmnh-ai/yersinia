@@ -1,0 +1,385 @@
+---
+title: "Untitled"
+author: "Nick Gauthier"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(sf)
+library(h3jsr)
+library(rnaturalearth)
+```
+
+```{r}
+outbreaks <- read_csv('~/Downloads/plague-season-v3_2/input/rawdata.csv')
+outbreaks
+```
+
+```{r}
+unique(outbreaks$interval)
+```
+
+```{r}
+unique(outbreaks$values)
+```
+
+```{r}
+outbreaks %>%
+  filter(interval == 'daily',
+         values == 'counts') %>%
+ggplot(aes(obs, n, group = id)) +
+  geom_line(alpha = .4)
+```
+
+```{r}
+outbreaks %>%
+  filter(interval == 'weekly',
+         values == 'counts') %>%
+ggplot(aes(obs, n, group = id)) +
+  geom_line(alpha = .4)
+```
+
+```{r}
+outbreaks %>%
+  group_by(id) %>%
+  summarise(lat = mean(lat), lon = mean(lon)) %>%
+ggplot(aes(lon, lat)) +
+  geom_point()
+```
+
+```{r}
+read_csv('europe-pnas/resources/christakos-plague-speed-BD-permonth.csv') %>%
+  ggplot(aes(x, Curve1)) +
+geom_line()
+```
+
+```{r}
+dgg <- read_sf('~/Downloads/Anthromes-12k-DGG/an12_dgg_inputs.shp') %>%
+  filter(regn_nm == 'Europe')
+```
+
+```{r}
+plot(dgg['land_ar'], lwd = 0.1)
+```
+
+```{r}
+read_sf('europe-pnas/resources/geographic/combined-maritime-traderoutes.csv') %>%
+  plot
+```
+
+```{r}
+read_sf('europe-pnas/resources/geographic/Easterday-sylvatic-plague-foci.csv') %>%
+  plot
+```
+
+```{r}
+read_csv('europe-pnas/resources/geographic/silkroad-all-but-seas.csv')
+read_csv('europe-pnas/resources/geographic/tea-route-reconstructed.csv')
+```
+
+```{r}
+read_sf('europe-pnas/resources/Plague Foci Eurasia.kmz')
+st_drivers()
+```
+
+```{r}
+sf_use_s2(FALSE)
+#bbox <- st_bbox(c(xmin = -10, xmax = 75, ymin = 24, ymax = 72))
+bbox <- st_bbox(c(xmin = -10, xmax = 47.5, ymin = 26.5, ymax = 62))
+bbox <- st_bbox(c(xmin = -10, xmax = 40, ymin = 29, ymax = 62))
+
+europe <- ne_countries(continent = c('europe', 'africa', 'asia'), returnclass = 'sf') %>%
+  st_make_valid() %>%
+  st_crop(bbox) %>%
+  st_set_crs(4326)
+
+coasts <- ne_coastline(returnclass = 'sf', scale = 'medium') %>%
+  st_make_valid() %>%
+  st_crop(bbox) %>%
+  st_set_crs(4326)
+
+hex <- polygon_to_cells(europe, res = 4) %>% 
+  # unique()  %>%
+  cell_to_polygon() %>%
+  st_as_sf() %>%
+  mutate(area = st_area(x)) %>%
+  filter(area < max(area)) %>%
+  st_crop(bbox)
+plot(coasts)
+plot(hex)
+```
+
+```{r}
+collections <- tribble(
+  ~name, ~location, ~dates, ~sample, ~lat, ~lon,
+    'Saint Nicolay’s Church',       'Oslo, Norway',              '1347-1352',      10,    59.9139, 10.7522,     
+    'Vodroffsgaard',                'Copenhagen, Denmark',       '1711-1712',      25,    55.6761, 12.5683,               
+    'Sankt Johans Friedhof',        'Nabburg, Germany',          '1347-1352',      10,     49.4514, 12.1759,            
+    'Basilica Sant-Just-i-Pastor',  'Barcelona, Spain',          '1347-1352',      45,     41.3874, 2.1686,           
+    'Lariey',                       'Puy-Saint-Pierre, France',  '1628-1632',      20,   44.8929, 6.6179,
+    'Saint-Pierre',                 'Dreux, France',             '1347-1352',      30,    48.7361, 1.3709,           
+    'Lazzaretto dell-Osservanza',   'Imola, Italy',              '1630-1632',      30,    44.3600, 11.7124,             
+    'Maria Troon',                  'Dendermond, Belgium',       '1579-1585',      30, 51.0255, 4.1020,
+  'London',                         'London, UK', '', NA, 51.5072, 0.1276
+) %>%
+  st_as_sf(coords = c('lon', 'lat'), crs = 4326)
+```
+
+```{r}
+outbreaks <- read_csv('~/Downloads/plague-season-v3_2/input/rawdata.csv')
+
+outbreak_pts <- outbreaks %>%
+  group_by(id) %>%
+  summarise(lat = mean(lat), lon = mean(lon)) %>%
+    st_as_sf(coords = c('lon', 'lat'), crs = 4326)
+```
+
+```{r}
+routes <- read_sf('europe-pnas/resources/geographic/combined-maritime-traderoutes.csv', crs = 4326) %>%
+  st_crop(bbox)
+```
+
+```{r}
+pollen <- readxl::read_excel('41559_2021_1652_MOESM4_ESM.xlsx', skip = 1) %>%
+  st_as_sf(coords = c('Longitude', 'Latitude'), crs = 4326)
+plot(pollen)
+
+neotoma <- read_csv('~/Downloads/Search_11.csv') %>%
+  select(-c(name:symbol__shape, numDatasets:order)) %>%
+  remove_missing() %>%
+  st_as_sf(coords = c('sites__longitude', 'sites__latitude'), crs = 4326) %>%
+  st_filter(hex)
+```
+
+
+```{r}
+ggplot() +
+  geom_sf(data = hex, lwd = 0.1) +
+  geom_sf(data = coasts) +
+  geom_sf(data =  outbreak_pts) +
+  geom_sf(data = neotoma, pch = '+') +
+  geom_sf(data = collections, color = 'red') +
+  #geom_sf_label(data = collections, aes(label = name)) +
+  geom_sf(data = routes, alpha = 0.5) +
+  theme_bw() +
+  coord_sf(crs = 3035)
+```
+
+``` {r]}
+era_mean <- st_apply(era, 1:2, mean)
+plot(era_mean)
+
+test <- aggregate(era_mean, hex, mean)
+test2 <- aggregate(era_mean, hex, mean, na.rm = TRUE, exact = TRUE)
+plot(test, lwd = 0.1)
+plot(test2, lwd = 0.1)
+```
+
+```{r}
+library(stars)
+era <- read_stars('~/Downloads/adaptor.mars.internal-1667515128.5144098-27266-19-4afa7647-4bdc-477b-aaa3-b4a378dd2836.grib', eps = 0.01) %>%
+  st_apply(1:2, mean) %>%
+  st_as_stars() %>%
+  st_set_crs(4326)
+
+plot(era)
+```
+
+```{r}
+t2m <- as(era, 'SpatRaster') 
+plot(t2m)
+library(terra)
+library(exactextractr)
+```
+
+```{r}
+hex_t2m <- hex %>% 
+  mutate(t2m = exact_extract(t2m, hex, 'mean')) %>% 
+  select(t2m)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = hex_t2m, aes(fill = t2m), lwd = 0.01, alpha = 0.8) +
+  geom_sf(data = coasts) +
+  geom_sf(data =  outbreak_pts) +
+  geom_sf(data = neotoma, pch = '+') +
+  geom_sf(data = collections, color = 'red') +
+  scale_fill_viridis_c(option = 'magma') +
+  #geom_sf_label(data = collections, aes(label = name)) +
+  geom_sf(data = routes, alpha = 0.5) +
+  theme_void() +
+  coord_sf(crs = 3035)
+```
+
+```{r}
+sf_use_s2(FALSE)
+foci <- read_sf('europe-pnas/resources/geographic/Easterday-sylvatic-plague-foci.csv', crs = 4326) %>%
+  st_make_valid() %>%
+  #st_filter(bbox) %>%
+  st_intersection(hex)
+#sf_use_s2(TRUE)
+
+```
+
+```{r}
+outbreaks2 <- readxl::read_excel('Datasets Palgrave Communications 2020 R3.xlsx', sheet = 10, skip = 2) %>%
+  st_as_sf(coords = c('Lat_WGS84', 'Lon_WGS84'), crs = 4326) %>% # the coords are reversed?
+  group_by(Location) %>%
+  summarise(n = n())
+```
+
+```{r}
+library(ggrepel)
+```
+
+
+
+
+```{r fig.width=6.5, fig.asp = .8}
+ggplot() +
+      geom_sf(data = routes, alpha = 0.4) +
+ # geom_sf(data = hex_t2m, aes(fill = t2m - 273.15), lwd = 0.01, alpha = 0.80) +
+    geom_sf(data = hex_t2m, lwd = 0.05) +
+ # geom_sf(data = europe, color = NA) + 
+    geom_sf(data= foci) +
+  geom_sf(data = coasts) +
+  #  geom_sf(data = neotoma,  pch = '+',color = 'grey15') +
+      geom_sf(data = neotoma,  size = 0.35, color = 'darkred') +
+  geom_sf(data = outbreaks2 %>% st_crop(hex),size = .5, color = 'black') +
+ geom_sf(data =  outbreak_pts %>% st_crop(hex), size = 2, color = 'black') +
+  # ggrepel::geom_label_repel(data = collections,aes(label = name, geometry = geometry),stat = "sf_coordinates",min.segment.length = 0) +
+  geom_sf(data = collections, color = 'red', size = 3) + #,aes(size = sample)) +
+  scale_fill_viridis_c(option = 'magma', name = 'Mean annual\ntemperature', guide = NULL) +
+  #geom_sf_label(data = collections, aes(label = name)) +
+  theme_minimal()+
+ # theme_void() +
+    coord_sf(crs = 3035, expand = FALSE)
+  coord_sf(expand = FALSE)# +
+    # theme(panel.background = element_rect(fill = "lightblue",colour = "lightblue"))
+```
+
+```{r}
+ggsave('map4.png', width = 6.5, height = 0.8 * 6.5, bg = 'white')
+```
+
+
+```{r}
+library(tidyEOF)
+```
+
+```{r}
+
+era_land <- read_ncdf('~/Downloads/data.nc', eps = 0.01, proxy = FALSE) %>%
+  aggregate(by = 'years', mean)
+
+t2m_extract <- era_land['t2m'] %>%
+  as('SpatRaster') %>%
+  exact_extract(hex, 'mean')
+tp_extract <- era_land['tp'] %>%
+  as('SpatRaster') %>%
+  exact_extract(hex, 'mean')
+
+hex_t2m_pca <- t(t2m_extract) %>%
+  prcomp(scale. = TRUE) 
+
+hex_t2m <- hex_t2m_pca$rotation %>%
+   `%*%`(diag(hex_t2m_pca$sdev, 72, 72)) %>%
+  `colnames<-`(colnames(hex_t2m_pca$rotation)) %>%
+  bind_cols(hex, .) %>%
+  select(PC1:PC4) %>%
+  st_as_stars() %>%
+  merge()
+
+hex_tp_pca <- t(tp_extract) %>%
+  prcomp(scale. = TRUE)
+  
+hex_tp <- hex_tp_pca$rotation %>%
+  `%*%`(diag(hex_tp_pca$sdev, 72, 72)) %>%
+  `colnames<-`(colnames(hex_tp_pca$rotation)) %>%
+  bind_cols(hex, .) %>%
+  select(PC1:PC4) %>%
+  st_as_stars() %>%
+  merge()
+```
+
+
+```{r}
+
+ggplot() +
+  geom_stars(data = hex_t2m) +
+  facet_wrap(~attributes) +
+  scale_fill_distiller(palette = 'RdBu', limits = c(-0.033, 0.033)) +
+  theme_bw()
+
+ggplot() +
+  geom_stars(data = hex_tp) +
+  facet_wrap(~attributes) +
+  scale_fill_distiller(palette = 'RdBu', limits = c(-0.033, 0.033)) +
+  theme_bw()
+```
+
+```{r fig.width=6.5, fig.asp = .8}
+a <- ggplot() +
+  geom_sf(data = st_as_sf(hex_t2m[,,2]), lwd = .01, aes(fill = PC2)) +
+    geom_sf(data = coasts) +
+    scico::scale_fill_scico(palette = 'vik', guide = NULL, limits = c(-.82, .82)) +
+ # scale_fill_viridis_c(option = 'magma', guide = NULL, limits = c(-0.024, 0.024)) +
+ # scale_fill_distiller(palette = 'RdBu', limits = c(-0.024, 0.024)) +
+  theme_void() +
+      coord_sf(crs = 3035, expand = FALSE)
+```
+
+```{r fig.width=6.5, fig.asp = .8}
+b <- ggplot() +
+  geom_sf(data = st_as_sf(hex_tp[,,2]), lwd = .01, aes(fill = PC2)) +
+    geom_sf(data = coasts) +
+    scico::scale_fill_scico(palette = 'broc', guide = NULL, limits = c(-.76, .76)) +
+ # scale_fill_viridis_c(option = 'magma', guide = NULL, limits = c(-0.024, 0.024)) +
+ # scale_fill_distiller(palette = 'RdBu', limits = c(-0.024, 0.024)) +
+  theme_void() +
+      coord_sf(crs = 3035, expand = FALSE)
+```
+
+```{r}
+library(patchwork)
+```
+
+```{r fig.width = 3.5, fig.asp = 1.7}
+(a / b ) +
+    plot_annotation(tag_level = 'a', tag_prefix = '(', tag_suffix = ')')
+```
+
+```{r}
+ggsave('eofs.png', width = 3.5, height = 1.7 * 3.5)
+```
+
+
+```{r fig.width = 6.5, fig.asp = .5}
+(a + b ) +
+    plot_annotation(tag_level = 'a', tag_prefix = '(', tag_suffix = ')')
+```
+```{r}
+ggsave('eofs_horizontal.png', width = 6.5, height = .5* 6.5)
+```
+
+
+```{r}
+pat <- get_patterns(era, k = 1)
+```
+
+```{r}
+test <- get_pcs(era %>% st_set_dimensions('band', names = 'time'))
+plot(test)
+```
+
+```{r}
+tidyEOF::area_weight
+
+era[[1]]
+```
+
