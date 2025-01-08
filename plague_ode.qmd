@@ -1,0 +1,925 @@
+---
+title: "Equation model"
+format: html
+editor: visual
+---
+
+```{r setup}
+library(tidyverse)
+library(odin)
+library(odin.dust)
+```
+
+## Base Model
+
+The base rats/fleas plague model from Keeling and Gilligan. maybe but removed df from N equation:
+
+$$
+\begin{align}
+\frac{dS_R}{dt} &= \underbrace{r_R S_R \left( 1 - \frac{T_R}{K_R} \right)}_{\text{births}} + \underbrace{r_R R_R(1 - p)}_{\text{non immmune births}} - \underbrace{d_R S_R}_{\text{deaths}} - \underbrace{\beta_R \frac{S_R}{T_R}F\left[1-exp(-aT_R)\right]}_{\text{infections}}\\
+\frac{I_R}{dt} &= \underbrace{\beta_R \frac{S_R}{T_R}F\left[1-exp(-aT_R)\right]}_{\text{infections}} - \underbrace{(d_R + m_R)I_R}_{\text{death/recovery}}\\
+\frac{dR_R}{dt} &= \underbrace{r_R R_R \left(p - \frac{T_R}{K_R}\right)}_{\text{inherited immune births}} + \underbrace{m_R g_RI_R}_{\text{recovery}} - \underbrace{d_R R_R}_{\text{natural death}}\\
+\frac{dN}{dt} &= \underbrace{r_F N \left(1 - \frac{N}{K_F}\right)}_{\text{flea births}} + \underbrace{\frac{F}{T_R} \left(1 - \exp(-\alpha T_R)\right)}_{\text{free fleas finding rats}}\\
+\frac{dF}{dt} &= \underbrace{(d_R + m_R (1 - g_R)) I_R N}_{\text{free infected fleas from dead rats}} - \underbrace{d_F F}_{\text{infected flea deaths}}\\
+T_R &= \underbrace{S_R + I_R + R_R}_{\text{total rat population}}\\
+\lambda_H &= \underbrace{Fexp(-aT_R)}_{\text{max force of infection in humans}}
+\end{align}
+$$
+
+## Odin Implementations
+
+### Deterministic
+
+```{r}
+# Define the model
+plague_model <- odin::odin({
+  ## State variables initial conditions
+  initial(S_r) <- K_r - 1         # Susceptible rats
+  initial(I_r) <- 1               # Infected rats 
+  initial(R_r) <- 0               # Resistant rats
+  initial(N) <- K_f               # Flea index (fleas per rat)
+  initial(F) <- 0                 # Free infectious fleas
+
+  ## Total rat population
+  T_r <- S_r + I_r + R_r
+  
+  ## Force of infection in humans
+  lambda <- F * exp(-a * T_r)
+  output(lambda) <- lambda
+  
+  ## Differential equations for rat population
+  deriv(S_r) <- r_r * S_r * (1 - T_r/K_r) +                # Births from susceptibles
+                r_r * R_r * (1 - p) -                       # Non-immune births from resistant
+                d_r * S_r -                                 # Natural deaths
+                beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r))  # Infections
+
+  deriv(I_r) <- beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r)) -  # New infections
+                (d_r + m_r) * I_r                              # Death/Recovery
+
+  deriv(R_r) <- r_r * R_r * (p - T_r/K_r) +   # Inherited immune births 
+                m_r * g_r * I_r -             # Recovery
+                d_r * R_r                     # Natural death
+
+  ## Flea dynamics
+  deriv(N) <- r_f * N * (1 - N/K_f) +                   # Logistic growth 
+              F * (1 - exp(-a*T_r)) / T_r         # Free fleas finding rats # removed the d_F term here?
+
+  deriv(F) <- (d_r + m_r * (1 - g_r)) * I_r * N -       # Free infected fleas from dead rats
+              d_f * F                                    # Free flea deaths
+
+  ## Parameters 
+  K_r <- user(2500)     # Rat carrying capacity
+  r_r <- user(5)     # Rat population growth rate 
+  p <- user(0.975)        # Probability of inherited resistance
+  d_r <- user(0.2)     # Natural death rate of rats 
+  beta_r <- user(4.7)   # Rat infection rate from fleas 
+  a <- user(0.004)        # Flea search efficiency
+  m_r <- user(20)        # Infected rat mortality rate # or rate that rats leave infected class?
+  g_r <- user(0.02)       # Probability rat survives infection / fraction rats become resistent
+  r_f <- user(20)     # Flea reproduction rate # diff 20
+  K_f <- user(6.57)        # Flea carrying capacity per rat
+  d_f <- user(10)        # Death rate of free fleas # diff 10
+})
+
+# Create model instance
+model <- plague_model$new()
+
+# Run simulation for 40 years
+times <- seq(0, 40, by = 1/365)
+
+output <- model$run(times) |> 
+  as_tibble()
+
+output |>  
+  pivot_longer(-t) |> 
+ggplot(aes(t, value)) +
+  geom_line() +
+  facet_wrap(~name, scale = 'free_y') +
+  labs(title="Plague Model Simulation",
+       x="Time (years)",
+       y="Number of Rats") +
+  theme_minimal()
+```
+
+Replicating the figure from Keeling and Gilligan. its not exactly the same! There should be a bit more fluctuation, sharper drop in infected rats. so hopefully this is just that they used different parameters for this and not something structurally different in the model? Tried changing exactly the initial infected rats (it says start with all susceptible but I assume that means 1 infected)
+
+```{r}
+output |>
+  select(t, I_r, lambda) |>
+  ggplot(aes(t)) +
+  geom_line(aes(y = lambda), linetype = 2) +
+  geom_line(aes(y = I_r)) + 
+  scale_y_log10(breaks = c(.0000001, .000001, .00001, .0001, .001, .01, .1, 1, 10, 100, 1000), limits = c(0.0000001, 1000)) +
+  scale_x_continuous(breaks = seq(0, 40, 5), limits = c(0, 40)) +
+  theme_bw()
+```
+
+### Deterministic with seasonal forcing
+
+```{r}
+plague_model_season <- odin::odin({
+  ## State variables initial conditions
+  initial(S_r) <- K_r - 1         # Susceptible rats
+  initial(I_r) <- 1               # Infected rats 
+  initial(R_r) <- 0               # Resistant rats
+  initial(N) <- K_f               # Flea index (fleas per rat)
+  initial(F) <- 0                 # Free infectious fleas
+  
+  ## Total rat population
+  T_r <- S_r + I_r + R_r
+  
+  ## Force of infection in humans
+  lambda <- F * exp(-a * T_r)
+  output(lambda) <- lambda
+  
+  ## Differential equations for rat population
+  deriv(S_r) <- r_r * S_r * (1 - T_r/K_r) +                # Births from susceptibles
+                r_r * R_r * (1 - p) -                       # Non-immune births from resistant
+                d_r * S_r -                                 # Natural deaths
+                beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r))  # Infections
+
+  deriv(I_r) <- beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r)) -  # New infections
+                (d_r + m_r) * I_r                              # Death/Recovery
+
+  deriv(R_r) <- r_r * R_r * (p - T_r/K_r) +   # Inherited immune births 
+                m_r * g_r * I_r -             # Recovery
+                d_r * R_r                     # Natural death
+
+  ## Flea dynamics
+  season_t <- interpolate(day, season, 'spline')
+  K_f_seasonal <- K_f * (1 + K_f) ^ season_t
+  deriv(N) <- r_f * N * (1 - N/K_f_seasonal) +                   # Logistic growth 
+              F * (1 - exp(-a*T_r)) / T_r         # Free fleas finding rats # removed the d_F term here?
+
+  deriv(F) <- (d_r + m_r * (1 - g_r)) * I_r * N -       # Free infected fleas from dead rats
+              d_f * F                                    # Free flea deaths
+
+  ## Parameters 
+  K_r <- user(2500)     # Rat carrying capacity
+  r_r <- user(5)     # Rat population growth rate 
+  p <- user(0.975)        # Probability of inherited resistance
+  d_r <- user(0.2)     # Natural death rate of rats 
+  beta_r <- user(4.7)   # Rat infection rate from fleas 
+  a <- user(0.004)        # Flea search efficiency
+  m_r <- user(20)        # Infected rat mortality rate # or rate that rats leave infected class?
+  g_r <- user(0.02)       # Probability rat survives infection / fraction rats become resistent
+  r_f <- user(20)     # Flea reproduction rate # diff 20
+  K_f <- user(6.57)        # Flea carrying capacity per rat
+  d_f <- user(10)        # Death rate of free fleas # diff 10
+  day[] <- user()
+  season[] <- user()
+  dim(day) <- user()
+  dim(season) <- user()
+})
+
+
+# Run simulation for 40 years
+times <- seq(0, 40, by = 1/365)
+season <- sin(2 * pi * ((times * 365) %% 365) / 365)
+# Create model instance
+model_season <- plague_model_season$new(day = times, season = season)
+
+output_season <- model_season$run(times) |> 
+  as_tibble()
+
+output_season |>  
+  pivot_longer(-t) |> 
+ggplot(aes(t, value)) +
+  geom_line() +
+  facet_wrap(~name, scale = 'free_y') +
+  labs(title="Plague Model Simulation",
+       x="Time (years)",
+       y="Number of Rats") +
+  theme_minimal()
+
+output_season |>
+  select(t, I_r, lambda) |>
+  ggplot(aes(t)) +
+  geom_line(aes(y = lambda), linetype = 2) +
+  geom_line(aes(y = I_r)) + 
+  scale_y_log10(breaks = c(.0000001, .000001, .00001, .0001, .001, .01, .1, 1, 10, 100, 1000), limits = c(0.0000001, 1000)) +
+  scale_x_continuous(breaks = seq(0, 40, 5), limits = c(0, 40)) +
+  theme_bw()
+```
+
+### Stochastic
+
+```{r}
+# Create 5x5 grid contact matrix 
+make_contact_matrix <- function(n_rows=5, n_cols=5) {
+  n <- n_rows * n_cols
+  m <- matrix(0, n, n)
+  
+  for(i in 1:n) {
+    # Get row/col position
+    row <- ceiling(i/n_cols)
+    col <- ((i-1) %% n_cols) + 1
+    
+    # Add neighbors
+    if(row > 1) m[i, i-n_cols] <- 1  # up
+    if(row < n_rows) m[i, i+n_cols] <- 1  # down 
+    if(col > 1) m[i, i-1] <- 1  # left
+    if(col < n_cols) m[i, i+1] <- 1  # right
+  }
+  
+  # Normalize rows so neighbors sum to 1
+  m <- t(apply(m, 1, function(x) x/sum(x)))
+  return(m)
+}
+```
+
+```{r}
+generator <- odin_dust('plague_stochastic.R')
+```
+
+```{r}
+n_particles <- 5
+dt <- 1/365
+npop <- 25
+years <- 50
+contact_matrix <- make_contact_matrix(sqrt(npop), sqrt(npop))
+mod <- generator$new(pars = list(I_ini = c(10, rep(0, npop - 1)), 
+                                                  S_ini = 1,
+                                                  K_r = 40000 / npop,
+                                                  contact = contact_matrix, 
+                                                  dt = dt,
+                                                  p = .2,
+                                                  K_f = 4,
+                                                  #mu_r = .005,
+                                                  #g_r = 0,
+                                                  npop = npop),
+                                      time = 1L,
+    n_particles = n_particles,
+    n_threads = 4L,
+    seed = 6L)
+
+timesteps <- 1:(dt ^ -1 * years)
+
+state <- mod$simulate(timesteps) |>
+  array(dim = c(npop, 5, n_particles, length(timesteps)), 
+        dimnames = list(subpop = 1:npop, 
+                        compartment = c('S', 'I', 'R', 'N', 'F'), 
+                        rep = 1:n_particles, 
+                        time = timesteps * dt)) |>
+  cubelyr::as.tbl_cube(met_name = 'value') |>  
+  as_tibble()
+
+state |> 
+  pivot_wider(names_from = compartment) |>
+ggplot(aes(time, ymax = I, group = rep)) +
+  geom_ribbon(aes(ymin = 0), alpha = 0.6) +
+  facet_wrap(~subpop) +
+  labs(
+    title = "Stochastic Simulation of Bubonic Plague Transmission",
+    x = "Time (years)",
+    y = "Population",
+    color = "Compartment"
+  ) +
+  theme_bw()
+```
+
+```{r}
+state |>
+ggplot(aes(time, value, group = rep)) +
+  geom_line() +
+  facet_grid(compartment~subpop, scales = 'free_y') +
+  labs(
+    title = "Stochastic Simulation of Bubonic Plague Transmission",
+    x = "Time (years)",
+    y = "Population",
+    color = "Compartment"
+  ) +
+  theme_bw()
+```
+
+```{r}
+state |>
+  pivot_wider(names_from = compartment) |>
+  group_by(time) |>
+  summarize(I = sum(I)) |>
+ggplot(aes(time, ymax = I)) +
+  geom_ribbon(ymin = 0) +
+  labs(
+    title = "Stochastic Simulation of Bubonic Plague Transmission",
+    x = "Time (years)",
+    y = "Population",
+    color = "Compartment"
+  ) +
+  scale_y_log10() +
+  theme_bw()
+
+state |>
+  pivot_wider(names_from = compartment) |>
+  group_by(time) |>
+  summarize(I = sum(I), S = sum(S), R = sum(R), F = sum(F)) |>
+  mutate(lambda = F * exp(-1e-4 * (S + I + R))) |>
+ggplot(aes(time, lambda)) +
+  geom_line() +
+  labs(
+    title = "Stochastic Simulation of Bubonic Plague Transmission",
+    x = "Time (years)",
+    y = "Population",
+    color = "Compartment"
+  ) +
+  scale_y_log10() +
+  theme_bw()
+```
+
+Original model from gascuel? maybe, not sure and should confirm
+
+```{r}
+dyn.load("../doi_10-2/si_fig1.so")
+
+```
+
+```{r}
+ out=ode(y=Y,times=times,func="derivs",
+    parms=c(d=0.75,m=73,K=25000,beta=2,r=5,df=17.4,rf=175,Kf=2,
+a=0.004),dllname="si_fig1",initfunc="initmod",nout=1,outnames="Sum" )
+ 
+ out %>% 
+   as.data.frame() %>%
+   ggplot(aes(time, I)) +
+   geom_line()
+```
+
+## gillespie
+
+```{r}
+# State-change matrix
+#      Reaction 1    2   3   4    5	  6      7  State
+nu <- matrix(c(+1,   0, -1,  0,   0,  0,    -1, # S
+                0,   0,  0, -1,   0,  0,    +1, # I
+	              0,  +1,  0,  0,   0, +1/25000, 0, # N
+	              0,   0,  0, +2,  -1, -1,     0),  #y1
+             nrow=4,byrow=TRUE)
+
+a
+```
+
+```{r}
+library(GillespieSSA2)
+
+#params <- c(c1 = 10, c2 = 0.01, c3 = 10)
+reactions <- list(
+  #        propensity function        effects                          name for reaction
+  reaction(~r * S * (1- ((S + I) / K)),    c(S = +1),    name = "susceptible_birth"),
+  reaction(~rf * N * (1 - N / Kf),    c(N = +1),    name = "flea_birth"),
+  reaction(~d * S,           c(S = -1),               name = "susceptible_death"),
+  reaction(~d * I + m * I,   c(I = -1, Fl = +N),           name = 'infected_death'), # why Fl+2? ( its supposed to be N)
+  reaction(~df * Fl,         c(Fl = -1),           name = 'flea_death'),
+  reaction(~Fl * (1 - exp(-a * (S + I))),   c(N = +1, Fl = -1),   name = 'Free_infectious_flea_going_on_a_rat'), # should be smaller for n!
+  reaction(~beta * S * Fl * (1 - exp(-a * (S + I))) / (S + I), c(S = -1, I = +1), name = 'infection')
+)
+```
+
+## Individual
+
+```{r}
+library(individual)
+```
+
+```{r}
+N <- 1e3
+I0 <- 5
+S0 <- N - I0
+dt <- 0.1
+tmax <- 100
+steps <- tmax/dt
+gamma <- 1/10
+
+birth_rate <- 2
+death_rate <- .001
+
+R0 <- 2.5
+beta <- R0 * gamma
+health_states <- c("S","I","R")
+health_states_t0 <- rep("S",N)
+health_states_t0[sample.int(n = N, size = I0)] <- "I"
+```
+
+```{r}
+health <- CategoricalVariable$new(categories = health_states,
+                                  initial_values = health_states_t0)
+```
+
+```{r}
+infection_process <- function(t){
+  I <- health$get_size_of("I")
+  foi <- beta * I/N
+  S <- health$get_index_of("S")
+  S$sample(rate = pexp(q = foi * dt))
+  health$queue_update(value = "I", index = S)
+}
+
+recovery_event <- TargetedEvent$new(population_size = N)
+recovery_event$add_listener(function(t, target) {
+  health$queue_update("R", target)
+})
+
+recovery_process <- function(t){
+  I <- health$get_index_of("I")
+  already_scheduled <- recovery_event$get_scheduled()
+  I$and(already_scheduled$not(inplace = TRUE))
+  rec_times <- rgeom(n = I$size(),prob = pexp(q = gamma * dt)) + 1
+  recovery_event$schedule(target = I,delay = rec_times)
+}
+
+health_render <- Render$new(timesteps = steps)
+health_render_process <- categorical_count_renderer_process(
+  renderer = health_render,
+  variable = health,
+  categories = health_states
+)
+
+birth_process <- function(t) {
+  n_births <- rpois(1, birth_rate / dt)
+  health$queue_extend(rep('S', n_births))
+  recovery_event$queue_extend(n_births)
+}
+
+death_process <- function(t) {
+  pop_size <- health$size()
+  deaths <- sample.int(pop_size, rbinom(1, pop_size, min(death_rate / dt, 1)))
+  health$queue_shrink(deaths)
+  recovery_event$queue_shrink(deaths)
+}
+```
+
+```{r}
+simulation_loop(
+  variables = list(health),
+  events = list(recovery_event),
+  processes = list(
+    infection_process,
+    recovery_process,
+    birth_process, # new process to introduce S into the population
+    death_process, # new process to randomly remove individuals from the populations
+    health_render_process
+  ),
+  timesteps = steps
+)
+```
+
+```{r}
+states <- health_render$to_dataframe()
+health_cols <-  c("royalblue3","firebrick3","darkorchid3")
+matplot(
+  x = states[[1]]*dt, y = states[-1],
+  type="l",lwd=2,lty = 1,col = adjustcolor(col = health_cols, alpha.f = 0.85),
+  xlab = "Time",ylab = "Count"
+)
+legend(
+  x = "topright",pch = rep(16,3),
+  col = health_cols,bg = "transparent",
+  legend = health_states, cex = 1.5
+)
+```
+
+### Logistic Growth in Individual
+
+```{r}
+N <- 10
+dt <- 1/12
+tmax <- 500
+k <- 200
+steps <- tmax/dt
+states <- c("S")
+states_t0 <- rep("S",N)
+
+
+test <- CategoricalVariable$new(categories = states,
+                                  initial_values = states_t0)
+
+birth_process <- function(t) {
+    pop_size <- test$size()
+  n_births <- rbinom(1, pop_size, (0.02 - 0.02 * (pop_size / k)) * dt)#birth_rate / dt)
+  test$queue_extend(rep('S', n_births))
+}
+
+death_process <- function(t) {
+  pop_size <- test$size()
+  deaths <- sample.int(pop_size, rbinom(1, pop_size, (0.01 + 0.01 * (pop_size / k)) * dt))#min(death_rate / dt, 1)))
+  test$queue_shrink(deaths)
+}
+
+pop_render <- Render$new(timesteps = steps)
+pop_render_process <- categorical_count_renderer_process(
+  renderer = pop_render,
+  variable = test,
+  categories = "S"
+)
+
+simulation_loop(
+  variables = list(test),
+  processes = list(
+    birth_process, # new process to introduce S into the population
+    death_process, # new process to randomly remove individuals from the populations
+    pop_render_process
+  ),
+  timesteps = steps
+)
+
+
+
+newplot <- pop_render$to_dataframe()
+
+
+plot(newplot)
+```
+
+
+## meta
+
+no idea what this is or where it was from!
+
+```{r}
+# beta matrix: random initialisation -----------------------------------------------------
+beta.mat <- function (nr_patches) {
+  ## beta: positive, non-symmetric matrix of effective contact rates
+  ## values are higher on the diagonal (transmission is higher *within*-patch),
+  ## values decrease gradually further away from the diagonal (*between*-patch transmission)
+  beta <- matrix(0, nrow=nr_patches, ncol=nr_patches)
+  for (i in 0:(nr_patches-1)) {
+    ## superdiagonal: scale vector s.t. numbers decrease further away from diagonal
+    rand.vec <- rnorm(nr_patches-i, 10 * (nr_patches-i)/nr_patches, 2)
+    beta[row(beta) == col(beta) - i] <- rand.vec
+    ## subdiagonal
+    rand.vec <- rnorm(nr_patches-i, 10 * (nr_patches-i)/nr_patches, 2)
+    beta[row(beta) == col(beta) - i] <- rand.vec
+  }
+  return(beta)
+}
+
+# mobility matrix: random initialisation -----------------------------------------------------
+mob.mat <- function (nr_patches) {
+  ## mobility matrix (origin-destination matrix of proportion of population that travels) #TODO trip counts or relative?
+  C <- matrix(0, nrow=nr_patches, ncol=nr_patches)
+  if (nr_patches > 1) {
+    diag(C) <- -sample(1:25, nr_patches, replace=TRUE)
+    for (i in 1:nr_patches) {
+      C[i, which(C[i, ] == 0)] <- rmultinom(n = 1, size = -C[i,i], prob = rep(1, nr_patches-1))
+    }
+    C <- C/100
+  }
+  return(C)
+}
+
+# plotting --------------------------------------------------------------------#
+plot.pretty <- function(out, nr_patches, what) {
+  
+  # plot total densities by disease status --------------------------------------#
+  if (what == "total") {
+    ## compute total densities by disease status
+    S_tot <- rowSums(out$S) / nr_patches
+    E_tot <- rowSums(out$E) / nr_patches
+    I_tot <- rowSums(out$I) / nr_patches
+    R_tot <- rowSums(out$R) / nr_patches
+    
+    ## plot total densities by disease status
+    par(mfrow=c(1, 1), las=1, omi=c(1,0,0,0), xpd=NA)
+    plot( t, S_tot, col="green",
+          type="l", xlab="Days", ylab="Densities",
+          main="Total densities by disease status")
+    lines(t, E_tot, col="orange")
+    lines(t, I_tot, col="red")
+    lines(t, R_tot, col="blue")
+    legend(-8.5, -0.3, title="Disease statuses", horiz=TRUE,
+           legend=c("Susceptible", "Exposed", "Infectious", "Recovered"),
+           col=c("green", "orange", "red", "blue"), lty=1)
+  }
+  
+  # plot densities of some patches by disease status ----------------------------#
+  if (what == "panels") {
+    ## define the plot panels
+    if (nr_patches >= 6) {
+      mfrow=c(2, 3)
+      panels <- as.integer( seq(1, nr_patches, length.out=6))
+    } else if (nr_patches >= 4) {
+      mfrow=c(2, 2)
+      panels <- as.integer( seq(1, nr_patches, length.out=4))
+    } else {
+      mfrow=c(1, nr_patches)
+      panels <- 1:nr_patches
+    }
+    par(mfrow=mfrow, las=1, omi=c(1,0,0.3,0), xpd=NA)
+    
+    ## plot the disease statuses of some patches
+    ymax <- max(out$N[, panels])
+    for (i in panels) {
+      plot (t, out$S[, i], col="green", ylim=c(0, ymax),
+            type="l", xlab="Days", ylab="Densities",
+            main=paste("Patch ", i))
+      lines(t, out$E[, i], col="orange")
+      lines(t, out$I[, i], col="red")
+      lines(t, out$R[, i], col="blue")
+    }
+    title("Densities by disease status", outer=TRUE)
+    legend(-130, -1.2, title="Disease statuses", horiz=TRUE,
+           legend=c("Susceptible", "Exposed", "Infectious", "Recovered"),
+           col=c("green", "orange", "red", "blue"), lty=1)
+  }
+  
+}
+
+```
+
+```{r}
+SEIR_cont <- odin::odin({
+  nr_patches <- user()
+  n <- nr_patches
+  
+  ## Params
+  lambda_prod[ , ] <- beta[i, j] * I[j]
+  lambda[] <- sum(lambda_prod[i, ]) # rowSums
+  
+  mob_prod[ , ] <- S[i] * C[i, j]
+  mob_S[] <- sum(mob_prod[, i])     # colSums
+  mob_prod[ , ] <- E[i] * C[i, j]
+  mob_E[] <- sum(mob_prod[, i])
+  mob_prod[ , ] <- I[i] * C[i, j]
+  mob_I[] <- sum(mob_prod[, i])
+  mob_prod[ , ] <- R[i] * C[i, j]
+  mob_R[] <- sum(mob_prod[, i])
+  
+  N[] <- S[i] + E[i] + I[i] + R[i]
+  output(N[]) <- TRUE
+  
+  ## Derivatives
+  deriv(S[]) <- mu - mu*S[i] - S[i]*lambda[i]         + M[1] * mob_S[i]
+  deriv(E[]) <- S[i]*lambda[i] - (mu + sigma) * E[i]  + M[2] * mob_E[i]
+  deriv(I[]) <- sigma*E[i] - (mu + gamma)*I[i]        + M[3] * mob_I[i]
+  deriv(R[]) <- gamma*I[i] - mu*R[i]                  + M[4] * mob_R[i]
+  
+  ## Initial conditions
+  initial(S[]) <- 1.0 - 1E-6
+  initial(E[]) <- 0.0
+  initial(I[]) <- 1E-6
+  initial(R[]) <- 0.0
+  
+  ## parameters
+  beta[,] <- user()   # effective contact rate
+  sigma   <- 1/3      # rate of breakdown to active disease
+  gamma   <- 1/3      # rate of recovery from active disease
+  mu      <- 1/10     # background mortality
+  C[,]    <- user()   # origin-destination matrix of proportion of population that travels
+  M[]     <- user()   # relative migration propensity by disease status
+  
+  ## dimensions
+  dim(beta)        <- c(n, n)
+  dim(C)           <- c(n, n)
+  dim(M)           <- 4
+  dim(lambda_prod) <- c(n, n)
+  dim(lambda)      <- n
+  dim(mob_prod)    <- c(n, n)
+  dim(mob_S)       <- n
+  dim(mob_E)       <- n
+  dim(mob_I)       <- n
+  dim(mob_R)       <- n
+  dim(S)           <- n
+  dim(E)           <- n
+  dim(I)           <- n
+  dim(R)           <- n
+  dim(N)           <- n
+  
+})
+
+```
+
+```{r}
+# set seed
+set.seed(1)
+
+# SEIR free parameters --------------------------------------------------------#
+## total number of patches in the model
+nr_patches = 20
+## relative migration propensity by disease status (S, E, I, R)
+M <- c(1, 0.5, 1, 1)
+## matrix of effective contact rates
+beta <- beta.mat(nr_patches)
+## mobility matrix
+C <- mob.mat(nr_patches)
+
+```
+
+```{r}
+# run SEIR model --------------------------------------------------------------#
+mod <- SEIR_cont(nr_patches=nr_patches, beta=beta, C=C, M=M)
+t <- seq(0, 50, length.out=50000)
+out <- mod$run(t)
+out <- mod$transform_variables(out)
+# error check -----------------------------------------------------------------#
+if ( ! all( abs(rowSums(out$N) - nr_patches) < 1E-10 ) )
+  warning("Something went wrong, density is increasing/decreasing!\n")
+
+```
+
+```{r}
+# plot total densities by disease status --------------------------------------#
+plot.pretty(out, nr_patches, "total")
+
+```
+
+```{r}
+# plot densities of some patches by disease status ----------------------------#
+plot.pretty(out, nr_patches, "panels")
+
+```
+
+```{r}
+population <- 4
+timesteps <- 5
+state <- CategoricalVariable$new(c('S', 'I', 'R'), rep('S', population))
+renderer <- Render$new(timesteps)
+
+transition <- function(from, to, rate) {
+  return(function(t) {
+    from_state <- state$get_index_of(from)
+    state$queue_update(
+      to,
+      from_state$sample(rate)
+    )
+  })
+}
+
+processes <- list(
+  transition('S', 'I', .2),
+  transition('I', 'R', .1),
+  transition('R', 'S', .05),
+  categorical_count_renderer_process(renderer, state, c('S', 'I', 'R'))
+)
+
+simulation_loop(variables=list(state), processes=processes, timesteps=timesteps)
+renderer$to_dataframe()
+```
+
+```{r}
+gravity
+data(usflu)
+outer(usflu$Pop, usflu$Pop)
+```
+
+## Extras
+
+### Original DeSolve Models
+
+```{r}
+plague_mod <- function(t, x, parameters){
+    with(as.list(c(x, parameters)),{
+    #N_h = S_h + I_h + R_h
+    N_r = S_r + I_r + R_r
+
+    # human dynamics
+   # dS_h = r_h * (S_h + R_h) - d_h * S_h - beta_h * S_h * Fl * exp(-1 * alpha * N_r) # ignores density dependence
+  #  dI_h = beta_h * S_h * Fl * exp(-1 * alpha * N_r) - (d_h + m_h) * I_h
+   # dR_h = m_h * g_h * I_h - d_h * R_h
+    #dD = (1-g)*gamma * I
+
+    # rat dynamics
+    #kg version
+    dS_r = r_r * S_r * (1 - N_r / K_r) + r_r * R_r * (1 - p) - d_r * S_r - beta_r * S_r / N_r * Fl * (1 - exp(-1* alpha * N_r))
+      #dean version with immune carrying capacity
+   # dS_r = r_r * (S_r  +  R_r * (1 - p)) * (1 - N_r / K_r) - d_r * S_r - beta_r * S_r / N_r * Fl * (1 - exp(-1* alpha * N_r))
+    dI_r = beta_r * S_r / N_r * Fl * (1 - exp(-1 * alpha * N_r)) - (d_r + m_r) * I_r
+   # kg version
+     dR_r = r_r * R_r * (p - N_r / K_r) + m_r * g_r * I_r - d_r * R_r
+    #dean version with immune cc
+   # dR_r = r_r * R_r * p *(1 - N_r / K_r) + m_r * g_r * I_r - d_r * R_r
+    #dD_r = (1-g_r)*gamma_r * I_r
+
+    # flea dynamics
+    dH = r_f * H * (1 - H / K_f) + d_f / N_r  * Fl * (1 - exp(-1 * alpha * N_r))
+    dFl = (d_r + m_r * (1 - g_r)) * I_r * H - d_f * Fl
+
+    return(list(c(#dS_h, dI_h, dR_h,
+                  dS_r, dI_r, dR_r, dH, dFl)))
+    })
+}
+```
+
+```{r}
+ times  = seq(0, 40, by = 1/120)
+
+    parameters = c(r_r = 5, # rat reproductive rate -- 5 / 365 for days?
+                   p = 0.975, # probability of inherited resistance -- or 0.65 or 0.975
+                   K_r = 2500, # rat's carrying capacity
+                   d_r = 0.2, # death rate of rats
+                   beta_r = 4.7 , # transmission rate -- 1.248 [0–3.67] fleas-1 days-1, keeling has 4.7 "per year"!
+                   m_r = 20, # infectious period ^-1
+                   g_r = 0.02, # probability of recovery -- 0.06 [0.0–0.37], .02 in keeling, 0.1 dean
+                 #  mu_r = 0.03 , # movement rate of rats
+                   alpha =  0.004, # flea searching efficiency -- 3.0/Sr0 dean, 0.004 keeling
+                   r_f = 20, # flea's reproductive rate, .0084 (white) to 20/365 = 0.05479452 white translation of keeling, but other translation is 20/day which is reasonable
+                   d_f = 10, # death rate of fleas -- elsewhere 1/5 days, 10/day (?)
+                   K_f = 6.57#, # flea carrying capacity per rat
+                #   mu_f = 0.008, # movement rate of fleas
+                #   r_h = 0.0455, # reproductive rate of humans
+                #   d_h = 0.04 , # death rate of humans
+                 #  beta_h = 0.01, # transmission rate to humans
+                #   m_h = 26, # infectious period ^-1, 3-10 days? 26 is 14 days
+                 #  g_h = 0.4 # probability of recovery-- 0.4 dean -- 0.34 [0.30, 0.40] white, .1 keeling
+    )
+    
+start = c(#S_h = 5000, I_h = 0, R_h = 0,
+      S_r = 2500, I_r = 1, R_r = 0, H = 1, Fl = 0)
+
+```
+
+```{r}
+out <- ode(start, times, plague_mod, parameters) %>%
+      as.data.frame() %>%
+      as_tibble() %>%
+      mutate(#N_h = S_h + R_h + I_h,
+             N_r = S_r + R_r + I_r,
+             lambda = Fl * exp(-parameters['alpha'] * N_r)) %>%
+      select(time, I_r, lambda) %>%
+      pivot_longer(-time)
+
+    ggplot(out, aes(time, value, color = name)) +
+      geom_line() +
+      scale_y_log10()
+```
+
+```{r}
+expand_grid(N_r = seq(0, 50, 5),
+            Fl = seq(0, 100, 5)) %>%
+  mutate(lambda = Fl * exp(-parameters['alpha'] * N_r)) %>%
+  ggplot(aes(N_r, Fl, fill = lambda)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  coord_fixed(ratio = 0.5) +
+  theme_bw()
+```
+
+Add seasonal forcing
+
+```{r}
+library(deSolve)
+plague_mod_season <- function(t, x, parameters){
+    with(as.list(c(x, parameters)),{
+    #N_h = S_h + I_h + R_h
+    N_r = S_r + I_r + R_r
+
+    # human dynamics
+   # dS_h = r_h * (S_h + R_h) - d_h * S_h - beta_h * S_h * Fl * exp(-1 * alpha * N_r) # ignores density dependence
+  #  dI_h = beta_h * S_h * Fl * exp(-1 * alpha * N_r) - (d_h + m_h) * I_h
+   # dR_h = m_h * g_h * I_h - d_h * R_h
+    #dD = (1-g)*gamma * I
+
+    # rat dynamics
+    dS_r = r_r * S_r * (1 - N_r / K_r) + r_r * R_r * (1 - p) - d_r * S_r - beta_r * S_r / N_r * Fl * (1 - exp(-1* alpha * N_r))
+    dI_r = beta_r * S_r / N_r * Fl * (1 - exp(-1 * alpha * N_r)) - (d_r + m_r) * I_r
+    dR_r = r_r * R_r * (p - N_r / K_r) + m_r * g_r * I_r - d_r * R_r
+    #dD_r = (1-g_r)*gamma_r * I_r
+
+    kf_season = K_f * (1 + 5) ^ sin(2 * pi * t)
+    # flea dynamics
+    dH = r_f * H * (1 - H / kf_season) + d_f / N_r  * Fl * (1 - exp(-1 * alpha * N_r)) # should thislast part be included?
+    dFl = (d_r + m_r * (1 - g_r)) * I_r * H - d_f * Fl
+
+    return(list(c(#dS_h, dI_h, dR_h,
+                  dS_r, dI_r, dR_r, dH, dFl)))
+    })
+}
+```
+
+```{r}
+out_season <- ode(start, times, plague_mod_season, parameters) %>%
+      as.data.frame() %>%
+      as_tibble() %>%
+      mutate(#N_h = S_h + R_h + I_h,
+             N_r = S_r + R_r + I_r,
+             lambda = Fl * exp(-parameters['alpha'] * N_r))
+      
+
+out_season %>%
+  select(time, I_r, lambda) %>%
+      pivot_longer(-time) %>%
+    ggplot(aes(time, value, color = name)) +
+      geom_line() +
+      scale_y_log10()
+
+out_season %>%
+  select(time, S_r, I_r, R_r) %>%
+      pivot_longer(-time) %>%
+    ggplot(aes(time, value, color = name)) +
+      geom_line()
+```
+
+```{r}
+out_season %>%
+  ggplot(aes(I_r, lambda, color = time)) +
+  geom_point()
+
+out_season%>%
+  ggplot(aes(S_r, I_r, color = time)) +
+  geom_point()
+
+ode(start, times, plague_mod_season, parameters) %>%
+      as.data.frame() %>%
+      as_tibble() %>%
+        mutate(N_r = S_r + R_r + I_r,
+             lambda = Fl * exp(-parameters['alpha'] * N_r)) %>%
+  ggplot(aes(I_r, lambda, color = time)) +
+  geom_point()
+```
