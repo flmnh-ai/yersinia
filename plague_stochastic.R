@@ -53,7 +53,7 @@ n_SI[] <- rbinom(S[i] - n_deaths_S[i], p_SI[i])
 n_IR[] <- rbinom(I[i] - n_deaths_I[i], p_IR[i]) # rats whose disease ends
 n_recovered[] <- rbinom(n_IR[i], g_r) # rats who recover AND survive
 n_births_S[] <- rbinom(S[i] - n_deaths_S[i], p_rat_birth[i])
-n_births_R[] <- rbinom(R[i] - n_deaths_R[i], p_rat_birth[i])
+n_births_R[] <- rbinom(R[i] - n_deaths_R[i], p_rat_birth[i] * 0.75) # hacky reduction in resistant birth rate, just temporary
 n_resistant_births[] <- rbinom(n_births_R[i], p)
 n_susceptible_births[] <- n_births_S[i] + n_births_R[i] - n_resistant_births[i]
 
