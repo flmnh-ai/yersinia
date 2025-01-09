@@ -33,6 +33,11 @@ rat_birth_rate_clipped[] <- if(rat_birth_rate[i] > 0) rat_birth_rate[i] else 0
 
 infection_force[] <- beta_r * (F[i] / T_r[i]) * (1 - exp(-a * T_r[i]))
 
+# seaonal change in k_f
+season[] <- user()
+dim(season) <- user()
+season_t <- season[step + 1]
+K_f_seasonal <- K_f * (1 + 1) ^ season_t # the + 1 should be a paramter, but fixed to approximate KG for now
 
 ## Individual probabilities of transition:
 p_SI[] <- 1 - exp(-infection_force[i] * dt) # S to I
@@ -61,7 +66,7 @@ n_fleas_to_rats[] <- rbinom(F[i], p_flea_to_rat[i])
 n_flea_deaths[] <- rbinom(F[i] - n_fleas_to_rats[i], p_flea_death)
 # dead infected rats x flea index
 n_new_free_fleas[] <- floor(N[i] * (n_deaths_I[i] + (n_IR[i] - n_recovered[i])))
-flea_growth_rate[] <- r_f * N[i] * (1 - N[i] / K_f) * dt # absolute growth rate in flea index
+flea_growth_rate[] <- r_f * N[i] * (1 - N[i] / K_f_seasonal) * dt # absolute growth rate in flea index
 
 
 # Add migration parameters
