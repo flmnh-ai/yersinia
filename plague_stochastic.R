@@ -2,7 +2,7 @@
 update(S[]) <- S[i] - n_SI[i] + n_susceptible_births[i] - n_deaths_S[i] - n_emigrate_S[i] + n_immigrate_S[i]
 update(I[]) <- I[i] + n_SI[i] - n_IR[i] - n_deaths_I[i]- n_emigrate_I[i] + n_immigrate_I[i]
 update(R[]) <- R[i] + n_recovered[i] + n_resistant_births[i] - n_deaths_R[i]- n_emigrate_R[i] + n_immigrate_R[i]
-update(F[]) <- F[i] + n_new_free_fleas[i] - n_flea_deaths[i] - n_emigrate_F[i] + n_immigrate_F[i] - n_fleas_to_rats[i]
+update(F[]) <- F[i] + n_new_free_fleas[i] - n_flea_deaths[i] - n_fleas_to_rats[i] - n_emigrate_F[i] + n_immigrate_F[i]
 update(N[]) <- N[i] + flea_growth_rate[i] + n_fleas_to_rats[i] / T_r[i]
 
 ### Rats
@@ -11,36 +11,16 @@ T_r[] <- S[i] + I[i] + R[i] # total rat population
 rat_birth_rate[] <- r_r * (1 - T_r[i] / K_r) # per capita
 rat_birth_rate_clipped[] <- if(rat_birth_rate[i] > 0) rat_birth_rate[i] else 0
 
-# old version with island like force of infeciton
-#infection_force[] <- beta_r / T_r[i] * (1 - exp(-a * T_r[i])) * ((1 - mu_r) * F[i] + mu_r / (npop - 1) * (sum(F) - F[i]))
-## older version with structure force of infection
-# First calculate the denominator (number of neighbors)
-#n_contacts[] <- sum(contact[i,])
-#dim(n_contacts) <- npop
+infection_force[] <- beta_r * n_fleas_to_rats[i] / T_r[i] # double check we're still handling time right
 
-# Then calculate the sum of neighbor fleas
-#neighbor_fleas[,] <- contact[i,j] * F[j]
-# dim(neighbor_fleas) <- c(npop,npop)
-
-#  nonlocal_fleas[] <- sum(neighbor_fleas[i,])
-# dim(nonlocal_fleas) <- npop
-
-# Finally calculate force of infection using these intermediate values
-#infection_force[] <- beta_r / T_r[i] * (1 - exp(-a * T_r[i])) *
-#                    ((1 - mu_r) * F[i] + mu_r * nonlocal_fleas[i] / n_contacts[i])
-
-#infection_force[] <- beta_r / T_r[i] * (1 - exp(-a * T_r[i])) * ((1 - mu_r) * F[i] + mu_r * sum(contact[i,j] * F[j]) / sum(contact[i, ]))
-
-infection_force[] <- beta_r * (F[i] / T_r[i]) * (1 - exp(-a * T_r[i]))
-
-# seaonal change in k_f
+# seasonal change in k_f
 season[] <- user()
 dim(season) <- user()
 season_t <- season[step + 1]
-K_f_seasonal <- K_f * (1 + 1) ^ season_t # the + 1 should be a paramter, but fixed to approximate KG for now
+K_f_seasonal <- K_f * (1 + 1) ^ season_t # the + 1 should be a parameter, but fixed to approximate KG for now
 
 ## Individual probabilities of transition:
-p_SI[] <- 1 - exp(-infection_force[i] * dt) # S to I
+p_SI[] <- 1 - exp(-infection_force[i]) # S to I # no dt because this is already scaled to time in n_fleas_to_rats?
 p_IR[] <- 1 - exp(-m_r * dt) # I to R
 p_rat_birth[] <- 1 - exp(-rat_birth_rate_clipped[i] * dt) # natural rat birth probability
 p_rat_death <- 1 - exp(-d_r * dt) # natural rat death probability
