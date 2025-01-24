@@ -7,6 +7,7 @@ editor: visual
 ```{r setup}
 library(tidyverse)
 library(odin)
+#remotes::install_github("mrc-ide/odin.dust")
 library(odin.dust)
 ```
 
@@ -237,14 +238,14 @@ get_season <- function(years = 1) {
 ```
 
 ```{r}
-generator <- odin_dust('plague_stochastic.R', debug_enable = FALSE)
+generator <- odin_dust('plague_stochastic.R', debug_enable = TRUE)
 ```
 
 ```{r}
 n_particles <- 1
-dt <- 1/365
-npop <- 25
-years <- 40
+dt <- 1/52
+npop <- 16
+years <- 30
 timesteps <- 1:(dt ^ -1 * years)
 season <- get_season(years)
 seasonal_kf <- sin(2 * pi * season)
@@ -252,19 +253,18 @@ seasonal_kf <- sin(2 * pi * season)
 contact_matrix <- make_contact_matrix(sqrt(npop), sqrt(npop))
 mod <- generator$new(pars = list(I_ini = c(10, rep(0, npop - 1)), 
                                                   S_ini = 1,
-                                                  K_r = 60000 / npop,
-                                                  contact = contact_matrix, 
+                                                  K_r = 10000 / npop,
+                                                  contact = matrix(0, nrow = 16, ncol = 16),#contact_matrix, # this should cause divide by zero errors!
+                                 K_f = 1,
                                                   dt = dt,
-                                                  p = .6,
+                                                  p = 0.6,
                                  season = seasonal_kf,
-                                                  #K_f = 6,
-                                                  #mu_r = .005,
-                                                  #g_r = 0.1,
+                                                 # g_r = 1,
                                                   npop = npop),
                                       time = 1L,
     n_particles = n_particles,
     n_threads = 4L,
-    #seed = 6L
+    seed = 6L
     )
 
 
@@ -336,6 +336,89 @@ ggplot(aes(time, lambda)) +
   ) +
   scale_y_log10() +
   theme_bw()
+```
+
+Now with humans
+
+```{r}
+generator_humans <- odin_dust('plague_stochastic_humans.R', debug_enable = FALSE)
+```
+
+so too many humans are dying? but not showing up in the death stats? need to check for conservation? and what about
+
+```{r}
+n_particles <- 1
+dt <- 1/52
+years <- 10
+timesteps <- 1:(dt ^ -1 * years)
+season <- get_season(years)
+seasonal_kf <- sin(2 * pi * season)
+
+mod <- generator_humans$new(pars = list(I_ini = c(10), 
+                                                  S_ini = 1,
+                                                  K_r = 5000,#contact_matrix, # this should cause divide by zero errors!
+                                 K_f = 3,
+                                                  dt = dt,
+                                                  p = 0.6,
+                                 season = seasonal_kf),
+                                                 # g_r = 1,),
+                                      time = 1L,
+    n_particles = n_particles,
+    n_threads = 1L,
+    seed = 6L
+    )
+
+
+state <- mod$simulate(timesteps) |>
+  array(dim = c(10, n_particles, length(timesteps)), 
+        dimnames = list(compartment = c('S', 'I', 'R', 'D', 'N', 'F', 'Sh', 'Ih', 'Rh', 'Dh'), 
+                        rep = 1:n_particles, 
+                        time = timesteps * dt)) |>
+  cubelyr::as.tbl_cube(met_name = 'value') |>  
+  as_tibble()
+
+state |> 
+    pivot_wider(names_from = compartment) |>
+    mutate(Tr = S + I + R, Th = Sh + Ih + Rh) |>
+  pivot_longer(S:Th, names_to = 'compartment') |>
+ggplot(aes(time, ymax = value, group = rep)) +
+  geom_ribbon(aes(ymin = 0), alpha = 1) +
+  facet_wrap(~compartment, scales = 'free_y') +
+  labs(
+    title = "Stochastic Simulation of Bubonic Plague Transmission",
+    x = "Time (years)",
+    y = "Population",
+    color = "Compartment"
+  ) +
+  theme_bw()
+```
+
+```{r}
+state |> 
+  filter(compartment == 'Dh') |>
+  filter(time < 1) |>
+  summarize(sum(value))
+
+
+state |> 
+  pivot_wider(names_from = compartment) |>
+    mutate(Tr = S + I + R, Th = Sh + Ih + Rh) |>
+filter(time < 1) |>
+  ggplot(aes(time, Th)) + geom_line()
+```
+
+```{r}
+state |> 
+  filter(compartment == 'D') |>
+  filter(time < 1) |>
+  summarize(sum(value))
+
+
+state |> 
+  pivot_wider(names_from = compartment) |>
+    mutate(Tr = S + I + R, Th = Sh + Ih + Rh) |>
+filter(time < 1) |>
+  ggplot(aes(time, Tr)) + geom_line()
 ```
 
 Original model from gascuel? maybe, not sure and should confirm
@@ -540,7 +623,6 @@ newplot <- pop_render$to_dataframe()
 
 plot(newplot)
 ```
-
 
 ## meta
 
