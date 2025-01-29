@@ -1,208 +1,16 @@
 ---
-title: "Equation model"
+title: "Stochastic model"
 format: html
 editor: visual
 ---
 
 ```{r setup}
 library(tidyverse)
-library(odin)
 #remotes::install_github("mrc-ide/odin.dust")
 library(odin.dust)
 ```
 
-## Base Model
 
-The base rats/fleas plague model from Keeling and Gilligan. maybe but removed df from N equation:
-
-$$
-\begin{align}
-\frac{dS_R}{dt} &= \underbrace{r_R S_R \left( 1 - \frac{T_R}{K_R} \right)}_{\text{births}} + \underbrace{r_R R_R(1 - p)}_{\text{non immmune births}} - \underbrace{d_R S_R}_{\text{deaths}} - \underbrace{\beta_R \frac{S_R}{T_R}F\left[1-exp(-aT_R)\right]}_{\text{infections}}\\
-\frac{I_R}{dt} &= \underbrace{\beta_R \frac{S_R}{T_R}F\left[1-exp(-aT_R)\right]}_{\text{infections}} - \underbrace{(d_R + m_R)I_R}_{\text{death/recovery}}\\
-\frac{dR_R}{dt} &= \underbrace{r_R R_R \left(p - \frac{T_R}{K_R}\right)}_{\text{inherited immune births}} + \underbrace{m_R g_RI_R}_{\text{recovery}} - \underbrace{d_R R_R}_{\text{natural death}}\\
-\frac{dN}{dt} &= \underbrace{r_F N \left(1 - \frac{N}{K_F}\right)}_{\text{flea births}} + \underbrace{\frac{F}{T_R} \left(1 - \exp(-\alpha T_R)\right)}_{\text{free fleas finding rats}}\\
-\frac{dF}{dt} &= \underbrace{(d_R + m_R (1 - g_R)) I_R N}_{\text{free infected fleas from dead rats}} - \underbrace{d_F F}_{\text{infected flea deaths}}\\
-T_R &= \underbrace{S_R + I_R + R_R}_{\text{total rat population}}\\
-\lambda_H &= \underbrace{Fexp(-aT_R)}_{\text{max force of infection in humans}}
-\end{align}
-$$
-
-## Odin Implementations
-
-### Deterministic
-
-```{r}
-# Define the model
-plague_model <- odin::odin({
-  ## State variables initial conditions
-  initial(S_r) <- K_r - 1         # Susceptible rats
-  initial(I_r) <- 1               # Infected rats 
-  initial(R_r) <- 0               # Resistant rats
-  initial(N) <- K_f               # Flea index (fleas per rat)
-  initial(F) <- 0                 # Free infectious fleas
-
-  ## Total rat population
-  T_r <- S_r + I_r + R_r
-  
-  ## Force of infection in humans
-  lambda <- F * exp(-a * T_r)
-  output(lambda) <- lambda
-  
-  ## Differential equations for rat population
-  deriv(S_r) <- r_r * S_r * (1 - T_r/K_r) +                # Births from susceptibles
-                r_r * R_r * (1 - p) -                       # Non-immune births from resistant
-                d_r * S_r -                                 # Natural deaths
-                beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r))  # Infections
-
-  deriv(I_r) <- beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r)) -  # New infections
-                (d_r + m_r) * I_r                              # Death/Recovery
-
-  deriv(R_r) <- r_r * R_r * (p - T_r/K_r) +   # Inherited immune births 
-                m_r * g_r * I_r -             # Recovery
-                d_r * R_r                     # Natural death
-
-  ## Flea dynamics
-  deriv(N) <- r_f * N * (1 - N/K_f) +                   # Logistic growth 
-              F * (1 - exp(-a*T_r)) / T_r         # Free fleas finding rats # removed the d_F term here?
-
-  deriv(F) <- (d_r + m_r * (1 - g_r)) * I_r * N -       # Free infected fleas from dead rats
-              d_f * F                                    # Free flea deaths
-
-  ## Parameters 
-  K_r <- user(2500)     # Rat carrying capacity
-  r_r <- user(5)     # Rat population growth rate 
-  p <- user(0.975)        # Probability of inherited resistance
-  d_r <- user(0.2)     # Natural death rate of rats 
-  beta_r <- user(4.7)   # Rat infection rate from fleas 
-  a <- user(0.004)        # Flea search efficiency
-  m_r <- user(20)        # Infected rat mortality rate # or rate that rats leave infected class?
-  g_r <- user(0.02)       # Probability rat survives infection / fraction rats become resistent
-  r_f <- user(20)     # Flea reproduction rate # diff 20
-  K_f <- user(6.57)        # Flea carrying capacity per rat
-  d_f <- user(10)        # Death rate of free fleas # diff 10
-})
-
-# Create model instance
-model <- plague_model$new()
-
-# Run simulation for 40 years
-times <- seq(0, 40, by = 1/365)
-
-output <- model$run(times) |> 
-  as_tibble()
-
-output |>  
-  pivot_longer(-t) |> 
-ggplot(aes(t, value)) +
-  geom_line() +
-  facet_wrap(~name, scale = 'free_y') +
-  labs(title="Plague Model Simulation",
-       x="Time (years)",
-       y="Number of Rats") +
-  theme_minimal()
-```
-
-Replicating the figure from Keeling and Gilligan. its not exactly the same! There should be a bit more fluctuation, sharper drop in infected rats. so hopefully this is just that they used different parameters for this and not something structurally different in the model? Tried changing exactly the initial infected rats (it says start with all susceptible but I assume that means 1 infected)
-
-```{r}
-output |>
-  select(t, I_r, lambda) |>
-  ggplot(aes(t)) +
-  geom_line(aes(y = lambda), linetype = 2) +
-  geom_line(aes(y = I_r)) + 
-  scale_y_log10(breaks = c(.0000001, .000001, .00001, .0001, .001, .01, .1, 1, 10, 100, 1000), limits = c(0.0000001, 1000)) +
-  scale_x_continuous(breaks = seq(0, 40, 5), limits = c(0, 40)) +
-  theme_bw()
-```
-
-### Deterministic with seasonal forcing
-
-```{r}
-plague_model_season <- odin::odin({
-  ## State variables initial conditions
-  initial(S_r) <- K_r - 1         # Susceptible rats
-  initial(I_r) <- 1               # Infected rats 
-  initial(R_r) <- 0               # Resistant rats
-  initial(N) <- K_f               # Flea index (fleas per rat)
-  initial(F) <- 0                 # Free infectious fleas
-  
-  ## Total rat population
-  T_r <- S_r + I_r + R_r
-  
-  ## Force of infection in humans
-  lambda <- F * exp(-a * T_r)
-  output(lambda) <- lambda
-  
-  ## Differential equations for rat population
-  deriv(S_r) <- r_r * S_r * (1 - T_r/K_r) +                # Births from susceptibles
-                r_r * R_r * (1 - p) -                       # Non-immune births from resistant
-                d_r * S_r -                                 # Natural deaths
-                beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r))  # Infections
-
-  deriv(I_r) <- beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r)) -  # New infections
-                (d_r + m_r) * I_r                              # Death/Recovery
-
-  deriv(R_r) <- r_r * R_r * (p - T_r/K_r) +   # Inherited immune births 
-                m_r * g_r * I_r -             # Recovery
-                d_r * R_r                     # Natural death
-
-  ## Flea dynamics
-  season_t <- interpolate(day, season, 'spline')
-  K_f_seasonal <- K_f * (1 + K_f) ^ season_t
-  deriv(N) <- r_f * N * (1 - N/K_f_seasonal) +                   # Logistic growth 
-              F * (1 - exp(-a*T_r)) / T_r         # Free fleas finding rats # removed the d_F term here?
-
-  deriv(F) <- (d_r + m_r * (1 - g_r)) * I_r * N -       # Free infected fleas from dead rats
-              d_f * F                                    # Free flea deaths
-
-  ## Parameters 
-  K_r <- user(2500)     # Rat carrying capacity
-  r_r <- user(5)     # Rat population growth rate 
-  p <- user(0.975)        # Probability of inherited resistance
-  d_r <- user(0.2)     # Natural death rate of rats 
-  beta_r <- user(4.7)   # Rat infection rate from fleas 
-  a <- user(0.004)        # Flea search efficiency
-  m_r <- user(20)        # Infected rat mortality rate # or rate that rats leave infected class?
-  g_r <- user(0.02)       # Probability rat survives infection / fraction rats become resistent
-  r_f <- user(20)     # Flea reproduction rate # diff 20
-  K_f <- user(6.57)        # Flea carrying capacity per rat
-  d_f <- user(10)        # Death rate of free fleas # diff 10
-  day[] <- user()
-  season[] <- user()
-  dim(day) <- user()
-  dim(season) <- user()
-})
-
-
-# Run simulation for 40 years
-# this is incorrect I think!
-times <- seq(0, 40, by = 1/365)
-season <- sin(2 * pi * ((times * 365) %% 365) / 365)
-# Create model instance
-model_season <- plague_model_season$new(day = times, season = season)
-
-output_season <- model_season$run(times) |> 
-  as_tibble()
-
-output_season |>  
-  pivot_longer(-t) |> 
-ggplot(aes(t, value)) +
-  geom_line() +
-  facet_wrap(~name, scale = 'free_y') +
-  labs(title="Plague Model Simulation",
-       x="Time (years)",
-       y="Number of Rats") +
-  theme_minimal()
-
-output_season |>
-  select(t, I_r, lambda) |>
-  ggplot(aes(t)) +
-  geom_line(aes(y = lambda), linetype = 2) +
-  geom_line(aes(y = I_r)) + 
-  scale_y_log10(breaks = c(.0000001, .000001, .00001, .0001, .001, .01, .1, 1, 10, 100, 1000), limits = c(0.0000001, 1000)) +
-  scale_x_continuous(breaks = seq(0, 40, 5), limits = c(0, 40)) +
-  theme_bw()
-```
 
 ### Stochastic
 
@@ -238,7 +46,7 @@ get_season <- function(years = 1) {
 ```
 
 ```{r}
-generator <- odin_dust('plague_stochastic.R', debug_enable = TRUE)
+generator <- odin_dust('R/plague_stochastic.R', debug_enable = FALSE)
 ```
 
 ```{r}
@@ -252,20 +60,20 @@ seasonal_kf <- sin(2 * pi * season)
 
 contact_matrix <- make_contact_matrix(sqrt(npop), sqrt(npop))
 mod <- generator$new(pars = list(I_ini = c(10, rep(0, npop - 1)), 
-                                                  S_ini = 1,
-                                                  K_r = 10000 / npop,
-                                                  contact = matrix(0, nrow = 16, ncol = 16),#contact_matrix, # this should cause divide by zero errors!
-                                 K_f = 1,
-                                                  dt = dt,
-                                                  p = 0.6,
+                                 S_ini = 1,
+                                 K_r = 10000 / npop,
+                                 contact = contact_matrix, #matrix(0,nrow = 16, ncol = 16), # this should cause divide by zero errors!
+                                 K_f = 4,
+                                 dt = dt,
+                                 p = 0.6,
                                  season = seasonal_kf,
-                                                 # g_r = 1,
-                                                  npop = npop),
-                                      time = 1L,
-    n_particles = n_particles,
-    n_threads = 4L,
-    seed = 6L
-    )
+                                 # g_r = 1,
+                                 npop = npop),
+                     time = 1L,
+                     n_particles = n_particles,
+                     n_threads = 4L,
+                     seed = 6L
+)
 
 
 state <- mod$simulate(timesteps) |>
@@ -276,10 +84,13 @@ state <- mod$simulate(timesteps) |>
                         time = timesteps * dt)) |>
   cubelyr::as.tbl_cube(met_name = 'value') |>  
   as_tibble()
+```
 
+Plot the time series of infected rats at each location.
+```{r}
 state |> 
   pivot_wider(names_from = compartment) |>
-ggplot(aes(time, ymax = I, group = rep)) +
+  ggplot(aes(time, ymax = I, group = rep)) +
   geom_ribbon(aes(ymin = 0), alpha = 1) +
   facet_wrap(~subpop) +
   labs(
@@ -291,6 +102,7 @@ ggplot(aes(time, ymax = I, group = rep)) +
   theme_bw()
 ```
 
+Plot all model state variables at each location.
 ```{r}
 state |>
 ggplot(aes(time, value, group = rep)) +
@@ -304,7 +116,7 @@ ggplot(aes(time, value, group = rep)) +
   ) +
   theme_bw()
 ```
-
+Plot the aggregate max force of infection in humans (double check plots!)
 ```{r}
 state |>
   pivot_wider(names_from = compartment) |>
@@ -336,6 +148,12 @@ ggplot(aes(time, lambda)) +
   ) +
   scale_y_log10() +
   theme_bw()
+```
+
+
+Don't go past here yet!
+```{r}
+knitr::knit_exit()
 ```
 
 Now with humans

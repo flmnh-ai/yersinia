@@ -236,3 +236,281 @@ format_parameters <- function(params) {
                 unlist(params)),
         collapse = "\n")
 }
+
+# R/spatial_utils.R
+
+#' Create contact matrix for grid-based metapopulation
+#' @param n_rows Number of rows in grid
+#' @param n_cols Number of columns in grid
+#' @return Normalized contact matrix
+make_contact_matrix <- function(n_rows = 5, n_cols = 5) {
+  n <- n_rows * n_cols
+  m <- matrix(0, n, n)
+
+  for(i in 1:n) {
+    # Get row/col position
+    row <- ceiling(i/n_cols)
+    col <- ((i-1) %% n_cols) + 1
+
+    # Add neighbors
+    if(row > 1) m[i, i-n_cols] <- 1  # up
+    if(row < n_rows) m[i, i+n_cols] <- 1  # down
+    if(col > 1) m[i, i-1] <- 1  # left
+    if(col < n_cols) m[i, i+1] <- 1  # right
+  }
+
+  # Normalize rows
+  m <- t(apply(m, 1, function(x) x/sum(x)))
+  return(m)
+}
+
+#' Plot connectivity matrix
+#' @param contact_matrix Contact matrix
+#' @param n_rows Number of rows
+#' @param n_cols Number of columns
+plot_connectivity <- function(contact_matrix, n_rows, n_cols) {
+  positions <- expand.grid(x = 1:n_cols, y = 1:n_rows)
+  n <- nrow(positions)
+
+  # Create edge data
+  edges <- data.frame()
+  for(i in 1:n) {
+    for(j in 1:n) {
+      if(contact_matrix[i,j] > 0) {
+        edges <- rbind(edges, data.frame(
+          x = positions$x[i],
+          y = positions$y[i],
+          xend = positions$x[j],
+          yend = positions$y[j]
+        ))
+      }
+    }
+  }
+
+  ggplot() +
+    geom_segment(data = edges, aes(x = x, y = y, xend = xend, yend = yend),
+                 arrow = arrow(length = unit(0.2, "cm")), alpha = 0.5) +
+    geom_point(data = positions, aes(x, y), size = 3) +
+    scale_x_continuous(breaks = 1:n_cols) +
+    scale_y_continuous(breaks = 1:n_rows) +
+    coord_fixed() +
+    theme_minimal() +
+    labs(title = "Metapopulation Connectivity")
+}
+
+#' Convert population indices to grid coordinates
+#' @param indices Population indices
+#' @param n_cols Number of columns
+#' @return Data frame with row and column positions
+get_grid_positions <- function(indices, n_cols) {
+  data.frame(
+    row = ceiling(indices/n_cols),
+    col = ((indices-1) %% n_cols) + 1
+  )
+}
+
+#' Create animation of spatial spread
+#' @param results Simulation results
+#' @param timepoints Vector of timepoints to plot
+#' @param n_rows Number of rows
+#' @param n_cols Number of columns
+animate_spatial_spread <- function(results, timepoints, n_rows, n_cols) {
+  results %>%
+    filter(time %in% timepoints, compartment == "I") %>%
+    mutate(
+      row = ceiling(subpop/n_cols),
+      col = ((subpop-1) %% n_cols) + 1
+    ) %>%
+    ggplot(aes(col, row, fill = value)) +
+    geom_tile() +
+    scale_fill_viridis_c(option = "inferno") +
+    facet_wrap(~time) +
+    coord_fixed() +
+    labs(
+      title = "Spatial Spread of Infection",
+      x = "Column",
+      y = "Row",
+      fill = "Infected\nRats"
+    ) +
+    theme_minimal()
+}
+
+#' Run stochastic simulation with given parameters
+#' @param params List of parameters
+#' @param timesteps Vector of timesteps
+#' @param n_particles Number of particles (replicates)
+#' @param n_threads Number of threads for parallel processing
+#' @return Data frame with simulation results
+run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1) {
+  # Initialize model
+  plague_model_stochastic <- odin_dust('R/plague_stochastic.R')
+  model <- plague_model_stochastic$new(
+    pars = params,
+    time = 1L,
+    n_particles = n_particles,
+    n_threads = n_threads,
+    seed = sample.int(.Machine$integer.max, 1)
+  )
+
+  # Run simulation
+  state <- model$simulate(timesteps) |>
+    array(
+      dim = c(params$npop, 5, n_particles, length(timesteps)),
+      dimnames = list(
+        subpop = 1:params$npop,
+        compartment = c('S', 'I', 'R', 'N', 'F'),
+        rep = 1:n_particles,
+        time = timesteps * params$dt
+      )
+    ) |>
+    cubelyr::as.tbl_cube(met_name = 'value') |>
+    as_tibble()
+
+  return(state)
+}
+
+# R/plague_utils.R
+
+#' Generate seasonal forcing
+#' @param timesteps Vector of timesteps
+#' @param amplitude Amplitude of seasonal forcing
+#' @return Vector of seasonal multipliers
+get_seasonal_forcing <- function(timesteps, amplitude = 0.2) {
+  sin(2 * pi * ((timesteps * 365) %% 365) / 365) * amplitude
+}
+
+#' Plot total infected over time with uncertainty
+#' @param results Simulation results
+#' @return ggplot object
+plot_total_infected <- function(results) {
+  results %>%
+    filter(compartment == "I") %>%
+    group_by(time, rep) %>%
+    summarize(total = sum(value), .groups = "drop") %>%
+    group_by(time) %>%
+    summarize(
+      median = median(total),
+      lower = quantile(total, 0.025),
+      upper = quantile(total, 0.975)
+    ) %>%
+    ggplot(aes(x = time, y = median)) +
+    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+    geom_line() +
+    scale_y_log10() +
+    labs(
+      x = "Time (years)",
+      y = "Total Infected Population"
+    ) +
+    theme_minimal()
+}
+
+#' Plot dynamics for specific patches
+#' @param results Simulation results
+#' @param patches Vector of patch indices to plot
+#' @param compartments Vector of compartments to plot
+#' @return ggplot object
+plot_patch_dynamics <- function(results, patches, compartments) {
+  results %>%
+    filter(
+      subpop %in% patches,
+      compartment %in% compartments
+    ) %>%
+    group_by(time, subpop, compartment) %>%
+    summarize(
+      median = median(value),
+      lower = quantile(value, 0.025),
+      upper = quantile(value, 0.975),
+      .groups = "drop"
+    ) %>%
+    ggplot(aes(x = time, y = median, color = compartment)) +
+    geom_ribbon(aes(ymin = lower, ymax = upper, fill = compartment), alpha = 0.2) +
+    geom_line() +
+    facet_wrap(~subpop) +
+    labs(
+      x = "Time (years)",
+      y = "Population"
+    ) +
+    theme_minimal()
+}
+
+#' Analyze outbreak characteristics
+#' @param results Simulation results
+#' @return Data frame with outbreak statistics
+analyze_outbreaks <- function(results) {
+  results %>%
+    filter(compartment == "I") %>%
+    group_by(time, rep) %>%
+    summarize(
+      total_infected = sum(value),
+      n_patches = sum(value > 0),
+      .groups = "drop"
+    ) %>%
+    group_by(rep) %>%
+    summarize(
+      peak_infected = max(total_infected),
+      peak_patches = max(n_patches),
+      duration = sum(total_infected > 10) * unique(diff(time)[1]),
+      .groups = "drop"
+    )
+}
+
+#' Plot outbreak size distribution
+#' @param outbreak_stats Output from analyze_outbreaks
+#' @return ggplot object
+plot_outbreak_distribution <- function(outbreak_stats) {
+  ggplot(outbreak_stats, aes(x = peak_infected)) +
+    geom_histogram(bins = 30) +
+    scale_x_log10() +
+    labs(
+      x = "Peak Number of Infected",
+      y = "Frequency",
+      title = "Distribution of Outbreak Sizes"
+    ) +
+    theme_minimal()
+}
+
+#' Run sensitivity analysis
+#' @param base_params Base parameter list
+#' @param param_ranges List of parameter ranges
+#' @param timesteps Simulation timesteps
+#' @param n_particles Number of particles per parameter set
+#' @return Data frame with sensitivity analysis results
+run_sensitivity_analysis <- function(base_params, param_ranges, timesteps, n_particles) {
+  # Generate parameter combinations
+  param_grid <- expand.grid(param_ranges)
+
+  # Run simulations for each parameter set
+  map_dfr(1:nrow(param_grid), function(i) {
+    params <- base_params
+    for(p in names(param_ranges)) {
+      params[[p]] <- param_grid[i, p]
+    }
+
+    results <- run_stochastic_simulation(params, timesteps, n_particles)
+    results$param_set <- i
+
+    results
+  })
+}
+
+#' Calculate intervention effects
+#' @param scenario_results Results from multiple scenarios
+#' @return Data frame with intervention statistics
+calculate_intervention_effects <- function(scenario_results) {
+  scenario_results %>%
+    filter(compartment == "I") %>%
+    group_by(scenario, rep) %>%
+    summarize(
+      peak_infected = max(sum(value)),
+      outbreak_duration = sum(sum(value) > 10) * unique(diff(time)[1]),
+      .groups = "drop"
+    ) %>%
+    group_by(scenario) %>%
+    summarize(
+      mean_peak = mean(peak_infected),
+      mean_duration = mean(outbreak_duration),
+      peak_reduction = 1 - mean_peak/first(mean_peak),
+      duration_reduction = 1 - mean_duration/first(mean_duration),
+      .groups = "drop"
+    )
+}
