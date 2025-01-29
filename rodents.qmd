@@ -1,0 +1,128 @@
+---
+title: "Rodent Dynamics"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+generate_model <- odin.dust::odin_dust({
+  # Time specifications 
+  dt <- user(1/12)  # Time step (default: 1/12 year = 1 month)
+  
+  # Core state variables
+  initial(J) <- J_init  # Juveniles
+  initial(A) <- A_init  # Adults
+  
+  # Food supply (will be coupled to external model)
+  F <- user(100)  # Current food supply (arbitrary units)
+  
+  # User-specified parameters
+  J_init <- user(100)  # Initial juvenile population
+  A_init <- user(50)   # Initial adult population
+  
+  # Base vital rates (annual rates)
+  r_max <- user(24.0)  # Maximum annual per capita reproduction rate
+  s_j_max <- user(0.1) # Maximum annual juvenile survival probability
+  s_a_max <- user(0.14)# Maximum annual adult survival probability
+  mat_time <- user(1/6)# Time to maturity in years (2 months)
+  
+  # Food dependency parameters
+  h_s <- user(0.7)     # Half-saturation constant for survival (relative to 1 rat-year)
+  h_r <- user(1.2)     # Half-saturation constant for reproduction (relative to 1 rat-year)
+  b_s <- user(2)       # Hill coefficient for survival response
+  b_r <- user(3)       # Hill coefficient for reproduction response
+  
+  # Per capita food availability
+  f_pc <- F/(J + A)
+  
+  # Food-dependent vital rates (using Hill functions)
+  s_j_annual <- s_j_max * (f_pc^b_s)/(h_s^b_s + f_pc^b_s)
+  s_a_annual <- s_a_max * (f_pc^b_s)/(h_s^b_s + f_pc^b_s)
+  r_fd_annual <- r_max * (f_pc^b_r)/(h_r^b_r + f_pc^b_r)
+  
+  # Convert annual rates to rates per timestep
+  s_j <- exp(log(s_j_annual) * dt)
+  s_a <- exp(log(s_a_annual) * dt)
+  r_fd <- r_fd_annual * dt
+  
+  # State equations
+  update(J) <- (
+    # Surviving juveniles that don't mature
+    rbinom(J, s_j * (1 - dt/mat_time)) +
+    # New births (food-dependent reproduction)
+    rpois(A * r_fd)
+  )
+  
+  update(A) <- (
+    # Surviving adults
+    rbinom(A, s_a) +
+    # Maturing juveniles
+    rbinom(J, s_j * dt/mat_time)
+  )
+})
+```
+
+```{r}
+n_particles = 10
+mod <- generate_model$new(
+  pars = list(),
+  n_particles = n_particles,
+  time = 1L,
+  seed = 6L
+)
+years <- 12 * 10
+
+state <- mod$simulate(1:years) |> 
+  array(dim = c(2, n_particles, years), 
+        dimnames = list(var = c('juvenile', 'adult'),  # might not be exactly correct
+                        rep = 1:n_particles, 
+                        time = 1:years)) |>
+  cubelyr::as.tbl_cube(met_name = 'value') |>  
+  as_tibble()
+
+state |> 
+  filter(var != 'time')|>
+ggplot(aes(time / 12, value, color = var, group = interaction(rep, var))) +
+  geom_line(alpha = .8) +
+  labs(
+    title = "Stochastic Population Simulation",
+    x = "Time (years)",
+    y = "Population density (persons/ha)"
+  ) +
+  theme_bw()
+```
+
+```{r}
+  # Food dependency parameters
+  h_s <- user(50)      # Half-saturation constant for survival
+  h_r <- user(75)      # Half-saturation constant for reproduction
+  b_s <- user(2)       # Hill coefficient for survival response
+  b_r <- user(3)       # Hill coefficient for reproduction response
+  
+  # Per capita food availability
+  f_pc <- F/(J + A)
+  
+  # Food-dependent vital rates (using Hill functions)
+  tibble(f_pc = seq(0, 100, .01),
+         s_j_annual = 0.1 * (f_pc^2)/(50^2 + f_pc^2)) |>
+    plot()
+  s_a_annual <- s_a_max * (f_pc^b_s)/(h_s^b_s + f_pc^b_s)
+  r_fd_annual <- r_max * (f_pc^b_r)/(h_r^b_r + f_pc^b_r)
+  
+  
+  plot()
+```

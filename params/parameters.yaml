@@ -1,0 +1,50 @@
+# params/default_params.yml
+---
+# Core rat population parameters
+K_r: 2500    # Rat carrying capacity
+r_r: 5.0     # Rat population growth rate
+p: 0.975     # Probability of inherited resistance
+d_r: 0.2     # Natural death rate of rats
+
+# Disease transmission parameters
+beta_r: 4.7   # Rat infection rate from fleas
+a: 0.004      # Flea search efficiency
+m_r: 20.0     # Infected rat mortality rate
+g_r: 0.02     # Probability rat survives infection
+
+# Flea population parameters
+r_f: 20.0     # Flea reproduction rate
+K_f: 6.57     # Flea carrying capacity per rat
+d_f: 10.0     # Death rate of free fleas
+
+---
+# params/keeling_gilligan_params.yml
+---
+# Parameters from Keeling & Gilligan paper
+K_r: 2500
+r_r: 5.0
+p: 0.975
+d_r: 0.2
+beta_r: 4.7
+a: 0.004
+m_r: 20.0
+g_r: 0.02
+r_f: 20.0
+K_f: 6.57
+d_f: 10.0
+
+---
+# params/modern_estimate_params.yml
+---
+# Parameters estimated from modern data
+K_r: 3000     # Higher urban rat populations
+r_r: 4.5
+p: 0.96
+d_r: 0.25
+beta_r: 5.0
+a: 0.005
+m_r: 18.0
+g_r: 0.03
+r_f: 22.0
+K_f: 7.0
+d_f: 12.0

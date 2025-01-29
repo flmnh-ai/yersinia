@@ -5,9 +5,15 @@ update(R[]) <- R[i] + n_recovered[i] + n_resistant_births[i] - n_deaths_R[i]- n_
 update(F[]) <- F[i] + n_new_free_fleas[i] - n_flea_deaths[i] - n_fleas_to_rats[i] - n_emigrate_F[i] + n_immigrate_F[i]
 update(N[]) <- N[i] + flea_growth_rate[i] + n_fleas_to_rats[i] / T_r[i]
 
+print("susceptibles {S[1]}", when = S[1] < 0)
+print("infected {I[1]}", when = I[1] < 0)
+print("recovered {R[1]}", when = R[1] < 0)
+print("fleas {F[1]}", when = F[1] < 0)
+
 ### Rats
 ## Intermediate calculations
 T_r[] <- S[i] + I[i] + R[i] # total rat population
+print("total rats {T_r[1]}", when = T_r[1] <= 0)
 rat_birth_rate[] <- r_r * (1 - T_r[i] / K_r) # per capita
 rat_birth_rate_clipped[] <- if(rat_birth_rate[i] > 0) rat_birth_rate[i] else 0
 
