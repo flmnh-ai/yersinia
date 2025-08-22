@@ -42,6 +42,6 @@ mu_f: 0.008  # Flea movement rate (per year)
 
 # Notes
 notes: |
-  These are the original parameters from the seminal Keeling & Gilligan (2000) 
+  These are the original parameters from the seminal Keeling & Gilligan (2000)
   Nature paper that established the mathematical framework for plague modeling.
   The paper focused on metapopulation dynamics and spatial spread patterns.

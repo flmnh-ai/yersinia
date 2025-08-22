@@ -1,13 +1,41 @@
 Package: yersinia
-Title: What the Package Does (One Line, Title Case)
-Version: 0.0.0.9000
+Title: Plague Transmission Models for Epidemiological Research
+Version: 0.1.0
 Authors@R: 
-    person("Nick", "Gauthier", , "nicolas.gauthier@ufl.edu", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
+    person("Nick", "Gauthier", , "nicolas.gauthier@ufl.edu", role = c("aut", "cre"),
+           comment = c(ORCID = "YOUR-ORCID-ID"))
+Description: A comprehensive toolkit for plague transmission modeling using 
+    deterministic and stochastic differential equation models. Provides 
+    implementations of rat-flea-human plague dynamics with spatial structure,
+    seasonal forcing, and parameter management for epidemiological research.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
+URL: https://github.com/flmnh-ai/yersinia
+BugReports: https://github.com/flmnh-ai/yersinia/issues
+Depends: 
+    R (>= 4.1.0)
+Imports:
+    odin (>= 1.4.2),
+    odin.dust (>= 0.3.3),
+    dust (>= 0.12.0),
+    dplyr (>= 1.0.0),
+    tidyr (>= 1.0.0),
+    tibble (>= 3.0.0),
+    yaml (>= 2.2.0),
+    rlang (>= 1.0.0),
+    purrr (>= 1.0.0),
+    cubelyr
 Suggests: 
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    ggplot2 (>= 3.3.0),
+    knitr,
+    rmarkdown
 Config/testthat/edition: 3
+SystemRequirements: C++17
+LinkingTo: 
+    cpp11 (>= 0.4.2),
+    dust (>= 0.12.0)
+VignetteBuilder: knitr
+LazyData: true

@@ -53,7 +53,13 @@ load_named_parameters <- function(name) {
   }
   
   # Try to load from YAML file first
-  yaml_file <- file.path("inst", "parameters", paste0(name, ".yaml"))
+  # Use system.file for installed packages, fallback to inst/ for development
+  yaml_file <- system.file("parameters", paste0(name, ".yaml"), package = "yersinia")
+  
+  if (yaml_file == "" || !file.exists(yaml_file)) {
+    # Fallback for development mode
+    yaml_file <- file.path("inst", "parameters", paste0(name, ".yaml"))
+  }
   
   if (file.exists(yaml_file)) {
     if (!requireNamespace("yaml", quietly = TRUE)) {
@@ -211,10 +217,10 @@ print.plague_results <- function(x, ...) {
   cat("Parameter set:", attr(attr(x, "params"), "param_set"), "\n")
   
   # Summary statistics
-  n_time <- length(unique(x$time))
-  n_reps <- length(unique(x$replicate))
-  n_pops <- length(unique(x$population))
-  compartments <- unique(x$compartment)
+  n_time <- length(unique(as.vector(x$time)))
+  n_reps <- length(unique(as.vector(x$replicate)))
+  n_pops <- length(unique(as.vector(x$population)))
+  compartments <- unique(as.vector(x$compartment))
   
   cat("Time points:", n_time, "\n")
   cat("Replicates:", n_reps, "\n")
@@ -410,7 +416,12 @@ run_plague_model <- function(model = "deterministic",
   if (spatial) {
     sim_params$npop <- npop
     sim_params$contact <- contact_matrix
-    sim_params$I_ini <- c(10, rep(0, npop - 1))  # Start infection in patch 1
+    # Handle I_ini for spatial models (needs to be a vector)
+    if ("I_ini" %in% names(sim_params) && length(sim_params$I_ini) == 1) {
+      sim_params$I_ini <- c(sim_params$I_ini, rep(0, npop - 1))  # Start infection in patch 1
+    } else if (!"I_ini" %in% names(sim_params)) {
+      sim_params$I_ini <- c(10, rep(0, npop - 1))  # Default for spatial
+    }
     sim_params$S_ini <- 1
     sim_params$K_r <- sim_params$K_r / npop  # Distribute carrying capacity
   }
@@ -421,8 +432,12 @@ run_plague_model <- function(model = "deterministic",
     sim_params$dt <- dt
     timesteps <- 1:(dt^-1 * max(times))
     
+    # Always provide season parameter for stochastic models (even if flat)
     if (seasonal) {
       sim_params$season <- get_seasonal_forcing(timesteps)
+    } else {
+      # Provide flat seasonal forcing (no variation)
+      sim_params$season <- rep(0, length(timesteps))
     }
   }
   
@@ -465,51 +480,54 @@ run_plague_model <- function(model = "deterministic",
 #' @param seasonal Include seasonal forcing
 #' @return Tidy tibble with results
 run_deterministic_model <- function(params, times, include_humans, seasonal) {
-  # Load model generators (will be cached after first call)
-  if (!exists(".plague_det_models", envir = .GlobalEnv)) {
-    source("R/models_deterministic.R")
-    .GlobalEnv$.plague_det_models <- list(
-      base = create_deterministic_model(),
-      seasonal = create_seasonal_deterministic_model(),
-      human = create_deterministic_human_model()
-    )
-  }
+  # Define parameter filters for each model type
+  base_params <- c("K_r", "r_r", "p", "d_r", "beta_r", "a", "m_r", "g_r", 
+                   "r_f", "K_f", "d_f", "I_ini")
+  seasonal_params <- c(base_params, "seasonal_amplitude", "day", "season")
+  human_params <- c(base_params, "K_h", "r_h", "d_h", "beta_h", "m_h", "g_h")
   
-  # Select appropriate model
+  # Select appropriate model and filter parameters
   if (include_humans) {
-    model_gen <- .GlobalEnv$.plague_det_models$human
+    model_gen <- create_deterministic_human_model()
+    # Filter to only include parameters the human model uses
+    filtered_params <- params[intersect(names(params), human_params)]
     expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "S_h", "I_h", "R_h", "lambda_h")
   } else if (seasonal) {
-    model_gen <- .GlobalEnv$.plague_det_models$seasonal
+    model_gen <- create_seasonal_deterministic_model()
     
     # Prepare seasonal forcing data
     day_seq <- seq(0, 365, by = 1)
     season_seq <- sin(2 * pi * day_seq / 365)
-    params$day <- day_seq
-    params$season <- season_seq
+    filtered_params <- params[intersect(names(params), base_params)]
+    filtered_params$day <- day_seq
+    filtered_params$season <- season_seq
+    filtered_params$seasonal_amplitude <- if ("seasonal_amplitude" %in% names(params)) params$seasonal_amplitude else 0.2
     
     expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda")
   } else {
-    model_gen <- .GlobalEnv$.plague_det_models$base
+    model_gen <- create_deterministic_model()
+    # Filter to only include parameters the base model uses
+    filtered_params <- params[intersect(names(params), base_params)]
     expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda")
   }
   
-  # Create model instance with parameters
-  model <- model_gen$new(user = params)
+  # Create model instance with filtered parameters
+  # Use the proper R6 generator method to avoid deprecation warnings
+  model <- model_gen$new(user = filtered_params)
   
   # Run simulation
   output <- model$run(times)
   
   # Convert to tidy format
-  results <- as_tibble(output) |>
-    pivot_longer(-t, names_to = "compartment", values_to = "value") |>
-    rename(time = t) |>
-    filter(compartment %in% expected_vars) |>
-    mutate(
+  results <- tibble::as_tibble(output) |>
+    tidyr::pivot_longer(-t, names_to = "compartment", values_to = "value") |>
+    dplyr::rename(time = t) |>
+    dplyr::filter(compartment %in% expected_vars) |>
+    dplyr::mutate(
       population = 1L,     # Single population for deterministic models
       replicate = 1L       # Single replicate for deterministic models  
     ) |>
-    select(time, compartment, population, replicate, value)
+    dplyr::select(time, compartment, population, replicate, value)
   
   return(results)
 }
@@ -526,13 +544,13 @@ run_spatial_stochastic_model <- function(params, timesteps, n_particles, n_threa
   
   # Convert to standard format
   results |>
-    rename(population = subpop) |>
-    mutate(
+    dplyr::rename(population = subpop) |>
+    dplyr::mutate(
       time = time,
       population = as.integer(population),
       replicate = as.integer(rep)
     ) |>
-    select(time, compartment, population, replicate, value)
+    dplyr::select(time, compartment, population, replicate, value)
 }
 
 #' Run human stochastic model
@@ -543,7 +561,12 @@ run_spatial_stochastic_model <- function(params, timesteps, n_particles, n_threa
 #' @return Tidy tibble with results
 run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
   # Initialize model using plague_stochastic_humans.R
-  plague_model_humans <- odin_dust('R/plague_stochastic_humans.R')
+  model_path <- system.file("odin", "plague_stochastic_humans.R", package = "yersinia")
+  if (model_path == "") {
+    # Fallback for development mode
+    model_path <- file.path("inst", "odin", "plague_stochastic_humans.R")
+  }
+  plague_model_humans <- odin.dust::odin_dust(model_path)
   model <- plague_model_humans$new(
     pars = params,
     time = 1L,
@@ -563,15 +586,15 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
       )
     ) |>
     cubelyr::as.tbl_cube(met_name = 'value') |>
-    as_tibble()
+    tibble::as_tibble()
   
   # Convert to standard format
   state |>
-    mutate(
+    dplyr::mutate(
       population = 1L,  # Single population
       replicate = as.integer(rep)
     ) |>
-    select(time, compartment, population, replicate, value)
+    dplyr::select(time, compartment, population, replicate, value)
 }
 
 #' Create simulation timepoints
@@ -603,7 +626,7 @@ run_plague_simulation <- function(params, times = NULL,
   }
 
   output <- model$run(times) |>
-    as_tibble()
+    tibble::as_tibble()
 
   return(output)
 }
@@ -662,7 +685,7 @@ plot_plague_simulation <- function(output, log_scale = FALSE,
 run_sensitivity_analysis <- function(base_params, param_name,
                                      range = seq(0.5, 1.5, by = 0.1),
                                      seasonal = FALSE) {
-  results <- map_dfr(range, function(mult) {
+  results <- purrr::map_dfr(range, function(mult) {
     params <- base_params
     params[[param_name]] <- params[[param_name]] * mult
 
@@ -865,7 +888,12 @@ animate_spatial_spread <- function(results, timepoints, n_rows, n_cols) {
 #' @return Data frame with simulation results
 run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1) {
   # Initialize model
-  plague_model_stochastic <- odin_dust('R/plague_stochastic.R')
+  model_path <- system.file("odin", "plague_stochastic.R", package = "yersinia")
+  if (model_path == "") {
+    # Fallback for development mode
+    model_path <- file.path("inst", "odin", "plague_stochastic.R")
+  }
+  plague_model_stochastic <- odin.dust::odin_dust(model_path)
   model <- plague_model_stochastic$new(
     pars = params,
     time = 1L,
@@ -886,7 +914,7 @@ run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_thre
       )
     ) |>
     cubelyr::as.tbl_cube(met_name = 'value') |>
-    as_tibble()
+    tibble::as_tibble()
 
   return(state)
 }
@@ -1000,7 +1028,7 @@ plot_outbreak_distribution <- function(outbreak_stats) {
 run_sensitivity_analysis <- function(base_params, param_name,
                                      range = seq(0.5, 1.5, by = 0.1),
                                      seasonal = FALSE) {
-  results <- map_dfr(range, function(mult) {
+  results <- purrr::map_dfr(range, function(mult) {
     params <- base_params
     params[[param_name]] <- params[[param_name]] * mult
 

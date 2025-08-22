@@ -13,7 +13,7 @@ r_r: 5.0     # Rat population growth rate (per year)
 p: 0.975     # Probability of inherited resistance
 d_r: 0.2     # Natural death rate of rats (per year)
 
-# Disease transmission parameters  
+# Disease transmission parameters
 beta_r: 4.7  # Rat infection rate from fleas (per year)
 a: 0.004     # Flea search efficiency
 m_r: 20.0    # Infected rat mortality rate (per year)

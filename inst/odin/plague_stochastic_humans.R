@@ -108,7 +108,7 @@ dt <- user(1/365)    # time step
 I_ini <- user(10)    # initial infected rats
 S_ini <- user(1)     # proportion initial susceptible rats
 K_r <- user(2500)    # Rat carrying capacity
-K_h <- 2 * K_r    # Human carrying capacity
+K_h <- user(5000)    # Human carrying capacity
 r_r <- user(5)       # Rat population growth rate
 r_h <- user(0.045)   # Human population growth rate
 p <- user(0.975)     # Probability of inherited resistance

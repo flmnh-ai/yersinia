@@ -47,13 +47,13 @@ seasonal_amplitude: 0.4  # Strong seasonal effects (Little Ice Age)
 notes: |
   These parameters attempt to capture conditions during the major
   historical plague pandemics, particularly:
-  
+
   - The Black Death (1347-1351)
   - The Second Pandemic (14th-19th centuries)
   - Pre-antibiotic medicine
   - Medieval urban conditions
   - Little Ice Age climate
-  
+
   Key historical factors:
   - No medical interventions
   - Poor sanitation and hygiene
@@ -61,7 +61,7 @@ notes: |
   - Slower transportation networks
   - Smaller, denser urban centers
   - Climate cooling (Little Ice Age)
-  
+
   These parameters are estimated from:
   - Historical mortality records
   - Archaeological evidence

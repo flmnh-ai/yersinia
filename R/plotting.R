@@ -48,7 +48,7 @@ plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"),
       x = x_var,
       y = y_var
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
   
   return(p)
 }
@@ -106,7 +106,7 @@ plot_spatial_heatmap <- function(results, time_point, compartment = "I",
       x = "Column",
       y = "Row"
     ) +
-    theme_minimal() +
+    ggplot2::theme_minimal() +
     theme(
       panel.grid = element_blank(),
       axis.ticks = element_blank()
@@ -175,7 +175,7 @@ animate_spatial_spread <- function(results, compartment = "I", replicate = 1,
       x = "Column", 
       y = "Row"
     ) +
-    theme_minimal() +
+    ggplot2::theme_minimal() +
     theme(
       panel.grid = element_blank(),
       axis.ticks = element_blank()
@@ -317,7 +317,7 @@ plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = 
       y = paste(str_to_title(metric), compartment),
       caption = "Relative to baseline parameter value"
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
   
   return(p)
 }
@@ -334,24 +334,28 @@ plot_comparison <- function(results_list, compartment = "I", population = 1) {
   }
   
   # Combine results
-  combined_data <- map_dfr(names(results_list), function(name) {
+  combined_data <- purrr::map_dfr(names(results_list), function(name) {
     results_list[[name]] |>
-      filter(compartment == !!compartment, population == !!population) |>
-      mutate(scenario = name)
+      dplyr::filter(compartment == !!compartment, population == !!population) |>
+      dplyr::mutate(
+        time = as.numeric(time),      # Convert deSolve to numeric
+        value = as.numeric(value),    # Convert deSolve to numeric
+        scenario = name
+      )
   })
   
   # Plot comparison
   p <- combined_data |>
-    ggplot(aes(time, value, color = scenario)) +
-    geom_line(size = 1) +
-    labs(
+    ggplot2::ggplot(ggplot2::aes(time, value, color = scenario)) +
+    ggplot2::geom_line(linewidth = 1) +
+    ggplot2::labs(
       title = paste("Model Comparison:", compartment),
       subtitle = paste("Population", population),
       x = "Time (years)",
       y = "Population",
       color = "Scenario"
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
   
   return(p)
 }

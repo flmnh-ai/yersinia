@@ -418,7 +418,7 @@ ggplot(scenarios_r0, aes(x = reorder(Scenario, R0), y = R0)) +
 
 # Summary
 
-The `plagueR` package provides a comprehensive toolkit for plague transmission modeling that includes:
+The `yersinia` package provides a comprehensive toolkit for plague transmission modeling that includes:
 
 - **Flexible model types** from simple deterministic models to complex spatial-stochastic systems
 - **Evidence-based parameters** from historical and contemporary sources
@@ -429,7 +429,7 @@ The package is designed to support both research applications and practical publ
 
 ## Getting Help
 
-- **Package documentation**: Use `help(package = "plagueR")` for function references
+- **Package documentation**: Use `help(package = "yersinia")` for function references
 - **Model details**: See individual function documentation (e.g., `?run_plague_model`)
 - **Parameter information**: Use `print()` on parameter objects to see sources and metadata
 
