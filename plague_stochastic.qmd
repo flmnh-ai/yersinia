@@ -10,8 +10,6 @@ library(tidyverse)
 library(odin.dust)
 ```
 
-
-
 ### Stochastic
 
 ```{r}
@@ -87,6 +85,7 @@ state <- mod$simulate(timesteps) |>
 ```
 
 Plot the time series of infected rats at each location.
+
 ```{r}
 state |> 
   pivot_wider(names_from = compartment) |>
@@ -103,6 +102,7 @@ state |>
 ```
 
 Plot all model state variables at each location.
+
 ```{r}
 state |>
 ggplot(aes(time, value, group = rep)) +
@@ -116,7 +116,9 @@ ggplot(aes(time, value, group = rep)) +
   ) +
   theme_bw()
 ```
+
 Plot the aggregate max force of infection in humans (double check plots!)
+
 ```{r}
 state |>
   pivot_wider(names_from = compartment) |>
@@ -150,8 +152,8 @@ ggplot(aes(time, lambda)) +
   theme_bw()
 ```
 
-
 Don't go past here yet!
+
 ```{r}
 knitr::knit_exit()
 ```
@@ -238,5 +240,3 @@ state |>
 filter(time < 1) |>
   ggplot(aes(time, Tr)) + geom_line()
 ```
-
-

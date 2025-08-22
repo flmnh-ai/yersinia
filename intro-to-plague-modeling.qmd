@@ -1,6 +1,6 @@
 ---
 title: "Bubonic Plague: A Mathematical Modeling Approach"
-author: "Your Name"
+author: "Nick Gauthier"
 date: "`r Sys.Date()`"
 output: 
   html_document:
@@ -10,6 +10,9 @@ output:
     highlight: tango
     code_folding: show
 runtime: shiny
+editor: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r setup, include=FALSE}
@@ -23,35 +26,45 @@ library(miniUI)
 library(yaml)
 
 # Source utility functions and gadget
-#source("R/plague_utils.R")
-#source("R/plague_gadget.R")
+source("R/plague_utils.R")
+source("R/plague_gadget.R")
 ```
 
 ## Introduction
 
 ### Historical Context
 
-Bubonic plague, caused by the bacterium *Yersinia pestis*, has been one of history's most devastating diseases. The "Black Death" of the 14th century killed an estimated 30-60% of Europe's population. The disease persists today, with modern outbreaks providing crucial data for understanding its transmission dynamics.
+Bubonic plague, caused by the bacterium *Yersinia pestis*, has been one
+of history's most devastating diseases. The "Black Death" of the 14th
+century killed an estimated 30-60% of Europe's population. The disease
+persists today, with modern outbreaks providing crucial data for
+understanding its transmission dynamics.
 
 ### The Role of Mathematical Modeling
 
-Mathematical models help us understand disease transmission mechanisms and predict outbreak patterns. For plague, these models are particularly interesting because they must capture the complex interactions between three populations:
-1. Rats (the primary host)
-2. Fleas (the vector)
-3. Humans (the incidental host)
+Mathematical models help us understand disease transmission mechanisms
+and predict outbreak patterns. For plague, these models are particularly
+interesting because they must capture the complex interactions between
+three populations:
 
-This notebook explores a mathematical model based on the work of Keeling & Gilligan, focusing on the rat-flea transmission cycle.
+1.  Rats (the primary host)
+2.  Fleas (the vector)
+3.  Humans (the incidental host)
+
+This notebook explores a mathematical model based on the work of Keeling
+& Gilligan, focusing on the rat-flea transmission cycle.
 
 ## Model Structure
 
 ### Basic Components
 
 The model tracks five main variables:
-- $S_R$: Susceptible rats
-- $I_R$: Infected rats
-- $R_R$: Resistant rats
-- $N$: Average number of fleas per rat (flea index)
-- $F$: Free infectious fleas
+
+-    $S_R$: Susceptible rats
+-    $I_R$: Infected rats
+-    $R_R$: Resistant rats
+-    $N$: Average number of fleas per rat (flea index)
+-    $F$: Free infectious fleas
 
 ### Core Equations
 
@@ -77,15 +90,17 @@ $$
 
 Each term represents a specific biological process:
 
-- Rat population dynamics follow a logistic growth model
-- Fleas multiply on rats and transfer between hosts
-- Disease transmission occurs through flea bites
-- Rats can recover and develop immunity
+-   Rat population dynamics follow a logistic growth model
+-   Fleas multiply on rats and transfer between hosts
+-   Disease transmission occurs through flea bites
+-   Rats can recover and develop immunity
 
 ## Model Implementation
 
 ### Base Model Definition
+
 ```{r define-base-model}
+#| message: false
 # Define the base plague model
 plague_model <- odin::odin({
   ## State variables initial conditions
@@ -201,6 +216,7 @@ calculate_R0 <- function(params) {
 ```
 
 ### Seasonal Model Definition
+
 ```{r define-seasonal-model}
 # Define the seasonal plague model
 plague_model_seasonal <- odin::odin({
@@ -271,19 +287,24 @@ model_seasonal <- plague_model_seasonal$new(
 )
 ```
 
-These model definitions implement the differential equations described earlier. Note:
+These model definitions implement the differential equations described
+earlier. Note:
 
-1. The base model assumes constant parameters throughout the year
-2. The seasonal model adds time-varying flea carrying capacity
-3. Both models share the same core structure but differ in their flea population dynamics
-4. Model parameters are set as user-defined to allow easy modification
-5. Initial conditions start with one infected rat and no resistant rats
+1.  The base model assumes constant parameters throughout the year
+2.  The seasonal model adds time-varying flea carrying capacity
+3.  Both models share the same core structure but differ in their flea
+    population dynamics
+4.  Model parameters are set as user-defined to allow easy modification
+5.  Initial conditions start with one infected rat and no resistant rats
 
-The models are tested for compilation after definition to ensure they're working correctly. These model definitions are then used by our utility functions for simulation and analysis.
+The models are tested for compilation after definition to ensure they're
+working correctly. These model definitions are then used by our utility
+functions for simulation and analysis.
 
 ## Interactive Model Explorer
 
-Use this interactive tool to explore how different parameters affect the model dynamics:
+Use this interactive tool to explore how different parameters affect the
+model dynamics:
 
 ```{r explorer, echo=FALSE}
 # Create the UI elements directly in the notebook
@@ -403,9 +424,12 @@ observeEvent(input$run_sim, {
 
 ### Basic Reproduction Number
 
-The basic reproduction number ($R_0$) is a key epidemiological parameter that determines whether an outbreak will occur. For this model:
+The basic reproduction number ($R_0$) is a key epidemiological parameter
+that determines whether an outbreak will occur. For this model:
 
-$$R_0 = \frac{\beta_R K_R (1 - e^{-aK_R})}{d_R + m_R}$$
+$$
+R_0 = \frac{\beta_R K_R (1 - e^{-aK_R})}{d_R + m_R}
+$$
 
 ```{r r0-analysis}
 # Load default parameters
@@ -424,7 +448,7 @@ if (R0 > 1) {
 ```
 
 ```{r}
-knitr::knit_exit()
+#knitr::knit_exit()
 ```
 
 ### Sensitivity Analysis
@@ -446,7 +470,8 @@ plot_sensitivity(sensitivity_results, "I_r") +
 
 ## Seasonal Effects
 
-Many rodent populations show seasonal variation. We can incorporate this by making the flea carrying capacity seasonal:
+Many rodent populations show seasonal variation. We can incorporate this
+by making the flea carrying capacity seasonal:
 
 ```{r seasonal}
 # Run seasonal simulation
@@ -466,31 +491,36 @@ plot_plague_simulation(seasonal_output) +
 ### Model Limitations
 
 This model makes several simplifying assumptions:
-1. Homogeneous mixing of populations
-2. Deterministic dynamics
-3. No spatial structure
-4. No human intervention
+
+1.  Homogeneous mixing of populations
+2.  Deterministic dynamics
+3.  No spatial structure
+4.  No human intervention
 
 ### Applications
 
 Despite its limitations, the model provides insights into:
-- Conditions necessary for plague persistence
-- Effect of interventions (e.g., rat control)
-- Role of seasonal variations
-- Importance of flea dynamics
+
+-   Conditions necessary for plague persistence
+-   Effect of interventions (e.g., rat control)
+-    Role of seasonal variations
+-    Importance of flea dynamics
 
 ## References
 
-1. Keeling, M. J., & Gilligan, C. A. (2000). Metapopulation dynamics of bubonic plague.
-2. Bacaër, N. (2011). A Short History of Mathematical Population Dynamics.
-3. World Health Organization. Plague Fact Sheet.
+1.  Keeling, M. J., & Gilligan, C. A. (2000). Metapopulation dynamics of
+    bubonic plague.
+2.  Bacaër, N. (2011). A Short History of Mathematical Population
+    Dynamics.
+3.  World Health Organization. Plague Fact Sheet.
 
 ## Appendix: Code Details
 
 The complete implementation includes:
-- Parameter management system
-- Simulation engine
-- Visualization tools
-- Analysis utilities
+
+-   Parameter management system
+-   Simulation engine
+-   Visualization tools
+-   Analysis utilities
 
 See the source code in the R/ directory for details.

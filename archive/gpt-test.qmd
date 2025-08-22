@@ -1,0 +1,164 @@
+---
+title: "GPT Test"
+format: html
+editor: visual
+---
+
+## 
+
+```{r}
+# Define the odin.dust model
+# Install and load the odin.dust package if not already installed
+# install.packages("odin.dust")
+library(odin.dust)
+
+# Define the odin.dust model
+plague_model <- odin.dust::odin_dust({
+  # Time step for the model (e.g., 1 day)
+  dt <- user(1)
+
+  # Initial states
+  initial(S_r) <- S_r_ini
+  initial(I_r) <- I_r_ini
+  initial(R_r) <- R_r_ini
+  initial(H)   <- H_ini
+  initial(F)   <- F_ini
+
+  # Total rat population
+  N_r <- S_r + I_r + R_r
+
+  # Force of infection (probability per susceptible rat per time step)
+  p_infection <- 1 - exp(-beta_r * F / N_r * (1 - exp(-alpha * N_r)) * dt)
+
+  # Rat births (number of births per time step)
+  rat_births_mean <- r_r * N_r * (1 - N_r / K_r) * dt
+  rat_births <- rpois(1, max(rat_births_mean, 0))
+
+  # Fraction of births that are susceptible or recovered
+  frac_S <- (S_r + (1 - p) * R_r) / N_r
+  frac_R <- (p * R_r) / N_r
+  births_S <- rbinom(1, rat_births, frac_S)
+  births_R <- rat_births - births_S  # Remaining births go to R_r
+
+  # Rat deaths
+  deaths_S <- rbinom(1, S_r, d_r * dt)
+  deaths_I_natural <- rbinom(1, I_r, d_r * dt)
+  deaths_R <- rbinom(1, R_r, d_r * dt)
+
+  # Disease progression in rats
+  infections <- rbinom(1, S_r - deaths_S, p_infection)
+  recoveries <- rbinom(1, I_r - deaths_I_natural, g_r)
+  deaths_I_disease <- (I_r - deaths_I_natural - recoveries)
+
+  # Update rat compartments
+  update(S_r) <- S_r + births_S - infections - deaths_S
+  update(I_r) <- I_r + infections - recoveries - deaths_I_natural - deaths_I_disease
+  update(R_r) <- R_r + births_R + recoveries - deaths_R
+
+  # Ensure compartments are non-negative
+  S_r <- max(S_r, 0)
+  I_r <- max(I_r, 0)
+  R_r <- max(R_r, 0)
+
+  # Update total rat population
+  N_r <- S_r + I_r + R_r
+
+  # Flea dynamics
+  # Flea births
+  flea_births_mean <- r_f * H * (1 - H / (K_f * N_r)) * dt
+  flea_births <- rpois(1, max(flea_births_mean, 0))
+
+  # Flea deaths
+  deaths_H <- rbinom(1, H, d_f * dt)
+  deaths_F <- rbinom(1, F, d_f * dt)
+
+  # New infected fleas from dead infected rats
+  new_F_mean <- (d_r * dt + (1 - g_r)) * (I_r - deaths_I_natural - recoveries) * H / N_r
+  new_F <- rpois(1, max(new_F_mean, 0))
+
+  # Fleas infecting rats (number of fleas moving from F to H)
+  fleas_to_rats <- rbinom(1, F - deaths_F, p_infection)
+
+  # Update flea compartments
+  update(H) <- H + flea_births - deaths_H
+  update(F) <- F + new_F - deaths_F - fleas_to_rats
+
+  # Ensure compartments are non-negative
+  H <- max(H, 0)
+  F <- max(F, 0)
+
+  # User-defined parameters
+  S_r_ini <- user(1000)
+  I_r_ini <- user(1)
+  R_r_ini <- user(0)
+  H_ini   <- user(500)
+  F_ini   <- user(0)
+
+  r_r <- user(0.02)     # Rat reproduction rate per day
+  K_r <- user(2000)     # Rat carrying capacity
+  d_r <- user(0.01)     # Rat death rate per day
+  beta_r <- user(0.1)   # Transmission rate per flea per day
+  alpha <- user(0.001)  # Flea searching efficiency
+  g_r <- user(0.1)      # Recovery probability per infectious period
+  p   <- user(0.5)      # Probability of inherited immunity
+
+  r_f <- user(0.1)      # Flea reproduction rate per day
+  K_f <- user(5)        # Flea carrying capacity per rat
+  d_f <- user(0.05)     # Flea death rate per day
+
+})  # 'step = TRUE' indicates discrete time steps
+
+
+# Create an instance of the model with default parameters
+model <- plague_model$new(pars = list(S_r_ini = 1000, I_r_ini = 1, R_r_ini = 0, H_ini = 1, F_ini = 0),
+                          time = 1,
+                           n_particles = 9L,
+                         n_threads = 10L,
+                         seed = 1L)
+model$state()
+
+# Run the model for 200 days with 100 stochastic replicates
+timesteps <- seq(1, 200, by = 1)
+simulation <- model$simulate(timesteps)
+
+# Summarize the results
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+simulation |> 
+  `dimnames<-`(list(compartment = 1:5, rep = 1:9, time = timesteps)) |>
+cubelyr::as.tbl_cube(met_name = 'value') |>  
+  as_tibble() |>
+ggplot(aes(time, value, color = as.factor(compartment), group = compartment)) +
+  geom_line() +
+  facet_wrap(~rep) +
+  labs(
+    title = "Stochastic Simulation of Bubonic Plague Transmission",
+    x = "Time (days)",
+    y = "Population",
+    color = "Compartment"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+# Create an instance of the model with default parameters
+model_instance <- plague_model$new()
+
+# Run the model for 100 time steps (days)
+result <- model_instance$run(0:100)
+
+# Plot the results
+par(mfrow = c(2, 1))
+plot(result[, "step"], result[, "S_R"], type = "l", col = "blue", ylim = c(0, max(result[, c("S_R", "I_R")])), ylab = "Number of Rats", xlab = "Time (days)")
+lines(result[, "step"], result[, "I_R"], col = "red")
+legend("topright", legend = c("Susceptible Rats", "Infected Rats"), col = c("blue", "red"), lty = 1)
+
+plot(result[, "step"], result[, "S_F"], type = "l", col = "green", ylim = c(0, max(result[, c("S_F", "I_F")])), ylab = "Number of Fleas", xlab = "Time (days)")
+lines(result[, "step"], result[, "I_F"], col = "orange")
+legend("topright", legend = c("Susceptible Fleas", "Infected Fleas"), col = c("green", "orange"), lty = 1)
+
+```
+

@@ -1,0 +1,217 @@
+---
+title: "Plague Model: Operational Implementation"
+author: "Nick Gauthier"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(odin)
+library(odin.dust)
+library(yaml)
+library(viridis)
+library(patchwork)  # for combining plots
+library(gganimate)
+
+# Source model and utility functions
+source("R/plague_utils.R")
+```
+
+## Overview
+
+This notebook implements a stochastic, spatial model of plague transmission for operational use. Key features include:
+
+- Metapopulation structure with migration
+- Seasonal environmental forcing
+- Stochastic dynamics
+- Spatial visualization tools
+- Scenario analysis capabilities
+
+## Spatial Configuration
+
+First, we'll set up our spatial structure using a grid-based metapopulation:
+
+```{r spatial-setup}
+# Create 5x5 grid of populations
+n_rows <- 5
+n_cols <- 5
+npop <- n_rows * n_cols
+
+# Generate contact matrix
+contact_matrix <- make_contact_matrix(n_rows, n_cols)
+
+# Visualize connectivity
+plot_connectivity(contact_matrix, n_rows, n_cols)
+```
+
+## Base Simulation
+
+Run a baseline simulation with default parameters:
+
+```{r baseline-simulation}
+# Simulation parameters
+sim_params <- list(
+  npop = npop,
+  I_ini = c(10, rep(0, npop - 1)),  # Initial infection in one location
+  S_ini = 1,                        # All others susceptible
+  K_r = 2500/npop,                  # Carrying capacity per patch
+  contact = contact_matrix,
+  K_f = 3,                          # Flea capacity
+  dt = 1/52,                        # Weekly timesteps
+  p = 0.6,                          # Resistance probability
+  mu_r = 0.03,                      # Rat movement rate
+  mu_f = 0.008                      # Flea movement rate
+)
+
+# Add seasonal forcing
+years <- 10
+timesteps <- 1:(sim_params$dt^-1 * years)
+sim_params$season <- get_seasonal_forcing(timesteps)
+
+# Run simulation with multiple replicates
+n_particles <- 10
+results <- run_stochastic_simulation(
+  sim_params,
+  timesteps = timesteps,
+  n_particles = n_particles
+)
+```
+
+## Results Analysis
+
+### Population Dynamics
+
+```{r population-dynamics}
+# Plot total infected over time with uncertainty
+plot_total_infected(results) +
+  labs(title = "Total Infected Population Over Time")
+
+# Plot all compartments for selected patches
+plot_patch_dynamics(
+  results, 
+  patches = c(1, 7, 13, 25),  # Corner and center patches
+  compartments = c("S", "I", "R")
+)
+```
+
+### Spatial Spread
+
+```{r spatial-spread}
+# Create animation of spatial spread
+timepoints <- seq(0, years, by = 0.25)
+anim <- animate_spatial_spread(
+  results, 
+  timepoints = timepoints,
+  n_rows = n_rows,
+  n_cols = n_cols
+)
+anim
+# Save animation
+#anim_save("spatial_spread.gif", anim)
+```
+
+### Outbreak Analysis
+
+```{r outbreak-analysis}
+# Calculate key outbreak metrics
+outbreak_stats <- analyze_outbreaks(results)
+
+# Summarize results
+outbreak_summary <- summarize_outbreaks(outbreak_stats)
+knitr::kable(outbreak_summary)
+
+# Plot outbreak size distribution
+plot_outbreak_distribution(outbreak_stats)
+```
+
+## Scenario Analysis
+
+Compare different intervention strategies and environmental conditions:
+
+```{r scenarios}
+# Define scenarios
+scenarios <- list(
+  baseline = sim_params,
+  high_migration = modify_list(sim_params, list(mu_r = 0.06, mu_f = 0.016)),
+  low_resistance = modify_list(sim_params, list(p = 0.3)),
+  high_flea_capacity = modify_list(sim_params, list(K_f = 6)),
+  rat_control = modify_list(sim_params, list(K_r = 1500/npop))
+)
+
+# Run all scenarios
+scenario_results <- run_scenarios(
+  scenarios,
+  timesteps = timesteps,
+  n_particles = n_particles
+)
+
+# Compare scenarios
+plot_scenario_comparison(scenario_results) +
+  labs(title = "Comparison of Management Scenarios")
+
+# Calculate intervention effectiveness
+intervention_stats <- calculate_intervention_effects(scenario_results)
+knitr::kable(intervention_stats)
+```
+
+## Sensitivity Analysis
+
+Examine how parameter uncertainty affects outcomes:
+
+```{r sensitivity}
+# Define parameters to vary and their ranges
+param_ranges <- list(
+  mu_r = seq(0.01, 0.1, length.out = 5),
+  K_f = seq(2, 8, length.out = 5),
+  p = seq(0.3, 0.9, length.out = 5)
+)
+
+# Run sensitivity analysis
+sensitivity_results <- run_sensitivity_analysis(
+  base_params = sim_params,
+  param_ranges = param_ranges,
+  timesteps = timesteps,
+  n_particles = 5
+)
+
+# Plot sensitivity results
+plot_sensitivity_results(sensitivity_results)
+
+# Calculate partial rank correlation coefficients
+prcc <- calculate_prcc(sensitivity_results)
+plot_prcc(prcc)
+```
+
+## Management Implications
+
+Based on the above analyses:
+
+1. Spatial Control Strategies
+   - Identify critical patches for surveillance
+   - Optimize intervention placement
+   - Design monitoring programs
+
+2. Temporal Patterns
+   - Seasonal intervention timing
+   - Early warning indicators
+   - Resource allocation planning
+
+3. Intervention Effectiveness
+   - Cost-benefit analysis of different strategies
+   - Combined intervention effects
+   - Implementation recommendations
+
+## Next Steps
+
+1. Validate against field data
+2. Refine parameter estimates
+3. Develop real-time forecasting capabilities
+4. Create management decision support tools
+
