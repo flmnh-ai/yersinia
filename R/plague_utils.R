@@ -237,7 +237,7 @@ format_parameters <- function(params) {
         collapse = "\n")
 }
 
-# R/spatial_utils.R
+# Spatial utility functions
 
 #' Create contact matrix for grid-based metapopulation
 #' @param n_rows Number of rows in grid
@@ -369,7 +369,7 @@ run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_thre
   return(state)
 }
 
-# R/plague_utils.R
+# Stochastic simulation analysis functions
 
 #' Generate seasonal forcing
 #' @param timesteps Vector of timesteps
@@ -469,28 +469,46 @@ plot_outbreak_distribution <- function(outbreak_stats) {
     theme_minimal()
 }
 
-#' Run sensitivity analysis
+#' Run sensitivity analysis (deterministic version)
 #' @param base_params Base parameter list
-#' @param param_ranges List of parameter ranges
-#' @param timesteps Simulation timesteps
-#' @param n_particles Number of particles per parameter set
-#' @return Data frame with sensitivity analysis results
-run_sensitivity_analysis <- function(base_params, param_ranges, timesteps, n_particles) {
-  # Generate parameter combinations
-  param_grid <- expand.grid(param_ranges)
-
-  # Run simulations for each parameter set
-  map_dfr(1:nrow(param_grid), function(i) {
+#' @param param_name Parameter to vary
+#' @param range Vector of multipliers
+#' @param seasonal Include seasonal forcing
+#' @return Tibble with sensitivity analysis results
+run_sensitivity_analysis <- function(base_params, param_name,
+                                     range = seq(0.5, 1.5, by = 0.1),
+                                     seasonal = FALSE) {
+  results <- map_dfr(range, function(mult) {
     params <- base_params
-    for(p in names(param_ranges)) {
-      params[[p]] <- param_grid[i, p]
-    }
+    params[[param_name]] <- params[[param_name]] * mult
 
-    results <- run_stochastic_simulation(params, timesteps, n_particles)
-    results$param_set <- i
-
-    results
+    sim <- run_plague_simulation(params, seasonal = seasonal)
+    sim |>
+      mutate(
+        multiplier = mult,
+        parameter = param_name
+      )
   })
+
+  return(results)
+}
+
+#' Plot sensitivity analysis results
+#' @param sensitivity_results Output from run_sensitivity_analysis
+#' @param variable Variable to plot
+#' @return ggplot object
+plot_sensitivity <- function(sensitivity_results, variable = "I_r") {
+  sensitivity_results |>
+    ggplot(aes(t, .data[[variable]], group = multiplier, color = multiplier)) +
+    geom_line(alpha = 0.7) +
+    scale_color_viridis_c() +
+    labs(
+      title = paste("Sensitivity Analysis:", variable),
+      x = "Time (years)",
+      y = variable,
+      color = "Parameter\nMultiplier"
+    ) +
+    theme_minimal()
 }
 
 #' Calculate intervention effects
