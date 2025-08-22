@@ -60,11 +60,11 @@ This notebook explores a mathematical model based on the work of Keeling
 
 The model tracks five main variables:
 
--    $S_R$: Susceptible rats
--    $I_R$: Infected rats
--    $R_R$: Resistant rats
--    $N$: Average number of fleas per rat (flea index)
--    $F$: Free infectious fleas
+-   $S_R$: Susceptible rats
+-   $I_R$: Infected rats
+-   $R_R$: Resistant rats
+-   $N$: Average number of fleas per rat (flea index)
+-   $F$: Free infectious fleas
 
 ### Core Equations
 
@@ -503,8 +503,8 @@ Despite its limitations, the model provides insights into:
 
 -   Conditions necessary for plague persistence
 -   Effect of interventions (e.g., rat control)
--    Role of seasonal variations
--    Importance of flea dynamics
+-   Role of seasonal variations
+-   Importance of flea dynamics
 
 ## References
 
