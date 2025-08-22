@@ -1,0 +1,69 @@
+# Historical parameter estimates
+# Parameters representing medieval/historical plague conditions
+
+# Metadata
+name: "historical"
+description: "Parameter estimates for historical plague outbreaks (14th-17th centuries)"
+source: "Historical analysis and paleoepidemiology"
+reference: "Estimated from Black Death and subsequent pandemic data"
+period: "1347-1700"
+
+# Rat population parameters
+K_r: 2000    # Lower carrying capacity (smaller medieval cities)
+r_r: 6.0     # Higher growth rate (less urbanization pressure)
+p: 0.98      # Higher resistance probability (natural selection)
+d_r: 0.15    # Lower baseline death rate (rural/natural conditions)
+
+# Disease transmission parameters
+beta_r: 6.0  # Very high transmission (no control measures)
+a: 0.003     # Lower search efficiency (different flea species mix)
+m_r: 25.0    # Higher mortality rate (virulent historical strains)
+g_r: 0.01    # Very low survival probability (no medical care)
+
+# Flea population parameters
+r_f: 15.0    # Lower reproduction (cooler Little Ice Age climate)
+K_f: 5.0     # Lower carrying capacity (different housing/hygiene)
+d_f: 8.0     # Lower death rate (less urban stress)
+
+# Human population parameters
+K_h: 3000    # Much smaller population centers
+r_h: 0.03    # Lower growth rate (high infant mortality)
+d_h: 0.08    # Very high death rate (pre-modern conditions)
+beta_h: 0.015 # Higher infection rate (close quarters, poor hygiene)
+m_h: 35      # Slower disease progression (different strains?)
+g_h: 0.05    # Very low survival probability (no antibiotics)
+
+# Initial conditions
+I_ini: 5     # Multiple introduction points common
+
+# Spatial parameters
+mu_r: 0.02   # Lower movement (less transportation)
+mu_f: 0.005  # Much lower flea movement (walking/animal transport only)
+
+# Environmental parameters
+seasonal_amplitude: 0.4  # Strong seasonal effects (Little Ice Age)
+
+# Notes
+notes: |
+  These parameters attempt to capture conditions during the major
+  historical plague pandemics, particularly:
+  
+  - The Black Death (1347-1351)
+  - The Second Pandemic (14th-19th centuries)
+  - Pre-antibiotic medicine
+  - Medieval urban conditions
+  - Little Ice Age climate
+  
+  Key historical factors:
+  - No medical interventions
+  - Poor sanitation and hygiene
+  - Different Yersinia pestis strains
+  - Slower transportation networks
+  - Smaller, denser urban centers
+  - Climate cooling (Little Ice Age)
+  
+  These parameters are estimated from:
+  - Historical mortality records
+  - Archaeological evidence
+  - Paleoclimatic data
+  - Comparative analysis with modern outbreaks

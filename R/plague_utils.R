@@ -1,44 +1,113 @@
 # R/plague_utils.R
 
-#' Load and validate plague model parameters
-#' @param param_file Path to YAML parameter file
+#' Load plague model parameters
+#' @param param_set Name of parameter set or path to YAML file or list of parameters
 #' @param validate Logical, whether to validate parameters
+#' @param ... Additional parameters to override
 #' @return List of validated parameters
-load_plague_parameters <- function(param_file = NULL, validate = TRUE) {
-  if (is.null(param_file)) {
-    warning("No parameter file specified, using default parameters")
-    params <- list(
-      K_r = 2500,    # Rat carrying capacity
-      r_r = 5.0,     # Rat population growth rate
-      p = 0.975,     # Probability of inherited resistance
-      d_r = 0.2,     # Natural death rate of rats
-      beta_r = 4.7,  # Rat infection rate from fleas
-      a = 0.004,     # Flea search efficiency
-      m_r = 20.0,    # Infected rat mortality rate
-      g_r = 0.02,    # Probability rat survives infection
-      r_f = 20.0,    # Flea reproduction rate
-      K_f = 6.57,    # Flea carrying capacity per rat
-      d_f = 10.0     # Death rate of free fleas
-    )
+#' @export
+load_parameters <- function(param_set = "defaults", validate = TRUE, ...) {
+  # Handle different input types
+  if (is.list(param_set)) {
+    params <- param_set
+  } else if (is.character(param_set)) {
+    if (file.exists(param_set)) {
+      # It's a file path
+      params <- yaml::read_yaml(param_set)
+    } else {
+      # It's a named parameter set
+      params <- load_named_parameters(param_set)
+    }
   } else {
-    params <- yaml::read_yaml(param_file)
+    stop("param_set must be a character string, file path, or list")
+  }
+  
+  # Override with any additional parameters
+  override_params <- list(...)
+  if (length(override_params) > 0) {
+    params[names(override_params)] <- override_params
   }
 
   if (validate) {
     validate_parameters(params)
   }
 
+  # Add metadata
+  attr(params, "param_set") <- if(is.character(param_set)) param_set else "custom"
+  attr(params, "modified") <- length(override_params) > 0
+  
+  class(params) <- c("plague_parameters", "list")
   return(params)
+}
+
+#' Load named parameter sets
+#' @param name Name of parameter set
+#' @return List of parameters
+load_named_parameters <- function(name) {
+  # Available parameter sets
+  available_sets <- c("defaults", "keeling-gilligan", "modern-estimates", "historical")
+  
+  if (!name %in% available_sets) {
+    stop("Parameter set '", name, "' not found. Available sets: ", 
+         paste(available_sets, collapse = ", "))
+  }
+  
+  # Try to load from YAML file first
+  yaml_file <- file.path("inst", "parameters", paste0(name, ".yaml"))
+  
+  if (file.exists(yaml_file)) {
+    if (!requireNamespace("yaml", quietly = TRUE)) {
+      stop("yaml package required for loading parameter files")
+    }
+    
+    params_full <- yaml::read_yaml(yaml_file)
+    
+    # Extract just the parameter values (exclude metadata)
+    metadata_keys <- c("name", "description", "source", "reference", "doi", 
+                      "last_updated", "period", "notes")
+    params <- params_full[!names(params_full) %in% metadata_keys]
+    
+    # Store metadata as attributes
+    attr(params, "metadata") <- params_full[intersect(names(params_full), metadata_keys)]
+    
+    return(params)
+  } else {
+    # Fallback to hardcoded values if YAML files not found
+    warning("YAML file not found for '", name, "', using fallback parameters")
+    
+    switch(name,
+      "defaults" = ,
+      "keeling-gilligan" = list(
+        K_r = 2500, r_r = 5.0, p = 0.975, d_r = 0.2, beta_r = 4.7, a = 0.004,
+        m_r = 20.0, g_r = 0.02, r_f = 20.0, K_f = 6.57, d_f = 10.0,
+        K_h = 5000, r_h = 0.045, d_h = 0.04, beta_h = 0.01, m_h = 26, g_h = 0.1,
+        I_ini = 1, mu_r = 0.03, mu_f = 0.008
+      ),
+      "modern-estimates" = list(
+        K_r = 3000, r_r = 4.5, p = 0.96, d_r = 0.25, beta_r = 5.0, a = 0.005,
+        m_r = 18.0, g_r = 0.03, r_f = 22.0, K_f = 7.0, d_f = 12.0,
+        K_h = 10000, r_h = 0.05, d_h = 0.035, beta_h = 0.012, m_h = 24, g_h = 0.15,
+        I_ini = 1, mu_r = 0.05, mu_f = 0.012
+      ),
+      "historical" = list(
+        K_r = 2000, r_r = 6.0, p = 0.98, d_r = 0.15, beta_r = 6.0, a = 0.003,
+        m_r = 25.0, g_r = 0.01, r_f = 15.0, K_f = 5.0, d_f = 8.0,
+        K_h = 3000, r_h = 0.03, d_h = 0.08, beta_h = 0.015, m_h = 35, g_h = 0.05,
+        I_ini = 5, mu_r = 0.02, mu_f = 0.005
+      )
+    )
+  }
 }
 
 #' Validate plague model parameters
 #' @param params List of parameters
 #' @return TRUE if valid, stops with error if invalid
 validate_parameters <- function(params) {
+  # Core rat-flea parameters (always required)
   required_params <- c("K_r", "r_r", "p", "d_r", "beta_r", "a",
                        "m_r", "g_r", "r_f", "K_f", "d_f")
 
-  # Check for missing parameters
+  # Check for missing core parameters
   missing_params <- setdiff(required_params, names(params))
   if (length(missing_params) > 0) {
     stop("Missing required parameters: ", paste(missing_params, collapse = ", "))
@@ -47,9 +116,462 @@ validate_parameters <- function(params) {
   # Validate parameter ranges
   if (params$p < 0 || params$p > 1) stop("p must be between 0 and 1")
   if (params$g_r < 0 || params$g_r > 1) stop("g_r must be between 0 and 1")
-  if (any(unlist(params) < 0)) stop("All parameters must be non-negative")
+  
+  # Check human parameters if present
+  if ("g_h" %in% names(params)) {
+    if (params$g_h < 0 || params$g_h > 1) stop("g_h must be between 0 and 1")
+  }
+  
+  # Check all parameters are non-negative
+  numeric_params <- params[sapply(params, is.numeric)]
+  if (any(unlist(numeric_params) < 0)) {
+    stop("All numeric parameters must be non-negative")
+  }
 
   TRUE
+}
+
+#' Print method for plague_parameters
+#' @param x plague_parameters object
+#' @param ... Additional arguments (ignored)
+#' @export
+print.plague_parameters <- function(x, ...) {
+  cat("Plague Model Parameters\n")
+  cat("=======================\n")
+  cat("Parameter set:", attr(x, "param_set"), "\n")
+  if (attr(x, "modified")) cat("(with user modifications)\n")
+  cat("\n")
+  
+  # Group parameters by category
+  rat_params <- x[c("K_r", "r_r", "p", "d_r")]
+  disease_params <- x[c("beta_r", "m_r", "g_r")]
+  flea_params <- x[c("r_f", "K_f", "d_f", "a")]
+  
+  cat("Rat population:\n")
+  for (name in names(rat_params)) {
+    cat(sprintf("  %s: %g\n", name, rat_params[[name]]))
+  }
+  
+  cat("\nDisease dynamics:\n")
+  for (name in names(disease_params)) {
+    cat(sprintf("  %s: %g\n", name, disease_params[[name]]))
+  }
+  
+  cat("\nFlea dynamics:\n")
+  for (name in names(flea_params)) {
+    cat(sprintf("  %s: %g\n", name, flea_params[[name]]))
+  }
+  
+  # Show human parameters if present
+  human_params <- x[intersect(names(x), c("K_h", "r_h", "d_h", "beta_h", "m_h", "g_h"))]
+  if (length(human_params) > 0) {
+    cat("\nHuman dynamics:\n")
+    for (name in names(human_params)) {
+      cat(sprintf("  %s: %g\n", name, human_params[[name]]))
+    }
+  }
+  
+  invisible(x)
+}
+
+# Plague Results Class --------------------------------------------------------
+
+#' Create a plague_results object
+#' @param data Tibble with simulation results
+#' @param model_type Type of model used
+#' @param params Parameters used in simulation
+#' @param run_info Runtime information
+#' @return plague_results object
+#' @export
+new_plague_results <- function(data, model_type, params, run_info = list()) {
+  # Validate data structure
+  required_cols <- c("time", "compartment", "population", "replicate", "value")
+  missing_cols <- setdiff(required_cols, names(data))
+  if (length(missing_cols) > 0) {
+    stop("Missing required columns: ", paste(missing_cols, collapse = ", "))
+  }
+  
+  structure(
+    data,
+    class = c("plague_results", "tbl_df", "tbl", "data.frame"),
+    model_type = model_type,
+    params = params,
+    run_info = run_info
+  )
+}
+
+#' Print method for plague_results
+#' @param x plague_results object
+#' @param ... Additional arguments passed to tibble print
+#' @export
+print.plague_results <- function(x, ...) {
+  cat("Plague Model Results\n")
+  cat("====================\n")
+  cat("Model type:", attr(x, "model_type"), "\n")
+  cat("Parameter set:", attr(attr(x, "params"), "param_set"), "\n")
+  
+  # Summary statistics
+  n_time <- length(unique(x$time))
+  n_reps <- length(unique(x$replicate))
+  n_pops <- length(unique(x$population))
+  compartments <- unique(x$compartment)
+  
+  cat("Time points:", n_time, "\n")
+  cat("Replicates:", n_reps, "\n")
+  cat("Populations:", n_pops, "\n")
+  cat("Compartments:", paste(compartments, collapse = ", "), "\n")
+  cat("\n")
+  
+  # Print data preview
+  cat("Data preview:\n")
+  NextMethod("print")
+  
+  invisible(x)
+}
+
+#' Summary method for plague_results
+#' @param object plague_results object
+#' @param ... Additional arguments (ignored)
+#' @export
+summary.plague_results <- function(object, ...) {
+  cat("Plague Model Results Summary\n")
+  cat("============================\n")
+  
+  # Model info
+  cat("Model type:", attr(object, "model_type"), "\n")
+  cat("Parameter set:", attr(attr(object, "params"), "param_set"), "\n")
+  
+  # Calculate summary statistics by compartment
+  summary_stats <- object |>
+    group_by(compartment) |>
+    summarise(
+      min_value = min(value),
+      max_value = max(value),
+      mean_value = mean(value),
+      final_value = value[which.max(time)],
+      .groups = "drop"
+    )
+  
+  cat("\nCompartment summaries:\n")
+  print(summary_stats)
+  
+  # Basic reproduction number if parameters available
+  params <- attr(object, "params")
+  if (!is.null(params)) {
+    R0 <- calculate_R0(params)
+    cat("\nBasic reproduction number (R0):", round(R0, 3), "\n")
+  }
+  
+  invisible(object)
+}
+
+#' Plot method for plague_results
+#' @param x plague_results object
+#' @param compartments Vector of compartments to plot (NULL for all)
+#' @param log_scale Logical, use log scale for y-axis
+#' @param ... Additional arguments (ignored)
+#' @export
+plot.plague_results <- function(x, compartments = NULL, log_scale = FALSE, ...) {
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("ggplot2 required for plotting")
+  }
+  
+  # Filter compartments if specified
+  plot_data <- x
+  if (!is.null(compartments)) {
+    plot_data <- plot_data |> filter(compartment %in% compartments)
+  }
+  
+  # Determine if spatial
+  is_spatial <- length(unique(x$population)) > 1
+  
+  if (is_spatial) {
+    # Spatial plot - show by population
+    p <- plot_data |>
+      ggplot(aes(time, value, color = compartment)) +
+      geom_line(alpha = 0.7) +
+      facet_wrap(~population, labeller = label_both) +
+      labs(
+        title = paste("Plague Model Results:", attr(x, "model_type")),
+        x = "Time (years)",
+        y = "Population",
+        color = "Compartment"
+      ) +
+      theme_minimal()
+  } else {
+    # Non-spatial plot
+    if (length(unique(x$replicate)) > 1) {
+      # Multiple replicates - show uncertainty
+      summary_data <- plot_data |>
+        group_by(time, compartment) |>
+        summarise(
+          median = median(value),
+          lower = quantile(value, 0.025),
+          upper = quantile(value, 0.975),
+          .groups = "drop"
+        )
+      
+      p <- summary_data |>
+        ggplot(aes(time, median, color = compartment)) +
+        geom_ribbon(aes(ymin = lower, ymax = upper, fill = compartment), alpha = 0.2) +
+        geom_line() +
+        labs(
+          title = paste("Plague Model Results:", attr(x, "model_type")),
+          x = "Time (years)",
+          y = "Population",
+          color = "Compartment"
+        ) +
+        theme_minimal()
+    } else {
+      # Single replicate
+      p <- plot_data |>
+        ggplot(aes(time, value, color = compartment)) +
+        geom_line() +
+        labs(
+          title = paste("Plague Model Results:", attr(x, "model_type")),
+          x = "Time (years)",
+          y = "Population",
+          color = "Compartment"
+        ) +
+        theme_minimal()
+    }
+  }
+  
+  if (log_scale) {
+    p <- p + scale_y_log10()
+  }
+  
+  return(p)
+}
+
+# Main Simulation Interface ---------------------------------------------------
+
+#' Run plague model simulation
+#' @param model Model type: "deterministic", "stochastic", "spatial"
+#' @param params Parameter set name, file path, or list of parameters
+#' @param times Vector of time points or NULL for default (0 to 10 years)
+#' @param include_humans Logical, include human dynamics
+#' @param spatial Logical, use spatial structure (only for stochastic models)
+#' @param contact_matrix Contact matrix for spatial models (auto-generated if NULL)
+#' @param n_particles Number of particles for stochastic models
+#' @param n_threads Number of threads for parallel processing
+#' @param seasonal Logical, include seasonal forcing
+#' @param ... Additional parameters to override
+#' @return plague_results object
+#' @export
+run_plague_model <- function(model = "deterministic",
+                             params = "defaults", 
+                             times = NULL,
+                             include_humans = FALSE,
+                             spatial = FALSE,
+                             contact_matrix = NULL,
+                             n_particles = 100,
+                             n_threads = 1,
+                             seasonal = FALSE,
+                             ...) {
+  
+  # Load and validate parameters
+  if (inherits(params, "plague_parameters")) {
+    model_params <- params
+  } else {
+    model_params <- load_parameters(params, ...)
+  }
+  
+  # Set default times if not provided
+  if (is.null(times)) {
+    times <- seq(0, 10, by = 0.1)
+  }
+  
+  # Validate model type
+  valid_models <- c("deterministic", "stochastic")
+  if (!model %in% valid_models) {
+    stop("Model must be one of: ", paste(valid_models, collapse = ", "))
+  }
+  
+  # Spatial models must be stochastic for now
+  if (spatial && model != "stochastic") {
+    stop("Spatial models currently only supported for stochastic simulations")
+  }
+  
+  # Generate contact matrix for spatial models
+  if (spatial && is.null(contact_matrix)) {
+    # Default to 5x5 grid
+    contact_matrix <- make_contact_matrix(5, 5)
+    npop <- 25
+  } else if (spatial) {
+    npop <- nrow(contact_matrix)
+  } else {
+    npop <- 1
+  }
+  
+  # Prepare model-specific parameters
+  sim_params <- as.list(model_params)
+  
+  if (spatial) {
+    sim_params$npop <- npop
+    sim_params$contact <- contact_matrix
+    sim_params$I_ini <- c(10, rep(0, npop - 1))  # Start infection in patch 1
+    sim_params$S_ini <- 1
+    sim_params$K_r <- sim_params$K_r / npop  # Distribute carrying capacity
+  }
+  
+  # Add temporal parameters
+  if (model == "stochastic") {
+    dt <- 1/52  # Weekly timesteps for stochastic models
+    sim_params$dt <- dt
+    timesteps <- 1:(dt^-1 * max(times))
+    
+    if (seasonal) {
+      sim_params$season <- get_seasonal_forcing(timesteps)
+    }
+  }
+  
+  # Run the appropriate model
+  if (model == "deterministic") {
+    results <- run_deterministic_model(sim_params, times, include_humans, seasonal)
+    model_type <- paste0("deterministic", if(include_humans) "_humans" else "")
+  } else if (model == "stochastic") {
+    if (spatial) {
+      results <- run_spatial_stochastic_model(sim_params, timesteps, n_particles, n_threads)
+      model_type <- "stochastic_spatial"
+    } else if (include_humans) {
+      results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads)
+      model_type <- "stochastic_humans"
+    } else {
+      stop("Non-spatial stochastic rat-only model not implemented yet")
+    }
+  }
+  
+  # Create run info
+  run_info <- list(
+    timestamp = Sys.time(),
+    model = model,
+    include_humans = include_humans,
+    spatial = spatial,
+    n_particles = if(model == "stochastic") n_particles else 1,
+    seasonal = seasonal
+  )
+  
+  # Return plague_results object
+  new_plague_results(results, model_type, model_params, run_info)
+}
+
+# Model-specific runner functions ---------------------------------------------
+
+#' Run deterministic model
+#' @param params List of parameters
+#' @param times Vector of time points
+#' @param include_humans Include human dynamics
+#' @param seasonal Include seasonal forcing
+#' @return Tidy tibble with results
+run_deterministic_model <- function(params, times, include_humans, seasonal) {
+  # Load model generators (will be cached after first call)
+  if (!exists(".plague_det_models", envir = .GlobalEnv)) {
+    source("R/models_deterministic.R")
+    .GlobalEnv$.plague_det_models <- list(
+      base = create_deterministic_model(),
+      seasonal = create_seasonal_deterministic_model(),
+      human = create_deterministic_human_model()
+    )
+  }
+  
+  # Select appropriate model
+  if (include_humans) {
+    model_gen <- .GlobalEnv$.plague_det_models$human
+    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "S_h", "I_h", "R_h", "lambda_h")
+  } else if (seasonal) {
+    model_gen <- .GlobalEnv$.plague_det_models$seasonal
+    
+    # Prepare seasonal forcing data
+    day_seq <- seq(0, 365, by = 1)
+    season_seq <- sin(2 * pi * day_seq / 365)
+    params$day <- day_seq
+    params$season <- season_seq
+    
+    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda")
+  } else {
+    model_gen <- .GlobalEnv$.plague_det_models$base
+    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda")
+  }
+  
+  # Create model instance with parameters
+  model <- model_gen$new(user = params)
+  
+  # Run simulation
+  output <- model$run(times)
+  
+  # Convert to tidy format
+  results <- as_tibble(output) |>
+    pivot_longer(-t, names_to = "compartment", values_to = "value") |>
+    rename(time = t) |>
+    filter(compartment %in% expected_vars) |>
+    mutate(
+      population = 1L,     # Single population for deterministic models
+      replicate = 1L       # Single replicate for deterministic models  
+    ) |>
+    select(time, compartment, population, replicate, value)
+  
+  return(results)
+}
+
+#' Run spatial stochastic model
+#' @param params List of parameters
+#' @param timesteps Vector of timesteps
+#' @param n_particles Number of particles
+#' @param n_threads Number of threads
+#' @return Tidy tibble with results
+run_spatial_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
+  # Use existing function but convert output to standard format
+  results <- run_stochastic_simulation(params, timesteps, n_particles, n_threads)
+  
+  # Convert to standard format
+  results |>
+    rename(population = subpop) |>
+    mutate(
+      time = time,
+      population = as.integer(population),
+      replicate = as.integer(rep)
+    ) |>
+    select(time, compartment, population, replicate, value)
+}
+
+#' Run human stochastic model
+#' @param params List of parameters
+#' @param timesteps Vector of timesteps
+#' @param n_particles Number of particles
+#' @param n_threads Number of threads
+#' @return Tidy tibble with results
+run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
+  # Initialize model using plague_stochastic_humans.R
+  plague_model_humans <- odin_dust('R/plague_stochastic_humans.R')
+  model <- plague_model_humans$new(
+    pars = params,
+    time = 1L,
+    n_particles = n_particles,
+    n_threads = n_threads,
+    seed = sample.int(.Machine$integer.max, 1)
+  )
+  
+  # Run simulation
+  state <- model$simulate(timesteps) |>
+    array(
+      dim = c(10, n_particles, length(timesteps)),
+      dimnames = list(
+        compartment = c('S', 'I', 'R', 'D', 'N', 'F', 'Sh', 'Ih', 'Rh', 'Dh'),
+        rep = 1:n_particles,
+        time = timesteps * params$dt
+      )
+    ) |>
+    cubelyr::as.tbl_cube(met_name = 'value') |>
+    as_tibble()
+  
+  # Convert to standard format
+  state |>
+    mutate(
+      population = 1L,  # Single population
+      replicate = as.integer(rep)
+    ) |>
+    select(time, compartment, population, replicate, value)
 }
 
 #' Create simulation timepoints
