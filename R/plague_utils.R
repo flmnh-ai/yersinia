@@ -527,35 +527,6 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
 #' @param years Number of years to simulate
 #' @param timestep Time step in years
 #' @return Vector of timepoints
-create_timepoints <- function(years = 40, timestep = 1/365) {
-  seq(0, years, by = timestep)
-}
-
-#' Run plague model simulation
-#' @param params List of model parameters
-#' @param times Vector of timepoints
-#' @param seasonal Logical, whether to include seasonal forcing
-#' @param seasonal_amplitude Amplitude of seasonal forcing if used
-#' @return Tibble with simulation results
-run_plague_simulation <- function(params, times = NULL,
-                                  seasonal = FALSE, seasonal_amplitude = 0.2) {
-  if (is.null(times)) {
-    times <- create_timepoints()
-  }
-
-  if (seasonal) {
-    model <- plague_model_seasonal$new(
-      user = c(params, list(seasonal_amplitude = seasonal_amplitude))
-    )
-  } else {
-    model <- plague_model$new(user = params)
-  }
-
-  output <- model$run(times) |>
-    tibble::as_tibble()
-
-  return(output)
-}
 
 #' Plot plague simulation results
 #' @param output Simulation output tibble
@@ -615,9 +586,16 @@ run_sensitivity_analysis <- function(base_params, param_name,
     params <- base_params
     params[[param_name]] <- params[[param_name]] * mult
 
-    sim <- run_plague_simulation(params, seasonal = seasonal)
+    # Use current API instead of broken run_plague_simulation
+    sim <- run_plague_model(
+      params = params,
+      npop = 1,  # Single population for sensitivity analysis
+      n_particles = 5,  # Few particles for speed
+      times = seq(0, 10, by = 0.1),
+      seasonal = seasonal
+    )
     sim |>
-      mutate(
+      dplyr::mutate(
         multiplier = mult,
         parameter = param_name
       )
@@ -958,9 +936,16 @@ run_sensitivity_analysis <- function(base_params, param_name,
     params <- base_params
     params[[param_name]] <- params[[param_name]] * mult
 
-    sim <- run_plague_simulation(params, seasonal = seasonal)
+    # Use current API instead of broken run_plague_simulation
+    sim <- run_plague_model(
+      params = params,
+      npop = 1,  # Single population for sensitivity analysis
+      n_particles = 5,  # Few particles for speed
+      times = seq(0, 10, by = 0.1),
+      seasonal = seasonal
+    )
     sim |>
-      mutate(
+      dplyr::mutate(
         multiplier = mult,
         parameter = param_name
       )
