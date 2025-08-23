@@ -44,12 +44,12 @@ p_flea_death <- 1 - exp(-d_f * dt)
 n_flea_deaths <- rbinom(remaining_fleas, p_flea_death)
 
 ## Infection forces
-infection_force <- beta_r * n_fleas_to_rats / T_r
+lambda_r <- beta_r * n_fleas_to_rats / T_r  # rat infection rate
 # Human infection force based on fleas that don't find rats
-infection_force_h <- beta_h * remaining_fleas
+lambda_h <- beta_h * remaining_fleas  # human infection rate
 
 ## Individual probabilities of transition for rats:
-p_SI <- 1 - exp(-infection_force)  # S to I
+p_SI <- 1 - exp(-lambda_r)  # S to I probability for rats
 p_IR <- 1 - exp(-m_r * dt)  # I to R
 p_rat_birth <- 1 - exp(-rat_birth_rate_clipped * dt)  # natural rat birth probability
 p_rat_death <- 1 - exp(-d_r * dt)  # natural rat death probability
@@ -74,7 +74,7 @@ birth_rate_h_clipped <- if(birth_rate_h > 0) birth_rate_h else 0
 p_human_birth <- 1 - exp(-birth_rate_h_clipped * dt)
 
 # Disease transitions
-p_SI_h <- 1 - exp(-infection_force_h * dt)
+p_SI_h <- 1 - exp(-lambda_h * dt)  # S to I probability for humans
 p_IR_h <- 1 - exp(-m_h * dt)
 
 # Actual transitions

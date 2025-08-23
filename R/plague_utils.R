@@ -84,19 +84,19 @@ load_named_parameters <- function(name) {
     switch(name,
       "defaults" = ,
       "keeling-gilligan" = list(
-        K_r = 2500, r_r = 5.0, p = 0.975, d_r = 0.2, beta_r = 4.7, a = 0.004,
+        K_r = 2500, r_r = 5.0, p = 0.975, d_r = 0.2, beta_r = 4.7, a = 4e-3,
         m_r = 20.0, g_r = 0.02, r_f = 20.0, K_f = 6.57, d_f = 10.0,
         K_h = 5000, r_h = 0.045, d_h = 0.04, beta_h = 0.01, m_h = 26, g_h = 0.1,
         I_ini = 1, mu_r = 0.03, mu_f = 0.008
       ),
       "modern-estimates" = list(
-        K_r = 3000, r_r = 4.5, p = 0.96, d_r = 0.25, beta_r = 5.0, a = 0.005,
+        K_r = 3000, r_r = 4.5, p = 0.96, d_r = 0.25, beta_r = 5.0, a = 5e-3,
         m_r = 18.0, g_r = 0.03, r_f = 22.0, K_f = 7.0, d_f = 12.0,
         K_h = 10000, r_h = 0.05, d_h = 0.035, beta_h = 0.012, m_h = 24, g_h = 0.15,
         I_ini = 1, mu_r = 0.05, mu_f = 0.012
       ),
       "historical" = list(
-        K_r = 2000, r_r = 6.0, p = 0.98, d_r = 0.15, beta_r = 6.0, a = 0.003,
+        K_r = 2000, r_r = 6.0, p = 0.98, d_r = 0.15, beta_r = 6.0, a = 3e-3,
         m_r = 25.0, g_r = 0.01, r_f = 15.0, K_f = 5.0, d_f = 8.0,
         K_h = 3000, r_h = 0.03, d_h = 0.08, beta_h = 0.015, m_h = 35, g_h = 0.05,
         I_ini = 5, mu_r = 0.02, mu_f = 0.005
@@ -503,12 +503,12 @@ run_deterministic_model <- function(params, times, include_humans, seasonal) {
     filtered_params$season <- season_seq
     filtered_params$seasonal_amplitude <- if ("seasonal_amplitude" %in% names(params)) params$seasonal_amplitude else 0.2
     
-    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda")
+    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda_h")
   } else {
     model_gen <- create_deterministic_model()
     # Filter to only include parameters the base model uses
     filtered_params <- params[intersect(names(params), base_params)]
-    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda")
+    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda_h")
   }
   
   # Create model instance with filtered parameters
@@ -640,29 +640,29 @@ plot_plague_simulation <- function(output, log_scale = FALSE,
                                    plot_type = "all") {
   if (plot_type == "all") {
     p <- output |>
-      pivot_longer(-t) |>
-      ggplot(aes(t, value)) +
-      geom_line() +
-      facet_wrap(~name, scales = 'free_y') +
-      labs(
+      tidyr::pivot_longer(-t) |>
+      ggplot2::ggplot(ggplot2::aes(t, value)) +
+      ggplot2::geom_line() +
+      ggplot2::facet_wrap(~name, scales = 'free_y') +
+      ggplot2::labs(
         title = "Plague Model Simulation",
         x = "Time (years)",
         y = "Population"
       )
   } else if (plot_type == "infected") {
     p <- output |>
-      ggplot(aes(t, I_r)) +
-      geom_line() +
-      labs(
+      ggplot2::ggplot(ggplot2::aes(t, I_r)) +
+      ggplot2::geom_line() +
+      ggplot2::labs(
         title = "Infected Rat Population",
         x = "Time (years)",
         y = "Number of Infected Rats"
       )
   } else if (plot_type == "phase") {
     p <- output |>
-      ggplot(aes(S_r, I_r)) +
-      geom_path() +
-      labs(
+      ggplot2::ggplot(ggplot2::aes(S_r, I_r)) +
+      ggplot2::geom_path() +
+      ggplot2::labs(
         title = "Phase Portrait",
         x = "Susceptible Rats",
         y = "Infected Rats"
@@ -670,10 +670,10 @@ plot_plague_simulation <- function(output, log_scale = FALSE,
   }
 
   if (log_scale && plot_type != "phase") {
-    p <- p + scale_y_log10()
+    p <- p + ggplot2::scale_y_log10()
   }
 
-  p + theme_minimal()
+  p + ggplot2::theme_minimal()
 }
 
 #' Run sensitivity analysis
@@ -706,16 +706,16 @@ run_sensitivity_analysis <- function(base_params, param_name,
 #' @return ggplot object
 plot_sensitivity <- function(sensitivity_results, variable = "I_r") {
   sensitivity_results |>
-    ggplot(aes(t, .data[[variable]], group = multiplier, color = multiplier)) +
-    geom_line(alpha = 0.7) +
-    scale_color_viridis_c() +
-    labs(
+    ggplot2::ggplot(ggplot2::aes(t, .data[[variable]], group = multiplier, color = multiplier)) +
+    ggplot2::geom_line(alpha = 0.7) +
+    ggplot2::scale_color_viridis_c() +
+    ggplot2::labs(
       title = paste("Sensitivity Analysis:", variable),
       x = "Time (years)",
       y = variable,
       color = "Parameter\nMultiplier"
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
 }
 
 #' Calculate model statistics
@@ -832,15 +832,15 @@ plot_connectivity <- function(contact_matrix, n_rows, n_cols) {
     }
   }
 
-  ggplot() +
-    geom_segment(data = edges, aes(x = x, y = y, xend = xend, yend = yend),
-                 arrow = arrow(length = unit(0.2, "cm")), alpha = 0.5) +
-    geom_point(data = positions, aes(x, y), size = 3) +
-    scale_x_continuous(breaks = 1:n_cols) +
-    scale_y_continuous(breaks = 1:n_rows) +
-    coord_fixed() +
-    theme_minimal() +
-    labs(title = "Metapopulation Connectivity")
+  ggplot2::ggplot() +
+    ggplot2::geom_segment(data = edges, ggplot2::aes(x = x, y = y, xend = xend, yend = yend),
+                 arrow = ggplot2::arrow(length = ggplot2::unit(0.2, "cm")), alpha = 0.5) +
+    ggplot2::geom_point(data = positions, ggplot2::aes(x, y), size = 3) +
+    ggplot2::scale_x_continuous(breaks = 1:n_cols) +
+    ggplot2::scale_y_continuous(breaks = 1:n_rows) +
+    ggplot2::coord_fixed() +
+    ggplot2::theme_minimal() +
+    ggplot2::labs(title = "Metapopulation Connectivity")
 }
 
 #' Convert population indices to grid coordinates
@@ -860,24 +860,24 @@ get_grid_positions <- function(indices, n_cols) {
 #' @param n_rows Number of rows
 #' @param n_cols Number of columns
 animate_spatial_spread <- function(results, timepoints, n_rows, n_cols) {
-  results %>%
-    filter(time %in% timepoints, compartment == "I") %>%
-    mutate(
+  results |>
+    dplyr::filter(time %in% timepoints, compartment == "I") |>
+    dplyr::mutate(
       row = ceiling(subpop/n_cols),
       col = ((subpop-1) %% n_cols) + 1
-    ) %>%
-    ggplot(aes(col, row, fill = value)) +
-    geom_tile() +
-    scale_fill_viridis_c(option = "inferno") +
-    facet_wrap(~time) +
-    coord_fixed() +
-    labs(
+    ) |>
+    ggplot2::ggplot(ggplot2::aes(col, row, fill = value)) +
+    ggplot2::geom_tile() +
+    ggplot2::scale_fill_viridis_c(option = "inferno") +
+    ggplot2::facet_wrap(~time) +
+    ggplot2::coord_fixed() +
+    ggplot2::labs(
       title = "Spatial Spread of Infection",
       x = "Column",
       y = "Row",
       fill = "Infected\nRats"
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
 }
 
 #' Run stochastic simulation with given parameters
@@ -933,25 +933,25 @@ get_seasonal_forcing <- function(timesteps, amplitude = 0.2) {
 #' @param results Simulation results
 #' @return ggplot object
 plot_total_infected <- function(results) {
-  results %>%
-    filter(compartment == "I") %>%
-    group_by(time, rep) %>%
-    summarize(total = sum(value), .groups = "drop") %>%
-    group_by(time) %>%
-    summarize(
+  results |>
+    dplyr::filter(compartment == "I") |>
+    dplyr::group_by(time, rep) |>
+    dplyr::summarize(total = sum(value), .groups = "drop") |>
+    dplyr::group_by(time) |>
+    dplyr::summarize(
       median = median(total),
       lower = quantile(total, 0.025),
       upper = quantile(total, 0.975)
-    ) %>%
-    ggplot(aes(x = time, y = median)) +
-    geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
-    geom_line() +
-    scale_y_log10() +
-    labs(
+    ) |>
+    ggplot2::ggplot(ggplot2::aes(x = time, y = median)) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = lower, ymax = upper), alpha = 0.2) +
+    ggplot2::geom_line() +
+    ggplot2::scale_y_log10() +
+    ggplot2::labs(
       x = "Time (years)",
       y = "Total Infected Population"
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
 }
 
 #' Plot dynamics for specific patches
@@ -960,43 +960,43 @@ plot_total_infected <- function(results) {
 #' @param compartments Vector of compartments to plot
 #' @return ggplot object
 plot_patch_dynamics <- function(results, patches, compartments) {
-  results %>%
-    filter(
+  results |>
+    dplyr::filter(
       subpop %in% patches,
       compartment %in% compartments
-    ) %>%
-    group_by(time, subpop, compartment) %>%
-    summarize(
+    ) |>
+    dplyr::group_by(time, subpop, compartment) |>
+    dplyr::summarize(
       median = median(value),
       lower = quantile(value, 0.025),
       upper = quantile(value, 0.975),
       .groups = "drop"
-    ) %>%
-    ggplot(aes(x = time, y = median, color = compartment)) +
-    geom_ribbon(aes(ymin = lower, ymax = upper, fill = compartment), alpha = 0.2) +
-    geom_line() +
-    facet_wrap(~subpop) +
-    labs(
+    ) |>
+    ggplot2::ggplot(ggplot2::aes(x = time, y = median, color = compartment)) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = lower, ymax = upper, fill = compartment), alpha = 0.2) +
+    ggplot2::geom_line() +
+    ggplot2::facet_wrap(~subpop) +
+    ggplot2::labs(
       x = "Time (years)",
       y = "Population"
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
 }
 
 #' Analyze outbreak characteristics
 #' @param results Simulation results
 #' @return Data frame with outbreak statistics
 analyze_outbreaks <- function(results) {
-  results %>%
-    filter(compartment == "I") %>%
-    group_by(time, rep) %>%
-    summarize(
+  results |>
+    dplyr::filter(compartment == "I") |>
+    dplyr::group_by(time, rep) |>
+    dplyr::summarize(
       total_infected = sum(value),
       n_patches = sum(value > 0),
       .groups = "drop"
-    ) %>%
-    group_by(rep) %>%
-    summarize(
+    ) |>
+    dplyr::group_by(rep) |>
+    dplyr::summarize(
       peak_infected = max(total_infected),
       peak_patches = max(n_patches),
       duration = sum(total_infected > 10) * unique(diff(time)[1]),
@@ -1008,15 +1008,15 @@ analyze_outbreaks <- function(results) {
 #' @param outbreak_stats Output from analyze_outbreaks
 #' @return ggplot object
 plot_outbreak_distribution <- function(outbreak_stats) {
-  ggplot(outbreak_stats, aes(x = peak_infected)) +
-    geom_histogram(bins = 30) +
-    scale_x_log10() +
-    labs(
+  ggplot2::ggplot(outbreak_stats, ggplot2::aes(x = peak_infected)) +
+    ggplot2::geom_histogram(bins = 30) +
+    ggplot2::scale_x_log10() +
+    ggplot2::labs(
       x = "Peak Number of Infected",
       y = "Frequency",
       title = "Distribution of Outbreak Sizes"
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
 }
 
 #' Run sensitivity analysis (deterministic version)
@@ -1049,36 +1049,36 @@ run_sensitivity_analysis <- function(base_params, param_name,
 #' @return ggplot object
 plot_sensitivity <- function(sensitivity_results, variable = "I_r") {
   sensitivity_results |>
-    ggplot(aes(t, .data[[variable]], group = multiplier, color = multiplier)) +
-    geom_line(alpha = 0.7) +
-    scale_color_viridis_c() +
-    labs(
+    ggplot2::ggplot(ggplot2::aes(t, .data[[variable]], group = multiplier, color = multiplier)) +
+    ggplot2::geom_line(alpha = 0.7) +
+    ggplot2::scale_color_viridis_c() +
+    ggplot2::labs(
       title = paste("Sensitivity Analysis:", variable),
       x = "Time (years)",
       y = variable,
       color = "Parameter\nMultiplier"
     ) +
-    theme_minimal()
+    ggplot2::theme_minimal()
 }
 
 #' Calculate intervention effects
 #' @param scenario_results Results from multiple scenarios
 #' @return Data frame with intervention statistics
 calculate_intervention_effects <- function(scenario_results) {
-  scenario_results %>%
-    filter(compartment == "I") %>%
-    group_by(scenario, rep) %>%
-    summarize(
+  scenario_results |>
+    dplyr::filter(compartment == "I") |>
+    dplyr::group_by(scenario, rep) |>
+    dplyr::summarize(
       peak_infected = max(sum(value)),
       outbreak_duration = sum(sum(value) > 10) * unique(diff(time)[1]),
       .groups = "drop"
-    ) %>%
-    group_by(scenario) %>%
-    summarize(
+    ) |>
+    dplyr::group_by(scenario) |>
+    dplyr::summarize(
       mean_peak = mean(peak_infected),
       mean_duration = mean(outbreak_duration),
-      peak_reduction = 1 - mean_peak/first(mean_peak),
-      duration_reduction = 1 - mean_duration/first(mean_duration),
+      peak_reduction = 1 - mean_peak/dplyr::first(mean_peak),
+      duration_reduction = 1 - mean_duration/dplyr::first(mean_duration),
       .groups = "drop"
     )
 }

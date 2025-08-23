@@ -12,8 +12,8 @@ initial(F) <- 0                     # Free infectious fleas
 T_r <- S_r + I_r + R_r  
 
 ## Force of infection in humans
-lambda <- F * exp(-a * T_r)
-output(lambda) <- lambda  
+lambda_h <- F * exp(-a * T_r)
+output(lambda_h) <- lambda_h  
 
 ## Seasonal forcing on flea carrying capacity
 season_t <- interpolate(day, season, 'spline')
@@ -45,7 +45,7 @@ r_r <- user(5)        # Rat population growth rate
 p <- user(0.975)      # Probability of inherited resistance
 d_r <- user(0.2)      # Natural death rate of rats
 beta_r <- user(4.7)   # Rat infection rate from fleas
-a <- user(0.004)      # Flea search efficiency
+a <- user(4e-3)       # Flea search efficiency
 m_r <- user(20)       # Infected rat mortality rate
 g_r <- user(0.02)     # Probability rat survives infection
 r_f <- user(20)       # Flea reproduction rate

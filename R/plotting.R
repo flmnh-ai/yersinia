@@ -21,13 +21,13 @@ plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"),
   
   # Filter and prepare data
   phase_data <- results |>
-    filter(
+    dplyr::filter(
       compartment %in% compartments,
       population == !!population,
       replicate == !!replicate
     ) |>
-    select(time, compartment, value) |>
-    pivot_wider(names_from = compartment, values_from = value)
+    dplyr::select(time, compartment, value) |>
+    tidyr::pivot_wider(names_from = compartment, values_from = value)
   
   if (ncol(phase_data) != 3) {
     stop("Need exactly two compartments for phase portrait")
@@ -38,11 +38,11 @@ plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"),
   y_var <- names(phase_data)[3]
   
   p <- phase_data |>
-    ggplot(aes(x = .data[[x_var]], y = .data[[y_var]])) +
-    geom_path(size = 0.8, alpha = 0.8) +
-    geom_point(data = phase_data[1, ], size = 3, color = "green", alpha = 0.8) +  # Start
-    geom_point(data = phase_data[nrow(phase_data), ], size = 3, color = "red", alpha = 0.8) +  # End
-    labs(
+    ggplot2::ggplot(ggplot2::aes(x = .data[[x_var]], y = .data[[y_var]])) +
+    ggplot2::geom_path(size = 0.8, alpha = 0.8) +
+    ggplot2::geom_point(data = phase_data[1, ], size = 3, color = "green", alpha = 0.8) +  # Start
+    ggplot2::geom_point(data = phase_data[nrow(phase_data), ], size = 3, color = "red", alpha = 0.8) +  # End
+    ggplot2::labs(
       title = paste("Phase Portrait:", attr(results, "model_type")),
       subtitle = paste("Population", population, "- Replicate", replicate),
       x = x_var,
@@ -83,33 +83,33 @@ plot_spatial_heatmap <- function(results, time_point, compartment = "I",
   
   # Prepare spatial data
   spatial_data <- results |>
-    filter(
+    dplyr::filter(
       time == closest_time,
       compartment == !!compartment,
       replicate == !!replicate
     ) |>
-    mutate(
+    dplyr::mutate(
       row = ceiling(population / n_cols),
       col = ((population - 1) %% n_cols) + 1
     )
   
   # Create heatmap
   p <- spatial_data |>
-    ggplot(aes(col, row, fill = value)) +
-    geom_tile() +
-    scale_fill_viridis_c(option = "plasma", name = compartment) +
-    scale_y_reverse() +  # Flip y-axis to match grid layout
-    coord_fixed() +
-    labs(
+    ggplot2::ggplot(ggplot2::aes(col, row, fill = value)) +
+    ggplot2::geom_tile() +
+    ggplot2::scale_fill_viridis_c(option = "plasma", name = compartment) +
+    ggplot2::scale_y_reverse() +  # Flip y-axis to match grid layout
+    ggplot2::coord_fixed() +
+    ggplot2::labs(
       title = paste("Spatial Distribution:", compartment),
       subtitle = paste("Time =", round(closest_time, 2), "- Replicate", replicate),
       x = "Column",
       y = "Row"
     ) +
     ggplot2::theme_minimal() +
-    theme(
-      panel.grid = element_blank(),
-      axis.ticks = element_blank()
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      axis.ticks = ggplot2::element_blank()
     )
   
   return(p)
@@ -152,33 +152,33 @@ animate_spatial_spread <- function(results, compartment = "I", replicate = 1,
   
   # Prepare animation data
   anim_data <- results |>
-    filter(
+    dplyr::filter(
       time %in% time_points,
       compartment == !!compartment,
       replicate == !!replicate
     ) |>
-    mutate(
+    dplyr::mutate(
       row = ceiling(population / n_cols),
       col = ((population - 1) %% n_cols) + 1
     )
   
   # Create animated plot
   p <- anim_data |>
-    ggplot(aes(col, row, fill = value)) +
-    geom_tile() +
-    scale_fill_viridis_c(option = "plasma", name = compartment) +
-    scale_y_reverse() +
-    coord_fixed() +
-    labs(
+    ggplot2::ggplot(ggplot2::aes(col, row, fill = value)) +
+    ggplot2::geom_tile() +
+    ggplot2::scale_fill_viridis_c(option = "plasma", name = compartment) +
+    ggplot2::scale_y_reverse() +
+    ggplot2::coord_fixed() +
+    ggplot2::labs(
       title = paste("Spatial Spread of", compartment),
       subtitle = "Time: {closest_state}",
       x = "Column", 
       y = "Row"
     ) +
     ggplot2::theme_minimal() +
-    theme(
-      panel.grid = element_blank(),
-      axis.ticks = element_blank()
+    ggplot2::theme(
+      panel.grid = ggplot2::element_blank(),
+      axis.ticks = ggplot2::element_blank()
     ) +
     gganimate::transition_states(time) +
     gganimate::ease_aes('linear')
@@ -206,10 +206,10 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
   
   # Filter data
   plot_data <- results |>
-    filter(population == !!population)
+    dplyr::filter(population == !!population)
   
   if (!is.null(compartments)) {
-    plot_data <- plot_data |> filter(compartment %in% compartments)
+    plot_data <- plot_data |> dplyr::filter(compartment %in% compartments)
   }
   
   # Check if multiple replicates
@@ -218,8 +218,8 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
   if (multiple_reps && show_uncertainty) {
     # Plot with uncertainty bands
     summary_data <- plot_data |>
-      group_by(time, compartment) |>
-      summarise(
+      dplyr::group_by(time, compartment) |>
+      dplyr::summarise(
         median = median(value),
         lower = quantile(value, 0.025),
         upper = quantile(value, 0.975),
@@ -227,10 +227,10 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
       )
     
     p <- summary_data |>
-      ggplot(aes(time, median, color = compartment, fill = compartment)) +
-      geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3) +
-      geom_line(size = 1) +
-      labs(
+      ggplot2::ggplot(ggplot2::aes(time, median, color = compartment, fill = compartment)) +
+      ggplot2::geom_ribbon(ggplot2::aes(ymin = lower, ymax = upper), alpha = 0.3) +
+      ggplot2::geom_line(size = 1) +
+      ggplot2::labs(
         title = paste("Population Dynamics:", attr(results, "model_type")),
         subtitle = paste("Population", population, "with 95% uncertainty bands"),
         x = "Time (years)",
@@ -243,9 +243,9 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
     if (multiple_reps) {
       # Show individual replicates
       p <- plot_data |>
-        ggplot(aes(time, value, color = compartment, group = interaction(compartment, replicate))) +
-        geom_line(alpha = 0.6) +
-        labs(
+        ggplot2::ggplot(ggplot2::aes(time, value, color = compartment, group = interaction(compartment, replicate))) +
+        ggplot2::geom_line(alpha = 0.6) +
+        ggplot2::labs(
           title = paste("Population Dynamics:", attr(results, "model_type")),
           subtitle = paste("Population", population, "- All replicates"),
           x = "Time (years)",
@@ -255,9 +255,9 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
     } else {
       # Single replicate
       p <- plot_data |>
-        ggplot(aes(time, value, color = compartment)) +
-        geom_line(size = 1) +
-        labs(
+        ggplot2::ggplot(ggplot2::aes(time, value, color = compartment)) +
+        ggplot2::geom_line(size = 1) +
+        ggplot2::labs(
           title = paste("Population Dynamics:", attr(results, "model_type")),
           subtitle = paste("Population", population),
           x = "Time (years)",
@@ -267,10 +267,10 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
     }
   }
   
-  p <- p + theme_minimal()
+  p <- p + ggplot2::theme_minimal()
   
   if (log_scale) {
-    p <- p + scale_y_log10()
+    p <- p + ggplot2::scale_y_log10()
   }
   
   return(p)
@@ -289,11 +289,11 @@ plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = 
   
   # Calculate summary metric
   metric_data <- sensitivity_results |>
-    filter(compartment == !!compartment) |>
-    group_by(parameter, multiplier) |>
-    summarise(
+    dplyr::filter(compartment == !!compartment) |>
+    dplyr::group_by(parameter, multiplier) |>
+    dplyr::summarise(
       peak = max(value),
-      final = last(value),
+      final = dplyr::last(value),
       auc = sum(value) * unique(diff(time))[1],
       .groups = "drop"
     )
@@ -307,14 +307,14 @@ plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = 
   )
   
   p <- metric_data |>
-    ggplot(aes(multiplier, .data[[y_var]])) +
-    geom_line(size = 1) +
-    geom_point(size = 2) +
-    labs(
+    ggplot2::ggplot(ggplot2::aes(multiplier, .data[[y_var]])) +
+    ggplot2::geom_line(size = 1) +
+    ggplot2::geom_point(size = 2) +
+    ggplot2::labs(
       title = paste("Sensitivity Analysis:", compartment),
       subtitle = paste("Parameter:", unique(metric_data$parameter)),
       x = "Parameter Multiplier",
-      y = paste(str_to_title(metric), compartment),
+      y = paste(stringr::str_to_title(metric), compartment),
       caption = "Relative to baseline parameter value"
     ) +
     ggplot2::theme_minimal()

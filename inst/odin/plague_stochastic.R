@@ -17,16 +17,16 @@ print("total rats {T_r[1]}", when = T_r[1] <= 0)
 rat_birth_rate[] <- r_r * (1 - T_r[i] / K_r) # per capita
 rat_birth_rate_clipped[] <- if(rat_birth_rate[i] > 0) rat_birth_rate[i] else 0
 
-infection_force[] <- beta_r * n_fleas_to_rats[i] / T_r[i] # double check we're still handling time right
+lambda_r[] <- beta_r * n_fleas_to_rats[i] / T_r[i] # infection rate for rats
 
 # seasonal change in k_f
 season[] <- user()
 dim(season) <- user()
 season_t <- season[step + 1]
-K_f_seasonal <- K_f * (1 + 1) ^ season_t # the + 1 should be a parameter, but fixed to approximate KG for now
+K_f_seasonal <- K_f * (1 + seasonal_amplitude) ^ season_t
 
 ## Individual probabilities of transition:
-p_SI[] <- 1 - exp(-infection_force[i]) # S to I # no dt because this is already scaled to time in n_fleas_to_rats?
+p_SI[] <- 1 - exp(-lambda_r[i]) # S to I probability from infection rate
 p_IR[] <- 1 - exp(-m_r * dt) # I to R
 p_rat_birth[] <- 1 - exp(-rat_birth_rate_clipped[i] * dt) # natural rat birth probability
 p_rat_death <- 1 - exp(-d_r * dt) # natural rat death probability
@@ -125,7 +125,7 @@ dim(n_SI) <- npop
 dim(n_IR) <- npop
 dim(n_recovered) <- npop
 dim(flea_growth_rate) <- npop
-dim(infection_force) <- npop
+dim(lambda_r) <- npop
 dim(p_flea_to_rat) <- npop
 dim(n_fleas_to_rats) <- npop
 dim(n_deaths_S) <- npop
@@ -167,3 +167,4 @@ g_r <- user(0.02)     # Probability rat survives infection
 r_f <- user(20)       # Flea reproduction rate
 K_f <- user(6.57)     # Flea carrying capacity per rat
 d_f <- user(10)       # Death rate of free fleas
+seasonal_amplitude <- user(0.2)  # Amplitude of seasonal forcing
