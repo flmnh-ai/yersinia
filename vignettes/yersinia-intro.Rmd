@@ -163,9 +163,8 @@ Stochastic models include demographic noise and can model spatial structure:
 ```{r stochastic-model, eval=FALSE}
 # Spatial stochastic model (requires odin.dust)
 results_spatial <- run_plague_model(
-  model = "stochastic",
   params = "defaults", 
-  spatial = TRUE,
+  npop = 25,
   n_particles = 10,
   times = seq(0, 5, by = 0.1)
 )

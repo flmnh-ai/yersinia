@@ -355,9 +355,9 @@ plot.plague_results <- function(x, compartments = NULL, log_scale = FALSE, ...) 
 #' Run plague model simulation
 #' @param params Parameter set name, file path, or list of parameters
 #' @param times Vector of time points or NULL for default (0 to 10 years)
-#' @param include_humans Logical, include human dynamics
-#' @param spatial Logical, use spatial structure
-#' @param contact_matrix Contact matrix for spatial models (auto-generated if NULL)
+#' @param include_humans Logical, include human dynamics (only npop = 1 supported)
+#' @param npop Number of populations (1 for single population, >1 for spatial)
+#' @param contact_matrix Contact matrix for multi-population models (auto-generated if NULL and npop = 25)
 #' @param n_particles Number of particles for stochastic models
 #' @param n_threads Number of threads for parallel processing
 #' @param seasonal Logical, include seasonal forcing
@@ -367,7 +367,7 @@ plot.plague_results <- function(x, compartments = NULL, log_scale = FALSE, ...) 
 run_plague_model <- function(params = "defaults",
                              times = NULL,
                              include_humans = FALSE,
-                             spatial = FALSE,
+                             npop = 1,
                              contact_matrix = NULL,
                              n_particles = 100,
                              n_threads = 1,
@@ -388,62 +388,72 @@ run_plague_model <- function(params = "defaults",
   
   # All models are now stochastic - no validation needed
   
-  # Spatial and human models are mutually exclusive for now
-  if (spatial && include_humans) {
-    stop("Spatial human models not yet implemented - choose either spatial OR include_humans")
+  # Multi-population human models not yet implemented
+  if (npop > 1 && include_humans) {
+    stop("Multi-population human models not yet implemented - use npop = 1 with include_humans = TRUE")
   }
   
-  # Generate contact matrix for spatial models
-  if (spatial && is.null(contact_matrix)) {
-    # Default to 5x5 grid
-    contact_matrix <- make_contact_matrix(5, 5)
-    npop <- 25
-  } else if (spatial) {
-    npop <- nrow(contact_matrix)
+  # Generate contact matrix for multi-population models
+  if (npop > 1 && is.null(contact_matrix)) {
+    # Default to 5x5 grid if npop = 25, otherwise error
+    if (npop == 25) {
+      contact_matrix <- make_contact_matrix(5, 5)
+    } else {
+      stop("contact_matrix required when npop > 1 (except npop = 25 defaults to 5x5 grid)")
+    }
+  } else if (npop > 1) {
+    # Validate contact matrix dimensions
+    if (nrow(contact_matrix) != npop || ncol(contact_matrix) != npop) {
+      stop("contact_matrix must be ", npop, "x", npop, " matrix")
+    }
   } else {
-    npop <- 1
+    # Single population case
+    contact_matrix <- matrix(1, 1, 1)
   }
   
   # Prepare model-specific parameters
   sim_params <- as.list(model_params)
   
-  if (spatial) {
-    sim_params$npop <- npop
-    sim_params$contact <- contact_matrix
-    # Handle I_ini for spatial models (needs to be a vector)
-    if ("I_ini" %in% names(sim_params) && length(sim_params$I_ini) == 1) {
-      sim_params$I_ini <- c(sim_params$I_ini, rep(0, npop - 1))  # Start infection in patch 1
-    } else if (!"I_ini" %in% names(sim_params)) {
-      sim_params$I_ini <- c(10, rep(0, npop - 1))  # Default for spatial
-    }
-    sim_params$S_ini <- 1
-    sim_params$K_r <- sim_params$K_r / npop  # Distribute carrying capacity
+  # Always set up parameters for spatial framework (works for npop = 1 too)
+  sim_params$npop <- npop
+  sim_params$contact <- contact_matrix
+  
+  # Handle I_ini (needs to be a vector for odin model)
+  if ("I_ini" %in% names(sim_params) && length(sim_params$I_ini) == 1) {
+    sim_params$I_ini <- c(sim_params$I_ini, rep(0, npop - 1))  # Start infection in population 1
+  } else if (!"I_ini" %in% names(sim_params)) {
+    sim_params$I_ini <- c(10, rep(0, npop - 1))  # Default initial infection
+  }
+  
+  sim_params$S_ini <- 1
+  
+  # Distribute carrying capacity across populations
+  if (npop > 1) {
+    sim_params$K_r <- sim_params$K_r / npop
   }
   
   # Add temporal parameters
-  if (model == "stochastic") {
-    dt <- 1/52  # Weekly timesteps for stochastic models
-    sim_params$dt <- dt
-    timesteps <- 1:(dt^-1 * max(times))
-    
-    # Always provide season parameter for stochastic models (even if flat)
-    if (seasonal) {
-      sim_params$season <- get_seasonal_forcing(timesteps)
-    } else {
-      # Provide flat seasonal forcing (no variation)
-      sim_params$season <- rep(0, length(timesteps))
-    }
+  dt <- 1/52  # Weekly timesteps for stochastic models
+  sim_params$dt <- dt
+  timesteps <- 1:(dt^-1 * max(times))
+  
+  # Always provide season parameter for stochastic models (even if flat)
+  if (seasonal) {
+    sim_params$season <- get_seasonal_forcing(timesteps)
+  } else {
+    # Provide flat seasonal forcing (no variation)
+    sim_params$season <- rep(0, length(timesteps))
   }
   
   # Run the appropriate stochastic model
-  if (spatial) {
-    results <- run_spatial_stochastic_model(sim_params, timesteps, n_particles, n_threads)
-    model_type <- "stochastic_spatial"
-  } else if (include_humans) {
+  if (include_humans) {
+    # Single-population human model (npop = 1 enforced above)
     results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads)
     model_type <- "stochastic_humans"
   } else {
-    stop("Non-spatial rat-only stochastic model not implemented yet - use spatial=TRUE with single population")
+    # Always use spatial model (works for npop = 1 or npop > 1)
+    results <- run_spatial_stochastic_model(sim_params, timesteps, n_particles, n_threads)
+    model_type <- if (npop > 1) "stochastic_spatial" else "stochastic_single"
   }
   
   # Create run info
@@ -451,7 +461,7 @@ run_plague_model <- function(params = "defaults",
     timestamp = Sys.time(),
     model = "stochastic",
     include_humans = include_humans,
-    spatial = spatial,
+    npop = npop,
     n_particles = n_particles,
     seasonal = seasonal
   )
@@ -469,18 +479,9 @@ run_plague_model <- function(params = "defaults",
 #' @param n_threads Number of threads
 #' @return Tidy tibble with results
 run_spatial_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
-  # Use existing function but convert output to standard format
+  # Clean pipeline - no redundant processing needed
   results <- run_stochastic_simulation(params, timesteps, n_particles, n_threads)
-  
-  # Convert to standard format
-  results |>
-    dplyr::rename(population = subpop) |>
-    dplyr::mutate(
-      time = time,
-      population = as.integer(population),
-      replicate = as.integer(rep)
-    ) |>
-    dplyr::select(time, compartment, population, replicate, value)
+  return(results)
 }
 
 #' Run human stochastic model
@@ -511,20 +512,15 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
       dim = c(10, n_particles, length(timesteps)),
       dimnames = list(
         compartment = c('S', 'I', 'R', 'D', 'N', 'F', 'Sh', 'Ih', 'Rh', 'Dh'),
-        rep = 1:n_particles,
+        replicate = 1:n_particles,
         time = timesteps * params$dt
       )
     ) |>
     cubelyr::as.tbl_cube(met_name = 'value') |>
-    tibble::as_tibble()
+    tibble::as_tibble() |>
+    dplyr::mutate(population = 1L)  # Single population only
   
-  # Convert to standard format
-  state |>
-    dplyr::mutate(
-      population = 1L,  # Single population
-      replicate = as.integer(rep)
-    ) |>
-    dplyr::select(time, compartment, population, replicate, value)
+  return(state)
 }
 
 #' Create simulation timepoints
@@ -837,9 +833,9 @@ run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_thre
     array(
       dim = c(params$npop, 5, n_particles, length(timesteps)),
       dimnames = list(
-        subpop = 1:params$npop,
+        population = 1:params$npop,
         compartment = c('S', 'I', 'R', 'N', 'F'),
-        rep = 1:n_particles,
+        replicate = 1:n_particles,
         time = timesteps * params$dt
       )
     ) |>

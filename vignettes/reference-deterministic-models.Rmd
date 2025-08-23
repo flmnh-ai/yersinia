@@ -338,9 +338,9 @@ human_results |>
 The deterministic models provide the **mean-field approximation** of the stochastic processes. Compare with the package's stochastic models:
 
 ```{r compare_stochastic}
-# Run equivalent stochastic model (spatial with single population)
+# Run equivalent stochastic model (single population)
 stochastic_results <- run_plague_model(
-  spatial = TRUE,
+  npop = 1,
   n_particles = 10,  # Few particles for demonstration
   times = seq(0, 10, by = 0.2)
 )
