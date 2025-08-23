@@ -353,11 +353,10 @@ plot.plague_results <- function(x, compartments = NULL, log_scale = FALSE, ...) 
 # Main Simulation Interface ---------------------------------------------------
 
 #' Run plague model simulation
-#' @param model Model type: "deterministic", "stochastic", "spatial"
 #' @param params Parameter set name, file path, or list of parameters
 #' @param times Vector of time points or NULL for default (0 to 10 years)
 #' @param include_humans Logical, include human dynamics
-#' @param spatial Logical, use spatial structure (only for stochastic models)
+#' @param spatial Logical, use spatial structure
 #' @param contact_matrix Contact matrix for spatial models (auto-generated if NULL)
 #' @param n_particles Number of particles for stochastic models
 #' @param n_threads Number of threads for parallel processing
@@ -365,8 +364,7 @@ plot.plague_results <- function(x, compartments = NULL, log_scale = FALSE, ...) 
 #' @param ... Additional parameters to override
 #' @return plague_results object
 #' @export
-run_plague_model <- function(model = "deterministic",
-                             params = "defaults", 
+run_plague_model <- function(params = "defaults",
                              times = NULL,
                              include_humans = FALSE,
                              spatial = FALSE,
@@ -388,15 +386,11 @@ run_plague_model <- function(model = "deterministic",
     times <- seq(0, 10, by = 0.1)
   }
   
-  # Validate model type
-  valid_models <- c("deterministic", "stochastic")
-  if (!model %in% valid_models) {
-    stop("Model must be one of: ", paste(valid_models, collapse = ", "))
-  }
+  # All models are now stochastic - no validation needed
   
-  # Spatial models must be stochastic for now
-  if (spatial && model != "stochastic") {
-    stop("Spatial models currently only supported for stochastic simulations")
+  # Spatial and human models are mutually exclusive for now
+  if (spatial && include_humans) {
+    stop("Spatial human models not yet implemented - choose either spatial OR include_humans")
   }
   
   # Generate contact matrix for spatial models
@@ -441,29 +435,24 @@ run_plague_model <- function(model = "deterministic",
     }
   }
   
-  # Run the appropriate model
-  if (model == "deterministic") {
-    results <- run_deterministic_model(sim_params, times, include_humans, seasonal)
-    model_type <- paste0("deterministic", if(include_humans) "_humans" else "")
-  } else if (model == "stochastic") {
-    if (spatial) {
-      results <- run_spatial_stochastic_model(sim_params, timesteps, n_particles, n_threads)
-      model_type <- "stochastic_spatial"
-    } else if (include_humans) {
-      results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads)
-      model_type <- "stochastic_humans"
-    } else {
-      stop("Non-spatial stochastic rat-only model not implemented yet")
-    }
+  # Run the appropriate stochastic model
+  if (spatial) {
+    results <- run_spatial_stochastic_model(sim_params, timesteps, n_particles, n_threads)
+    model_type <- "stochastic_spatial"
+  } else if (include_humans) {
+    results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads)
+    model_type <- "stochastic_humans"
+  } else {
+    stop("Non-spatial rat-only stochastic model not implemented yet - use spatial=TRUE with single population")
   }
   
   # Create run info
   run_info <- list(
     timestamp = Sys.time(),
-    model = model,
+    model = "stochastic",
     include_humans = include_humans,
     spatial = spatial,
-    n_particles = if(model == "stochastic") n_particles else 1,
+    n_particles = n_particles,
     seasonal = seasonal
   )
   
@@ -472,65 +461,6 @@ run_plague_model <- function(model = "deterministic",
 }
 
 # Model-specific runner functions ---------------------------------------------
-
-#' Run deterministic model
-#' @param params List of parameters
-#' @param times Vector of time points
-#' @param include_humans Include human dynamics
-#' @param seasonal Include seasonal forcing
-#' @return Tidy tibble with results
-run_deterministic_model <- function(params, times, include_humans, seasonal) {
-  # Define parameter filters for each model type
-  base_params <- c("K_r", "r_r", "p", "d_r", "beta_r", "a", "m_r", "g_r", 
-                   "r_f", "K_f", "d_f", "I_ini")
-  seasonal_params <- c(base_params, "seasonal_amplitude", "day", "season")
-  human_params <- c(base_params, "K_h", "r_h", "d_h", "beta_h", "m_h", "g_h")
-  
-  # Select appropriate model and filter parameters
-  if (include_humans) {
-    model_gen <- create_deterministic_human_model()
-    # Filter to only include parameters the human model uses
-    filtered_params <- params[intersect(names(params), human_params)]
-    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "S_h", "I_h", "R_h", "lambda_h")
-  } else if (seasonal) {
-    model_gen <- create_seasonal_deterministic_model()
-    
-    # Prepare seasonal forcing data
-    day_seq <- seq(0, 365, by = 1)
-    season_seq <- sin(2 * pi * day_seq / 365)
-    filtered_params <- params[intersect(names(params), base_params)]
-    filtered_params$day <- day_seq
-    filtered_params$season <- season_seq
-    filtered_params$seasonal_amplitude <- if ("seasonal_amplitude" %in% names(params)) params$seasonal_amplitude else 0.2
-    
-    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda_h")
-  } else {
-    model_gen <- create_deterministic_model()
-    # Filter to only include parameters the base model uses
-    filtered_params <- params[intersect(names(params), base_params)]
-    expected_vars <- c("S_r", "I_r", "R_r", "N", "F", "lambda_h")
-  }
-  
-  # Create model instance with filtered parameters
-  # Use the proper R6 generator method to avoid deprecation warnings
-  model <- model_gen$new(user = filtered_params)
-  
-  # Run simulation
-  output <- model$run(times)
-  
-  # Convert to tidy format
-  results <- tibble::as_tibble(output) |>
-    tidyr::pivot_longer(-t, names_to = "compartment", values_to = "value") |>
-    dplyr::rename(time = t) |>
-    dplyr::filter(compartment %in% expected_vars) |>
-    dplyr::mutate(
-      population = 1L,     # Single population for deterministic models
-      replicate = 1L       # Single replicate for deterministic models  
-    ) |>
-    dplyr::select(time, compartment, population, replicate, value)
-  
-  return(results)
-}
 
 #' Run spatial stochastic model
 #' @param params List of parameters

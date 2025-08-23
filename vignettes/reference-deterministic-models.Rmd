@@ -1,0 +1,402 @@
+---
+title: "Reference Deterministic Plague Models"
+author: "yersinia package"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Reference Deterministic Plague Models}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+```{r setup}
+library(yersinia)
+library(ggplot2)
+library(dplyr)
+```
+
+# Introduction
+
+This vignette demonstrates how to implement **classical deterministic plague models** that serve as references for understanding plague transmission dynamics. These models are based on established literature (e.g., Keeling & Gilligan 2000) and provide educational examples.
+
+**Note**: The main `yersinia` package focuses on advanced stochastic models for operational research. For production work, use `run_plague_model()` which implements modern stochastic models with realistic biological mechanisms.
+
+# Basic Deterministic Model
+
+The basic model tracks rats (S, I, R) and fleas (N, F) with simple transmission dynamics:
+
+```{r basic_model}
+# Basic deterministic model using inline odin code
+basic_plague_model <- odin::odin({
+  # State variables
+  initial(S_r) <- K_r - I_ini
+  initial(I_r) <- I_ini  
+  initial(R_r) <- 0
+  initial(N) <- K_f
+  initial(F) <- 0
+
+  # Total rat population
+  T_r <- S_r + I_r + R_r  
+
+  # Force of infection in humans (for comparison with literature)
+  lambda_h <- F * exp(-a * T_r)
+  output(lambda_h) <- lambda_h  
+
+  # Rat population dynamics
+  deriv(S_r) <- r_r * S_r * (1 - T_r/K_r) +                # Births from susceptibles
+                r_r * R_r * (1 - p) -                       # Non-immune births from resistant
+                d_r * S_r -                                 # Natural deaths
+                beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r))  # Infections
+
+  deriv(I_r) <- beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r)) -  # New infections
+                (d_r + m_r) * I_r                              # Death/Recovery
+
+  deriv(R_r) <- r_r * R_r * (p - T_r/K_r) +   # Inherited immune births
+                m_r * g_r * I_r -              # Recovery
+                d_r * R_r                      # Natural death
+
+  # Flea dynamics
+  deriv(N) <- r_f * N * (1 - N/K_f) +                   # Logistic growth
+              F * (1 - exp(-a*T_r)) / T_r               # Free fleas finding rats
+
+  deriv(F) <- (d_r + m_r * (1 - g_r)) * I_r * N -       # Free infected fleas from dead rats
+              d_f * F                                    # Free flea deaths
+
+  # Parameters (Keeling & Gilligan values)
+  K_r <- user(2500)      # Rat carrying capacity
+  r_r <- user(5)         # Rat population growth rate 
+  p <- user(0.975)       # Probability of inherited resistance
+  d_r <- user(0.2)       # Natural death rate of rats
+  beta_r <- user(4.7)    # Rat infection rate from fleas
+  a <- user(4e-3)        # Flea search efficiency
+  m_r <- user(20)        # Infected rat mortality rate
+  g_r <- user(0.02)      # Probability rat survives infection
+  r_f <- user(20)        # Flea reproduction rate
+  K_f <- user(6.57)      # Flea carrying capacity per rat
+  d_f <- user(10)        # Death rate of free fleas
+  I_ini <- user(1)       # Initial infected rats
+})
+```
+
+## Running the Basic Model
+
+```{r run_basic}
+# Load default parameters
+params <- load_parameters("defaults")
+
+# Create model instance
+model <- basic_plague_model$new(user = params)
+
+# Run simulation
+times <- seq(0, 10, by = 0.1)
+results <- model$run(times)
+
+# Convert to tidy format for plotting
+results_tidy <- results |>
+  tibble::as_tibble() |>
+  tidyr::pivot_longer(-t, names_to = "compartment", values_to = "value") |>
+  dplyr::rename(time = t)
+
+# Plot results
+results_tidy |>
+  filter(compartment %in% c("S_r", "I_r", "R_r", "F")) |>
+  ggplot(aes(time, value, color = compartment)) +
+  geom_line(size = 1) +
+  scale_y_log10() +
+  labs(title = "Basic Deterministic Plague Model",
+       x = "Time (years)", y = "Population (log scale)") +
+  theme_minimal()
+```
+
+# Seasonal Deterministic Model
+
+Adding seasonal variation to flea carrying capacity:
+
+```{r seasonal_model}
+seasonal_plague_model <- odin::odin({
+  # State variables (same as basic model)
+  initial(S_r) <- K_r - I_ini
+  initial(I_r) <- I_ini  
+  initial(R_r) <- 0
+  initial(N) <- K_f
+  initial(F) <- 0
+
+  # Total rat population
+  T_r <- S_r + I_r + R_r  
+
+  # Force of infection in humans
+  lambda_h <- F * exp(-a * T_r)
+  output(lambda_h) <- lambda_h  
+
+  # Seasonal forcing on flea carrying capacity
+  season_t <- interpolate(day, season, 'spline')
+  K_f_seasonal <- K_f * (1 + seasonal_amplitude) ^ season_t
+
+  # Rat dynamics (same as basic)
+  deriv(S_r) <- r_r * S_r * (1 - T_r/K_r) +                
+                r_r * R_r * (1 - p) -                       
+                d_r * S_r -                                 
+                beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r))
+
+  deriv(I_r) <- beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r)) -
+                (d_r + m_r) * I_r                              
+
+  deriv(R_r) <- r_r * R_r * (p - T_r/K_r) +   
+                m_r * g_r * I_r -              
+                d_r * R_r                      
+
+  # Flea dynamics with seasonal carrying capacity
+  deriv(N) <- r_f * N * (1 - N/K_f_seasonal) +       
+              F * (1 - exp(-a*T_r)) / T_r            
+
+  deriv(F) <- (d_r + m_r * (1 - g_r)) * I_r * N -   
+              d_f * F                                
+
+  # Base parameters
+  K_r <- user(2500)
+  r_r <- user(5)        
+  p <- user(0.975)      
+  d_r <- user(0.2)      
+  beta_r <- user(4.7)   
+  a <- user(4e-3)       
+  m_r <- user(20)       
+  g_r <- user(0.02)     
+  r_f <- user(20)       
+  K_f <- user(6.57)     
+  d_f <- user(10)       
+  I_ini <- user(1)      
+
+  # Seasonal parameters
+  seasonal_amplitude <- user(0.2)  
+  day[] <- user()                 
+  season[] <- user()              
+  dim(day) <- user()
+  dim(season) <- user()
+})
+```
+
+## Running the Seasonal Model
+
+```{r run_seasonal}
+# Create seasonal forcing
+day_seq <- seq(0, 365, by = 1)
+season_seq <- sin(2 * pi * day_seq / 365)
+
+# Parameters with seasonal forcing
+seasonal_params <- c(params, list(
+  seasonal_amplitude = 0.2,
+  day = day_seq,
+  season = season_seq
+))
+
+# Create and run model
+seasonal_model <- seasonal_plague_model$new(user = seasonal_params)
+seasonal_results <- seasonal_model$run(times)
+
+# Plot comparison
+seasonal_tidy <- seasonal_results |>
+  tibble::as_tibble() |>
+  tidyr::pivot_longer(-t, names_to = "compartment", values_to = "value") |>
+  dplyr::rename(time = t) |>
+  mutate(model = "Seasonal")
+
+basic_tidy <- results_tidy |>
+  mutate(model = "Basic")
+
+# Compare infected rats
+bind_rows(basic_tidy, seasonal_tidy) |>
+  filter(compartment == "I_r") |>
+  ggplot(aes(time, value, color = model)) +
+  geom_line(size = 1) +
+  scale_y_log10() +
+  labs(title = "Basic vs Seasonal Models: Infected Rats",
+       x = "Time (years)", y = "Infected Rats (log scale)") +
+  theme_minimal()
+```
+
+# Human-Included Deterministic Model
+
+Adding human population dynamics:
+
+```{r human_model}
+human_plague_model <- odin::odin({
+  # State variables
+  initial(S_r) <- K_r - I_ini
+  initial(I_r) <- I_ini  
+  initial(R_r) <- 0
+  initial(N) <- K_f
+  initial(F) <- 0
+  initial(S_h) <- K_h                 
+  initial(I_h) <- 0                   
+  initial(R_h) <- 0                   
+
+  # Total populations
+  T_r <- S_r + I_r + R_r  
+  T_h <- S_h + I_h + R_h
+
+  # Force of infection in humans
+  lambda_h <- F * exp(-a * T_r)
+  output(lambda_h) <- lambda_h  
+
+  # Rat dynamics (same as basic model)
+  deriv(S_r) <- r_r * S_r * (1 - T_r/K_r) +                
+                r_r * R_r * (1 - p) -                       
+                d_r * S_r -                                 
+                beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r))
+
+  deriv(I_r) <- beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r)) -
+                (d_r + m_r) * I_r                              
+
+  deriv(R_r) <- r_r * R_r * (p - T_r/K_r) +   
+                m_r * g_r * I_r -              
+                d_r * R_r                      
+
+  # Human population dynamics
+  deriv(S_h) <- r_h * (S_h + R_h) * (1 - T_h/K_h) -    # Births
+                d_h * S_h -                              # Natural deaths
+                beta_h * S_h * lambda_h                  # Infections
+
+  deriv(I_h) <- beta_h * S_h * lambda_h -               # New infections
+                (d_h + m_h) * I_h                       # Death/Recovery
+
+  deriv(R_h) <- m_h * g_h * I_h -                       # Recovery
+                d_h * R_h                               # Natural death
+
+  # Flea dynamics (same as basic model)
+  deriv(N) <- r_f * N * (1 - N/K_f) +                   
+              F * (1 - exp(-a*T_r)) / T_r               
+
+  deriv(F) <- (d_r + m_r * (1 - g_r)) * I_r * N -       
+              d_f * F                                    
+
+  # Rat parameters
+  K_r <- user(2500)
+  r_r <- user(5)        
+  p <- user(0.975)      
+  d_r <- user(0.2)      
+  beta_r <- user(4.7)   
+  a <- user(4e-3)       
+  m_r <- user(20)       
+  g_r <- user(0.02)     
+  I_ini <- user(1)      
+
+  # Human parameters
+  K_h <- user(5000)     
+  r_h <- user(0.045)    
+  d_h <- user(0.04)     
+  beta_h <- user(0.01)  
+  m_h <- user(26)       
+  g_h <- user(0.1)      
+
+  # Flea parameters
+  r_f <- user(20)       
+  K_f <- user(6.57)     
+  d_f <- user(10)       
+})
+```
+
+## Running the Human Model
+
+```{r run_human}
+# Parameters including human values
+human_params <- c(params, list(
+  K_h = 5000, r_h = 0.045, d_h = 0.04,
+  beta_h = 0.01, m_h = 26, g_h = 0.1
+))
+
+# Create and run model
+human_model <- human_plague_model$new(user = human_params)
+human_results <- human_model$run(times)
+
+# Plot human and rat dynamics
+human_results |>
+  tibble::as_tibble() |>
+  tidyr::pivot_longer(-t, names_to = "compartment", values_to = "value") |>
+  dplyr::rename(time = t) |>
+  filter(compartment %in% c("I_r", "I_h")) |>
+  ggplot(aes(time, value, color = compartment)) +
+  geom_line(size = 1) +
+  scale_y_log10() +
+  labs(title = "Human-Included Model: Infected Populations",
+       x = "Time (years)", y = "Infected (log scale)",
+       color = "Species") +
+  scale_color_discrete(labels = c("Humans", "Rats")) +
+  theme_minimal()
+```
+
+# Comparison with Stochastic Models
+
+The deterministic models provide the **mean-field approximation** of the stochastic processes. Compare with the package's stochastic models:
+
+```{r compare_stochastic}
+# Run equivalent stochastic model (spatial with single population)
+stochastic_results <- run_plague_model(
+  spatial = TRUE,
+  n_particles = 10,  # Few particles for demonstration
+  times = seq(0, 10, by = 0.2)
+)
+
+# Plot comparison of infected rats
+plot_comparison(
+  list("Deterministic" = tibble::tibble(
+    time = results$t,
+    compartment = "I",
+    population = 1,
+    replicate = 1,
+    value = results$I_r
+  ) |> structure(class = c("plague_results", "tbl_df", "tbl", "data.frame")),
+  "Stochastic" = stochastic_results |> filter(compartment == "I")),
+  compartment = "I"
+) +
+  scale_y_log10() +
+  labs(title = "Deterministic vs Stochastic: Infected Rats")
+```
+
+# Key Differences from Modern Models
+
+These reference deterministic models differ from the package's operational stochastic models:
+
+## 1. **Infection Rate Formulation**
+- **Deterministic**: `beta_r * (S_r/T_r) * F * (1 - exp(-a*T_r))`
+- **Stochastic**: `beta_r * n_fleas_to_rats / T_r`
+
+The deterministic version assumes fleas preferentially bite susceptible rats, while the stochastic version has fleas bite randomly.
+
+## 2. **Missing Trade-offs**
+- **Deterministic**: All rats have same birth rate
+- **Stochastic**: Resistant rats have 25% reduced fecundity (resistance-reproduction trade-off)
+
+## 3. **Population Growth**  
+- **Deterministic**: Perfect logistic growth
+- **Stochastic**: Demographic stochasticity and discrete births/deaths
+
+# When to Use Each Model Type
+
+## **Use Deterministic Models For:**
+- Teaching plague transmission concepts
+- Quick parameter exploration  
+- Comparison with classical literature
+- Understanding mean behavior
+- Equilibrium analysis
+
+## **Use Stochastic Models For:**
+- Operational research and forecasting
+- Realistic biological mechanisms
+- Spatial spread analysis  
+- Extinction probability assessment
+- Modern research incorporating evolutionary trade-offs
+
+# References
+
+- Keeling, M.J. & Gilligan, C.A. (2000). Bubonic plague: a metapopulation model of a zoonosis. *Proc. R. Soc. Lond. B* 267, 2219-2230.
+
+For modern stochastic implementations with advanced biological realism, see the main package documentation: `?run_plague_model`.
