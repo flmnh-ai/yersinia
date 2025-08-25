@@ -17,7 +17,7 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Nick Gauthier \email{nicolas.gauthier@ufl.edu} (\href{https://orcid.org/YOUR-ORCID-ID}{ORCID})
+\strong{Maintainer}: Nick Gauthier \email{nicolas.gauthier@ufl.edu} (\href{https://orcid.org/0000-0002-2225-5827}{ORCID})
 
 }
 \keyword{internal}

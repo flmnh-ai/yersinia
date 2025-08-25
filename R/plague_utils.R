@@ -550,8 +550,6 @@ run_plague_model <- function(params = "defaults",
     times <- seq(0, 10, by = 0.1)
   }
 
-  # All models are now stochastic - no validation needed
-
   # Multi-population human models not yet implemented
   if (npop > 1 && include_humans) {
     stop("Multi-population human models not yet implemented - use npop = 1 with include_humans = TRUE")
@@ -666,14 +664,7 @@ run_plague_model <- function(params = "defaults",
 #' @param n_threads Number of threads
 #' @return Tidy tibble with results
 run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
-  # Initialize model using plague_stochastic_humans.R
-  model_path <- system.file("odin", "plague_stochastic_humans.R", package = "yersinia")
-  if (model_path == "") {
-    # Fallback for development mode
-    model_path <- file.path("inst", "odin", "plague_stochastic_humans.R")
-  }
-  plague_model_humans <- odin.dust::odin_dust(model_path)
-  model <- plague_model_humans$new(
+  model <- plague_stochastic_humans$new(
     pars = params,
     time = 1L,
     n_particles = n_particles,
@@ -927,14 +918,7 @@ animate_spatial_spread <- function(results, timepoints, n_rows, n_cols) {
 #' @param n_threads Number of threads for parallel processing
 #' @return Data frame with simulation results
 run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1) {
-  # Initialize model
-  model_path <- system.file("odin", "plague_stochastic.R", package = "yersinia")
-  if (model_path == "") {
-    # Fallback for development mode
-    model_path <- file.path("inst", "odin", "plague_stochastic.R")
-  }
-  plague_model_stochastic <- odin.dust::odin_dust(model_path)
-  model <- plague_model_stochastic$new(
+  model <- plague_stochastic$new(
     pars = params,
     time = 1L,
     n_particles = n_particles,
