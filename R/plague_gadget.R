@@ -19,7 +19,7 @@ explore_plague_model <- function(initial_params = NULL) {
   }
 
   if (is.null(initial_params)) {
-    initial_params <- load_plague_parameters()
+    initial_params <- load_parameters("defaults")
   }
 
   ui <- miniUI::miniPage(

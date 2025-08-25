@@ -556,7 +556,6 @@ plot.plague_results <- function(x, compartments = NULL, log_scale = FALSE, ...) 
 #' @param n_particles Number of particles for stochastic models
 #' @param n_threads Number of threads for parallel processing
 #' @param seasonal Logical, include seasonal forcing
-#' @param progress Logical, show progress messages for long simulations (default TRUE)
 #' @param ... Additional parameters to override
 #' @return plague_results object
 #' @export
@@ -568,7 +567,6 @@ run_plague_model <- function(params = "defaults",
                              n_particles = 100,
                              n_threads = 1,
                              seasonal = FALSE,
-                             progress = TRUE,
                              ...) {
   
   # Load and validate parameters
@@ -656,29 +654,24 @@ run_plague_model <- function(params = "defaults",
     sim_params$season <- rep(0, length(timesteps))
   }
   
-  # Simple progress messages for long simulations
-  show_messages <- progress && (n_particles > 50 || length(timesteps) > 1000)
-  if (show_messages) {
-    start_time <- Sys.time()
-    message("🚀 Running ", n_particles, " particles over ", length(timesteps), " time steps...")
-  }
+  # Show simulation info
+  start_time <- Sys.time()
+  message("🚀 Running ", n_particles, " particles over ", length(timesteps), " time steps...")
   
   # Run the appropriate stochastic model
   if (include_humans) {
     # Single-population human model (npop = 1 enforced above)
-    results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads, show_messages)
+    results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads)
     model_type <- "stochastic_humans"
   } else {
     # Always use spatial model (works for npop = 1 or npop > 1)
-    results <- run_spatial_stochastic_model(sim_params, timesteps, n_particles, n_threads, show_messages)
+    results <- run_stochastic_simulation(sim_params, timesteps, n_particles, n_threads)
     model_type <- if (npop > 1) "stochastic_spatial" else "stochastic_single"
   }
   
   # Completion message
-  if (show_messages && exists("start_time")) {
-    elapsed <- round(as.numeric(Sys.time() - start_time, units = "secs"), 1)
-    message("✅ Simulation completed in ", elapsed, "s")
-  }
+  elapsed <- round(as.numeric(Sys.time() - start_time, units = "secs"), 1)
+  message("✅ Simulation completed in ", elapsed, "s")
   
   # Create run info
   run_info <- list(
@@ -696,27 +689,14 @@ run_plague_model <- function(params = "defaults",
 
 # Model-specific runner functions ---------------------------------------------
 
-#' Run spatial stochastic model
-#' @param params List of parameters
-#' @param timesteps Vector of timesteps
-#' @param n_particles Number of particles
-#' @param n_threads Number of threads
-#' @param show_progress Logical, show progress messages
-#' @return Tidy tibble with results
-run_spatial_stochastic_model <- function(params, timesteps, n_particles, n_threads, show_progress = FALSE) {
-  # Clean pipeline - no redundant processing needed
-  results <- run_stochastic_simulation(params, timesteps, n_particles, n_threads, show_progress)
-  return(results)
-}
 
 #' Run human stochastic model
 #' @param params List of parameters
 #' @param timesteps Vector of timesteps
 #' @param n_particles Number of particles
 #' @param n_threads Number of threads
-#' @param show_progress Logical, show progress messages
 #' @return Tidy tibble with results
-run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads, show_progress = FALSE) {
+run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
   # Initialize model using plague_stochastic_humans.R
   model_path <- system.file("odin", "plague_stochastic_humans.R", package = "yersinia")
   if (model_path == "") {
@@ -976,9 +956,8 @@ animate_spatial_spread <- function(results, timepoints, n_rows, n_cols) {
 #' @param timesteps Vector of timesteps
 #' @param n_particles Number of particles (replicates)
 #' @param n_threads Number of threads for parallel processing
-#' @param show_progress Logical, show progress messages
 #' @return Data frame with simulation results
-run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1, show_progress = FALSE) {
+run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1) {
   # Initialize model
   model_path <- system.file("odin", "plague_stochastic.R", package = "yersinia")
   if (model_path == "") {
