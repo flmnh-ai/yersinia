@@ -142,42 +142,8 @@ validate_parameters <- function(params) {
 #' @param ... Additional arguments (ignored)
 #' @export
 print.plague_parameters <- function(x, ...) {
-  cat("Plague Model Parameters\n")
-  cat("=======================\n")
-  cat("Parameter set:", attr(x, "param_set"), "\n")
-  if (attr(x, "modified")) cat("(with user modifications)\n")
-  cat("\n")
-  
-  # Group parameters by category
-  rat_params <- x[c("K_r", "r_r", "p", "d_r")]
-  disease_params <- x[c("beta_r", "m_r", "g_r")]
-  flea_params <- x[c("r_f", "K_f", "d_f", "a")]
-  
-  cat("Rat population:\n")
-  for (name in names(rat_params)) {
-    cat(sprintf("  %s: %g\n", name, rat_params[[name]]))
-  }
-  
-  cat("\nDisease dynamics:\n")
-  for (name in names(disease_params)) {
-    cat(sprintf("  %s: %g\n", name, disease_params[[name]]))
-  }
-  
-  cat("\nFlea dynamics:\n")
-  for (name in names(flea_params)) {
-    cat(sprintf("  %s: %g\n", name, flea_params[[name]]))
-  }
-  
-  # Show human parameters if present
-  human_params <- x[intersect(names(x), c("K_h", "r_h", "d_h", "beta_h", "m_h", "g_h"))]
-  if (length(human_params) > 0) {
-    cat("\nHuman dynamics:\n")
-    for (name in names(human_params)) {
-      cat(sprintf("  %s: %g\n", name, human_params[[name]]))
-    }
-  }
-  
-  invisible(x)
+  cat("Plague Parameters (", attr(x, "param_set"), ")\n", sep = "")
+  NextMethod("print")
 }
 
 # Plague Results Class --------------------------------------------------------
@@ -439,7 +405,7 @@ run_plague_model <- function(params = "defaults",
   
   # Always provide season parameter for stochastic models (even if flat)
   if (seasonal) {
-    sim_params$season <- get_seasonal_forcing(timesteps)
+    sim_params$season <- sin(2 * pi * ((timesteps * 365) %% 365) / 365) * 0.2
   } else {
     # Provide flat seasonal forcing (no variation)
     sim_params$season <- rep(0, length(timesteps))
@@ -644,47 +610,6 @@ calculate_R0 <- function(params) {
   })
 }
 
-#' Create seasonal forcing
-#' @param times Vector of timepoints
-#' @param amplitude Seasonal amplitude
-#' @return Vector of seasonal multipliers
-create_seasonal_forcing <- function(times, amplitude = 0.2) {
-  sin(2 * pi * ((times * 365) %% 365) / 365) * amplitude
-}
-
-#' Save parameter set to YAML
-#' @param params Parameter list
-#' @param file Filename to save to
-#' @return Invisibly returns the parameter list
-save_parameters <- function(params, file) {
-  yaml::write_yaml(params, file)
-  invisible(params)
-}
-
-#' Format parameters for display
-#' @param params Parameter list
-#' @return Character string with formatted parameters
-format_parameters <- function(params) {
-  param_names <- c(
-    K_r = "Rat carrying capacity",
-    r_r = "Rat growth rate",
-    p = "Inherited resistance prob.",
-    d_r = "Rat death rate",
-    beta_r = "Infection rate",
-    a = "Flea search efficiency",
-    m_r = "Recovery rate",
-    g_r = "Survival probability",
-    r_f = "Flea growth rate",
-    K_f = "Flea carrying capacity",
-    d_f = "Flea death rate"
-  )
-
-  paste(sprintf("%s (%s): %g",
-                param_names[names(params)],
-                names(params),
-                unlist(params)),
-        collapse = "\n")
-}
 
 # Spatial utility functions
 
@@ -829,9 +754,6 @@ run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_thre
 #' @param timesteps Vector of timesteps
 #' @param amplitude Amplitude of seasonal forcing
 #' @return Vector of seasonal multipliers
-get_seasonal_forcing <- function(timesteps, amplitude = 0.2) {
-  sin(2 * pi * ((timesteps * 365) %% 365) / 365) * amplitude
-}
 
 #' Plot total infected over time with uncertainty
 #' @param results Simulation results

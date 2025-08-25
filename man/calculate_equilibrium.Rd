@@ -2,7 +2,7 @@
 % Please edit documentation in R/analysis.R
 \name{calculate_equilibrium}
 \alias{calculate_equilibrium}
-\title{Calculate equilibrium values for deterministic models}
+\title{Calculate equilibrium values for deterministic models\n#' \n#' @note This function is for reference/educational purposes. \n#' For operational models, use the stochastic simulations in run_plague_model().}
 \usage{
 calculate_equilibrium(params, model_type = "rats_only")
 }
@@ -15,5 +15,5 @@ calculate_equilibrium(params, model_type = "rats_only")
 List of equilibrium values
 }
 \description{
-Calculate equilibrium values for deterministic models
+Calculate equilibrium values for deterministic models\n#' \n#' @note This function is for reference/educational purposes. \n#' For operational models, use the stochastic simulations in run_plague_model().
 }

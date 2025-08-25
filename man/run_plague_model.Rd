@@ -5,11 +5,10 @@
 \title{Run plague model simulation}
 \usage{
 run_plague_model(
-  model = "deterministic",
   params = "defaults",
   times = NULL,
   include_humans = FALSE,
-  spatial = FALSE,
+  npop = 1,
   contact_matrix = NULL,
   n_particles = 100,
   n_threads = 1,
@@ -18,17 +17,15 @@ run_plague_model(
 )
 }
 \arguments{
-\item{model}{Model type: "deterministic", "stochastic", "spatial"}
-
 \item{params}{Parameter set name, file path, or list of parameters}
 
 \item{times}{Vector of time points or NULL for default (0 to 10 years)}
 
-\item{include_humans}{Logical, include human dynamics}
+\item{include_humans}{Logical, include human dynamics (only npop = 1 supported)}
 
-\item{spatial}{Logical, use spatial structure (only for stochastic models)}
+\item{npop}{Number of populations (1 for single population, >1 for spatial)}
 
-\item{contact_matrix}{Contact matrix for spatial models (auto-generated if NULL)}
+\item{contact_matrix}{Contact matrix for multi-population models (auto-generated if NULL and npop = 25)}
 
 \item{n_particles}{Number of particles for stochastic models}
 

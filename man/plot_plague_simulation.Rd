@@ -2,7 +2,7 @@
 % Please edit documentation in R/plague_utils.R
 \name{plot_plague_simulation}
 \alias{plot_plague_simulation}
-\title{Plot plague simulation results}
+\title{Create simulation timepoints}
 \usage{
 plot_plague_simulation(output, log_scale = FALSE, plot_type = "all")
 }
@@ -12,10 +12,17 @@ plot_plague_simulation(output, log_scale = FALSE, plot_type = "all")
 \item{log_scale}{Logical, whether to use log scale}
 
 \item{plot_type}{One of "all", "infected", or "phase"}
+
+\item{years}{Number of years to simulate}
+
+\item{timestep}{Time step in years}
 }
 \value{
+Vector of timepoints
+Plot plague simulation results
+
 ggplot object
 }
 \description{
-Plot plague simulation results
+Create simulation timepoints
 }

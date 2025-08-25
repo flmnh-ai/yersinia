@@ -2,16 +2,23 @@
 % Please edit documentation in R/plague_utils.R
 \name{plot_total_infected}
 \alias{plot_total_infected}
-\title{Plot total infected over time with uncertainty}
+\title{Generate seasonal forcing}
 \usage{
 plot_total_infected(results)
 }
 \arguments{
 \item{results}{Simulation results}
+
+\item{timesteps}{Vector of timesteps}
+
+\item{amplitude}{Amplitude of seasonal forcing}
 }
 \value{
+Vector of seasonal multipliers
+Plot total infected over time with uncertainty
+
 ggplot object
 }
 \description{
-Plot total infected over time with uncertainty
+Generate seasonal forcing
 }
