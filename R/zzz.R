@@ -1,2 +1,0 @@
-#' @useDynLib yersinia
-NULL

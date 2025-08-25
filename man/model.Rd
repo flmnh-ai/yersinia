@@ -2,7 +2,9 @@
 % Please edit documentation in R/models.R
 \name{model}
 \alias{model}
-\title{This is an odin.dust model.}
+\title{Plague odin.dust models
+This is an odin.dust model.}
 \description{
+Plague odin.dust models
 This is an odin.dust model.
 }

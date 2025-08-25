@@ -2,7 +2,7 @@
 % Please edit documentation in R/plague_utils.R
 \name{run_sensitivity_analysis}
 \alias{run_sensitivity_analysis}
-\title{Run sensitivity analysis}
+\title{Create simulation timepoints}
 \usage{
 run_sensitivity_analysis(
   base_params,
@@ -19,10 +19,26 @@ run_sensitivity_analysis(
 \item{range}{Vector of multipliers}
 
 \item{seasonal}{Include seasonal forcing}
+
+\item{years}{Number of years to simulate}
+
+\item{timestep}{Time step in years}
+
+\item{output}{Simulation output tibble}
+
+\item{log_scale}{Logical, whether to use log scale}
+
+\item{plot_type}{One of "all", "infected", or "phase"}
 }
 \value{
+Vector of timepoints
+Plot plague simulation results
+
+ggplot object
+Run sensitivity analysis
+
 Tibble with sensitivity analysis results
 }
 \description{
-Run sensitivity analysis
+Create simulation timepoints
 }

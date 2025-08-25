@@ -1,7 +1,7 @@
 # R/plague_utils.R
 
-# Utility operators
 `%||%` <- function(x, y) if (is.null(x)) y else x
+
 
 #' Load plague model parameters
 #' @param param_set Name of parameter set or path to YAML file or list of parameters
@@ -518,7 +518,7 @@ plot.plague_results <- function(x, compartments = NULL) {
 
 #' Run plague model simulation
 #' @param params Parameter set name, file path, or list of parameters
-#' @param times Vector of time points or NULL for default (0 to 10 years)
+#' @param times Vector of time points (default 0 to 10 years)
 #' @param include_humans Logical, include human dynamics (only npop = 1 supported)
 #' @param npop Number of populations (1 for single population, >1 for spatial)
 #' @param contact_matrix Contact matrix for multi-population models (auto-generated if NULL and npop = 25)
@@ -529,7 +529,7 @@ plot.plague_results <- function(x, compartments = NULL) {
 #' @return plague_results object
 #' @export
 run_plague_model <- function(params = "defaults",
-                             times = NULL,
+                             times = seq(0, 10, by = 0.1),
                              include_humans = FALSE,
                              npop = 1,
                              contact_matrix = NULL,
@@ -543,11 +543,6 @@ run_plague_model <- function(params = "defaults",
     model_params <- params
   } else {
     model_params <- load_parameters(params, ...)
-  }
-
-  # Set default times if not provided
-  if (is.null(times)) {
-    times <- seq(0, 10, by = 0.1)
   }
 
   # Multi-population human models not yet implemented
@@ -609,20 +604,20 @@ run_plague_model <- function(params = "defaults",
   }
 
   # Add temporal parameters
-  dt <- 1/52  # Weekly timesteps for stochastic models
+  dt <- 1/52  # Weekly timesteps for stochastic models # this correct? w/r/t times param?
   sim_params$dt <- dt
-  timesteps <- 1:(dt^-1 * max(times))
+  timesteps <- seq_len(as.integer(dt^-1 * max(times)))
 
-  # Always provide season parameter for stochastic models (even if flat)
+  time_years <- timesteps * dt
   if (seasonal) {
-    sim_params$season <- sin(2 * pi * ((timesteps * 365) %% 365) / 365) * 0.2
+    amp <- sim_params$seasonal_amplitude %||% 0.2
+    sim_params$season <- sin(2 * pi * time_years) * amp
   } else {
-    # Provide flat seasonal forcing (no variation)
     sim_params$season <- rep(0, length(timesteps))
   }
 
   # Show simulation info
-  start_time <- Sys.time()
+  start_time <- Sys.time() # use tic/toc instead?
   message("🚀 Running ", n_particles, " particles over ", length(timesteps), " time steps...")
 
   # Run the appropriate stochastic model
@@ -701,45 +696,45 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
 #' @param log_scale Logical, whether to use log scale
 #' @param plot_type One of "all", "infected", or "phase"
 #' @return ggplot object
-plot_plague_simulation <- function(output, log_scale = FALSE,
-                                   plot_type = "all") {
-  if (plot_type == "all") {
-    p <- output |>
-      tidyr::pivot_longer(-t) |>
-      ggplot2::ggplot(ggplot2::aes(t, value)) +
-      ggplot2::geom_line() +
-      ggplot2::facet_wrap(~name, scales = 'free_y') +
-      ggplot2::labs(
-        title = "Plague Model Simulation",
-        x = "Time (years)",
-        y = "Population"
-      )
-  } else if (plot_type == "infected") {
-    p <- output |>
-      ggplot2::ggplot(ggplot2::aes(t, I_r)) +
-      ggplot2::geom_line() +
-      ggplot2::labs(
-        title = "Infected Rat Population",
-        x = "Time (years)",
-        y = "Number of Infected Rats"
-      )
-  } else if (plot_type == "phase") {
-    p <- output |>
-      ggplot2::ggplot(ggplot2::aes(S_r, I_r)) +
-      ggplot2::geom_path() +
-      ggplot2::labs(
-        title = "Phase Portrait",
-        x = "Susceptible Rats",
-        y = "Infected Rats"
-      )
-  }
-
-  if (log_scale && plot_type != "phase") {
-    p <- p + ggplot2::scale_y_log10()
-  }
-
-  p + ggplot2::theme_minimal()
-}
+# plot_plague_simulation <- function(output, log_scale = FALSE,
+#                                    plot_type = "all") {
+#   if (plot_type == "all") {
+#     p <- output |>
+#       tidyr::pivot_longer(-t) |>
+#       ggplot2::ggplot(ggplot2::aes(t, value)) +
+#       ggplot2::geom_line() +
+#       ggplot2::facet_wrap(~name, scales = 'free_y') +
+#       ggplot2::labs(
+#         title = "Plague Model Simulation",
+#         x = "Time (years)",
+#         y = "Population"
+#       )
+#   } else if (plot_type == "infected") {
+#     p <- output |>
+#       ggplot2::ggplot(ggplot2::aes(t, I_r)) +
+#       ggplot2::geom_line() +
+#       ggplot2::labs(
+#         title = "Infected Rat Population",
+#         x = "Time (years)",
+#         y = "Number of Infected Rats"
+#       )
+#   } else if (plot_type == "phase") {
+#     p <- output |>
+#       ggplot2::ggplot(ggplot2::aes(S_r, I_r)) +
+#       ggplot2::geom_path() +
+#       ggplot2::labs(
+#         title = "Phase Portrait",
+#         x = "Susceptible Rats",
+#         y = "Infected Rats"
+#       )
+#   }
+#
+#   if (log_scale && plot_type != "phase") {
+#     p <- p + ggplot2::scale_y_log10()
+#   }
+#
+#   p + ggplot2::theme_minimal()
+# }
 
 #' Run sensitivity analysis
 #' @param base_params Base parameter list
@@ -793,24 +788,15 @@ plot_sensitivity <- function(sensitivity_results, variable = "I_r") {
 #' Calculate model statistics
 #' @param output Simulation output
 #' @return List of statistics
-calculate_model_stats <- function(output) {
-  list(
-    peak_infected = max(output$I_r),
-    final_susceptible = tail(output$S_r, 1),
-    final_resistant = tail(output$R_r, 1),
-    average_flea_index = mean(output$N),
-    min_total_rats = min(output$S_r + output$I_r + output$R_r)
-  )
-}
-
-#' Calculate basic reproduction number (R0)
-#' @param params Parameter list
-#' @return Numeric R0 value
-calculate_R0 <- function(params) {
-  with(params, {
-    beta_r * K_r * (1 - exp(-a * K_r)) / (d_r + m_r)
-  })
-}
+#calculate_model_stats <- function(output) {
+#  list(
+#    peak_infected = max(output$I_r),
+#    final_susceptible = tail(output$S_r, 1),
+#    final_resistant = tail(output$R_r, 1),
+#    average_flea_index = mean(output$N),
+#    min_total_rats = min(output$S_r + output$I_r + output$R_r)
+#  )
+#}
 
 
 # Spatial utility functions
@@ -840,76 +826,6 @@ make_contact_matrix <- function(n_rows = 5, n_cols = 5) {
   return(m)
 }
 
-#' Plot connectivity matrix
-#' @param contact_matrix Contact matrix
-#' @param n_rows Number of rows
-#' @param n_cols Number of columns
-plot_connectivity <- function(contact_matrix, n_rows, n_cols) {
-  positions <- expand.grid(x = 1:n_cols, y = 1:n_rows)
-  n <- nrow(positions)
-
-  # Create edge data
-  edges <- data.frame()
-  for(i in 1:n) {
-    for(j in 1:n) {
-      if(contact_matrix[i,j] > 0) {
-        edges <- rbind(edges, data.frame(
-          x = positions$x[i],
-          y = positions$y[i],
-          xend = positions$x[j],
-          yend = positions$y[j]
-        ))
-      }
-    }
-  }
-
-  ggplot2::ggplot() +
-    ggplot2::geom_segment(data = edges, ggplot2::aes(x = x, y = y, xend = xend, yend = yend),
-                 arrow = ggplot2::arrow(length = ggplot2::unit(0.2, "cm")), alpha = 0.5) +
-    ggplot2::geom_point(data = positions, ggplot2::aes(x, y), size = 3) +
-    ggplot2::scale_x_continuous(breaks = 1:n_cols) +
-    ggplot2::scale_y_continuous(breaks = 1:n_rows) +
-    ggplot2::coord_fixed() +
-    ggplot2::theme_minimal() +
-    ggplot2::labs(title = "Metapopulation Connectivity")
-}
-
-#' Convert population indices to grid coordinates
-#' @param indices Population indices
-#' @param n_cols Number of columns
-#' @return Data frame with row and column positions
-get_grid_positions <- function(indices, n_cols) {
-  data.frame(
-    row = ceiling(indices/n_cols),
-    col = ((indices-1) %% n_cols) + 1
-  )
-}
-
-#' Create animation of spatial spread
-#' @param results Simulation results
-#' @param timepoints Vector of timepoints to plot
-#' @param n_rows Number of rows
-#' @param n_cols Number of columns
-animate_spatial_spread <- function(results, timepoints, n_rows, n_cols) {
-  results |>
-    dplyr::filter(time %in% timepoints, compartment == "I") |>
-    dplyr::mutate(
-      row = ceiling(subpop/n_cols),
-      col = ((subpop-1) %% n_cols) + 1
-    ) |>
-    ggplot2::ggplot(ggplot2::aes(col, row, fill = value)) +
-    ggplot2::geom_tile() +
-    ggplot2::scale_fill_viridis_c(option = "inferno") +
-    ggplot2::facet_wrap(~time) +
-    ggplot2::coord_fixed() +
-    ggplot2::labs(
-      title = "Spatial Spread of Infection",
-      x = "Column",
-      y = "Row",
-      fill = "Infected\nRats"
-    ) +
-    ggplot2::theme_minimal()
-}
 
 #' Run stochastic simulation with given parameters
 #' @param params List of parameters
@@ -918,6 +834,11 @@ animate_spatial_spread <- function(results, timepoints, n_rows, n_cols) {
 #' @param n_threads Number of threads for parallel processing
 #' @return Data frame with simulation results
 run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1) {
+  stopifnot(is.list(params))
+  stopifnot(is.numeric(timesteps))
+  stopifnot(n_particles >= 1)
+  stopifnot(n_threads >= 1)
+
   model <- plague_stochastic$new(
     pars = params,
     time = 1L,
@@ -958,7 +879,7 @@ run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_thre
 plot_total_infected <- function(results) {
   results |>
     dplyr::filter(compartment == "I") |>
-    dplyr::group_by(time, rep) |>
+    dplyr::group_by(time, replicate) |>
     dplyr::summarize(total = sum(value), .groups = "drop") |>
     dplyr::group_by(time) |>
     dplyr::summarize(
@@ -977,34 +898,6 @@ plot_total_infected <- function(results) {
     ggplot2::theme_minimal()
 }
 
-#' Plot dynamics for specific patches
-#' @param results Simulation results
-#' @param patches Vector of patch indices to plot
-#' @param compartments Vector of compartments to plot
-#' @return ggplot object
-plot_patch_dynamics <- function(results, patches, compartments) {
-  results |>
-    dplyr::filter(
-      subpop %in% patches,
-      compartment %in% compartments
-    ) |>
-    dplyr::group_by(time, subpop, compartment) |>
-    dplyr::summarize(
-      median = median(value),
-      lower = quantile(value, 0.025),
-      upper = quantile(value, 0.975),
-      .groups = "drop"
-    ) |>
-    ggplot2::ggplot(ggplot2::aes(x = time, y = median, color = compartment)) +
-    ggplot2::geom_ribbon(ggplot2::aes(ymin = lower, ymax = upper, fill = compartment), alpha = 0.2) +
-    ggplot2::geom_line() +
-    ggplot2::facet_wrap(~subpop) +
-    ggplot2::labs(
-      x = "Time (years)",
-      y = "Population"
-    ) +
-    ggplot2::theme_minimal()
-}
 
 #' Analyze outbreak characteristics
 #' @param results Simulation results
@@ -1012,7 +905,7 @@ plot_patch_dynamics <- function(results, patches, compartments) {
 analyze_outbreaks <- function(results) {
   results |>
     dplyr::filter(compartment == "I") |>
-    dplyr::group_by(time, rep) |>
+    dplyr::group_by(time, replicate) |>
     dplyr::summarize(
       total_infected = sum(value),
       n_patches = sum(value > 0),
@@ -1027,40 +920,12 @@ analyze_outbreaks <- function(results) {
     )
 }
 
-#' Plot outbreak size distribution
-#' @param outbreak_stats Output from analyze_outbreaks
-#' @return ggplot object
-plot_outbreak_distribution <- function(outbreak_stats) {
-  ggplot2::ggplot(outbreak_stats, ggplot2::aes(x = peak_infected)) +
-    ggplot2::geom_histogram(bins = 30) +
-    ggplot2::scale_x_log10() +
-    ggplot2::labs(
-      x = "Peak Number of Infected",
-      y = "Frequency",
-      title = "Distribution of Outbreak Sizes"
-    ) +
-    ggplot2::theme_minimal()
-}
-
-
-#' Calculate intervention effects
-#' @param scenario_results Results from multiple scenarios
-#' @return Data frame with intervention statistics
-calculate_intervention_effects <- function(scenario_results) {
-  scenario_results |>
-    dplyr::filter(compartment == "I") |>
-    dplyr::group_by(scenario, rep) |>
-    dplyr::summarize(
-      peak_infected = max(sum(value)),
-      outbreak_duration = sum(sum(value) > 10) * unique(diff(time)[1]),
-      .groups = "drop"
-    ) |>
-    dplyr::group_by(scenario) |>
-    dplyr::summarize(
-      mean_peak = mean(peak_infected),
-      mean_duration = mean(outbreak_duration),
-      peak_reduction = 1 - mean_peak/dplyr::first(mean_peak),
-      duration_reduction = 1 - mean_duration/dplyr::first(mean_duration),
-      .groups = "drop"
-    )
+validate_inputs <- function(params, times, npop, n_particles) {
+  assert_that(is.list(params) || is.character(params))
+  assert_that(is.numeric(times))
+  assert_that(length(times) >= 2)
+  assert_that(is_scalar_integerish(npop))
+  assert_that(npop >= 1)
+  assert_that(is_scalar_integerish(n_particles))
+  assert_that(n_particles >= 1)
 }

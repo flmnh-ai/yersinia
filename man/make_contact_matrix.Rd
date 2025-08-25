@@ -2,7 +2,7 @@
 % Please edit documentation in R/plague_utils.R
 \name{make_contact_matrix}
 \alias{make_contact_matrix}
-\title{Create contact matrix for grid-based metapopulation}
+\title{Calculate model statistics}
 \usage{
 make_contact_matrix(n_rows = 5, n_cols = 5)
 }
@@ -10,10 +10,15 @@ make_contact_matrix(n_rows = 5, n_cols = 5)
 \item{n_rows}{Number of rows in grid}
 
 \item{n_cols}{Number of columns in grid}
+
+\item{output}{Simulation output}
 }
 \value{
+List of statistics
+Create contact matrix for grid-based metapopulation
+
 Normalized contact matrix
 }
 \description{
-Create contact matrix for grid-based metapopulation
+Calculate model statistics
 }
