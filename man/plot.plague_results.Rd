@@ -4,16 +4,12 @@
 \alias{plot.plague_results}
 \title{Plot method for plague_results}
 \usage{
-\method{plot}{plague_results}(x, compartments = NULL, log_scale = FALSE, ...)
+\method{plot}{plague_results}(x, compartments = NULL)
 }
 \arguments{
 \item{x}{plague_results object}
 
 \item{compartments}{Vector of compartments to plot (NULL for all)}
-
-\item{log_scale}{Logical, use log scale for y-axis}
-
-\item{...}{Additional arguments (ignored)}
 }
 \description{
 Plot method for plague_results

@@ -7,8 +7,6 @@
 plot_sensitivity(sensitivity_results, compartment = "I_r", metric = "peak")
 
 plot_sensitivity(sensitivity_results, compartment = "I_r", metric = "peak")
-
-plot_sensitivity(sensitivity_results, compartment = "I_r", metric = "peak")
 }
 \arguments{
 \item{sensitivity_results}{Output from run_sensitivity_analysis}
@@ -22,13 +20,9 @@ plot_sensitivity(sensitivity_results, compartment = "I_r", metric = "peak")
 \value{
 ggplot object
 
-ggplot object
-
 ggplot2 object
 }
 \description{
-Plot sensitivity analysis results
-
 Plot sensitivity analysis results
 
 Plot parameter sensitivity results

@@ -10,13 +10,6 @@ run_sensitivity_analysis(
   range = seq(0.5, 1.5, by = 0.1),
   seasonal = FALSE
 )
-
-run_sensitivity_analysis(
-  base_params,
-  param_name,
-  range = seq(0.5, 1.5, by = 0.1),
-  seasonal = FALSE
-)
 }
 \arguments{
 \item{base_params}{Base parameter list}
@@ -29,11 +22,7 @@ run_sensitivity_analysis(
 }
 \value{
 Tibble with sensitivity analysis results
-
-Tibble with sensitivity analysis results
 }
 \description{
 Run sensitivity analysis
-
-Run sensitivity analysis (deterministic version)
 }
