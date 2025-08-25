@@ -1089,54 +1089,6 @@ plot_outbreak_distribution <- function(outbreak_stats) {
     ggplot2::theme_minimal()
 }
 
-#' Run sensitivity analysis (deterministic version)
-#' @param base_params Base parameter list
-#' @param param_name Parameter to vary
-#' @param range Vector of multipliers
-#' @param seasonal Include seasonal forcing
-#' @return Tibble with sensitivity analysis results
-run_sensitivity_analysis <- function(base_params, param_name,
-                                     range = seq(0.5, 1.5, by = 0.1),
-                                     seasonal = FALSE) {
-  results <- purrr::map_dfr(range, function(mult) {
-    params <- base_params
-    params[[param_name]] <- params[[param_name]] * mult
-
-    # Use current API instead of broken run_plague_simulation
-    sim <- run_plague_model(
-      params = params,
-      npop = 1,  # Single population for sensitivity analysis
-      n_particles = 5,  # Few particles for speed
-      times = seq(0, 10, by = 0.1),
-      seasonal = seasonal
-    )
-    sim |>
-      dplyr::mutate(
-        multiplier = mult,
-        parameter = param_name
-      )
-  })
-
-  return(results)
-}
-
-#' Plot sensitivity analysis results
-#' @param sensitivity_results Output from run_sensitivity_analysis
-#' @param variable Variable to plot
-#' @return ggplot object
-plot_sensitivity <- function(sensitivity_results, variable = "I_r") {
-  sensitivity_results |>
-    ggplot2::ggplot(ggplot2::aes(t, .data[[variable]], group = multiplier, color = multiplier)) +
-    ggplot2::geom_line(alpha = 0.7) +
-    ggplot2::scale_color_viridis_c() +
-    ggplot2::labs(
-      title = paste("Sensitivity Analysis:", variable),
-      x = "Time (years)",
-      y = variable,
-      color = "Parameter\nMultiplier"
-    ) +
-    ggplot2::theme_minimal()
-}
 
 #' Calculate intervention effects
 #' @param scenario_results Results from multiple scenarios
