@@ -114,7 +114,10 @@ calculate_R0 <- function(params, model_type = "rats_only") {
   )
 }
 
-#' Calculate equilibrium values for deterministic models\n#' \n#' @note This function is for reference/educational purposes. \n#' For operational models, use the stochastic simulations in run_plague_model().
+#' Calculate equilibrium values for deterministic models
+#' 
+#' @note This function is for reference/educational purposes.
+#'   For operational models, use the stochastic simulations in run_plague_model().
 #' @param params plague_parameters object or list
 #' @param model_type Type of model
 #' @return List of equilibrium values
