@@ -9,7 +9,7 @@ output:
     fig_width: 7
     fig_height: 5
 vignette: >
-  %\VignetteIndexEntry{Introduction to plagueR}
+  %\VignetteIndexEntry{Introduction to yersinia}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -26,15 +26,15 @@ knitr::opts_chunk$set(
 
 # Overview
 
-The `yersinia` package provides a comprehensive toolkit for modeling plague transmission dynamics. Built on the robust `odin` framework, it offers clean interfaces to multiple model types, extensive analysis functions, and publication-ready visualizations.
+The `yersinia` package provides a comprehensive toolkit for modeling plague transmission dynamics using stochastic simulation. Built on the robust `odin.dust` framework, it offers realistic population-level models with demographic stochasticity for epidemiological research.
 
 ## Key Features
 
-- **Multiple model types**: Deterministic and stochastic models with optional human dynamics
-- **Spatial modeling**: Metapopulation dynamics with customizable connectivity
+- **Stochastic models**: Realistic demographic noise and individual-based processes
+- **Spatial modeling**: Metapopulation dynamics with migration between populations
 - **Parameter management**: Literature-based parameter sets with easy customization
-- **Analysis toolkit**: Outbreak metrics, R₀ calculation, equilibrium analysis
-- **Visualization**: Time series, phase portraits, spatial heatmaps, and animations
+- **Human dynamics**: Optional human population compartments
+- **Analysis toolkit**: R₀ calculation, outbreak metrics, and visualization
 
 ```{r setup}
 library(yersinia)
@@ -52,10 +52,11 @@ set.seed(123)
 The simplest way to run a plague model is with the `run_plague_model()` function:
 
 ```{r basic-model}
-# Run a basic deterministic model
+# Run a basic stochastic model
 results <- run_plague_model(
-  model = "deterministic",
   params = "defaults",
+  npop = 1,                    # Single population
+  n_particles = 50,            # Number of stochastic replicates
   times = seq(0, 10, by = 0.1)
 )
 
@@ -67,9 +68,9 @@ The model returns a `plague_results` object that contains tidy data with standar
 
 ## Built-in Plotting
 
-All `plague_results` objects have a default plot method:
+All `plague_results` objects have a default plot method that shows uncertainty bands across replicates:
 
-```{r basic-plot, fig.cap="Basic plague model dynamics showing all compartments over time"}
+```{r basic-plot, fig.cap="Basic plague model dynamics showing median and 95% confidence intervals"}
 plot(results)
 ```
 
@@ -103,8 +104,9 @@ print(params)
 
 # Modify parameters on-the-fly
 results_high_transmission <- run_plague_model(
-  model = "deterministic",
   params = "defaults",
+  npop = 1,
+  n_particles = 20,
   beta_r = 8.0,     # Higher transmission rate
   g_r = 0.05,       # Higher survival rate
   times = seq(0, 8, by = 0.1)
@@ -113,81 +115,75 @@ results_high_transmission <- run_plague_model(
 
 # Model Types
 
-## Deterministic Models
+## Single Population Models
 
-Deterministic models use ordinary differential equations (ODEs) to model population dynamics:
+Basic rat-flea dynamics in a single population:
 
-```{r deterministic-models, fig.cap="Comparison of basic and human models"}
+```{r single-population}
 # Basic rat-flea model
 results_basic <- run_plague_model(
-  model = "deterministic",
   params = "keeling-gilligan",
-  times = seq(0, 10, by = 0.1)
+  npop = 1,
+  n_particles = 30,
+  times = seq(0, 8, by = 0.1)
 )
 
-# Model with human dynamics
+plot(results_basic, compartments = c("S", "I", "R"))
+```
+
+## Human Dynamics
+
+Include human populations in the transmission cycle:
+
+```{r human-model, fig.cap="Plague dynamics including human populations"}
+# Model with human dynamics (single population only)
 results_humans <- run_plague_model(
-  model = "deterministic", 
   params = "modern-estimates",
   include_humans = TRUE,
+  npop = 1,                # Human models require npop = 1
+  n_particles = 30,
   times = seq(0, 10, by = 0.1)
 )
 
-# Compare models
-plot_comparison(
-  list("Rats Only" = results_basic, "With Humans" = results_humans),
-  compartment = "I_r"
+# Plot showing both rat and human compartments
+plot(results_humans)
+```
+
+## Spatial Models
+
+Multi-population metapopulation dynamics with migration:
+
+```{r spatial-model, fig.cap="Spatial plague dynamics across 25 connected populations"}
+# Spatial model with 25 populations (5x5 grid)
+results_spatial <- run_plague_model(
+  params = "defaults", 
+  npop = 25,               # Creates 5x5 grid automatically
+  n_particles = 20,
+  times = seq(0, 5, by = 0.1)
 )
+
+# Show dynamics for a few populations
+plot(results_spatial)
 ```
 
 ## Seasonal Forcing
 
-Environmental seasonality can be included:
+Environmental seasonality affects flea dynamics:
 
 ```{r seasonal-model, fig.cap="Effect of seasonal forcing on plague dynamics"}
 # Model with seasonal forcing
 results_seasonal <- run_plague_model(
-  model = "deterministic",
   params = "defaults",
+  npop = 1,
+  n_particles = 30,
   seasonal = TRUE,
   times = seq(0, 15, by = 0.1)
 )
 
-plot_dynamics(results_seasonal, compartments = c("I_r", "F"))
-```
-
-## Stochastic Models
-
-Stochastic models include demographic noise and can model spatial structure:
-
-```{r stochastic-model, eval=FALSE}
-# Spatial stochastic model (requires odin.dust)
-results_spatial <- run_plague_model(
-  params = "defaults", 
-  npop = 25,
-  n_particles = 10,
-  times = seq(0, 5, by = 0.1)
-)
-
-# Plot spatial heatmap at a specific time
-plot_spatial_heatmap(results_spatial, time_point = 2.0, compartment = "I")
+plot(results_seasonal, compartments = c("I", "F"))
 ```
 
 # Analysis Functions
-
-## Outbreak Metrics
-
-Calculate key outbreak statistics:
-
-```{r outbreak-metrics}
-# Calculate outbreak metrics for infected rats
-metrics <- calculate_outbreak_metrics(results_basic, compartment = "I_r")
-print(metrics)
-
-# Summarize across replicates (useful for stochastic models)
-summary_metrics <- summarize_outbreak_metrics(metrics)
-print(summary_metrics)
-```
 
 ## Basic Reproduction Number (R₀)
 
@@ -212,190 +208,280 @@ if (R0_historical > 1) {
 }
 ```
 
-## Equilibrium Analysis
+## Summary Statistics
 
-Determine long-term system behavior:
+Get outbreak summaries from stochastic models:
 
-```{r equilibrium}
-# Calculate equilibrium for different scenarios
-eq_historical <- calculate_equilibrium(params_historical)
-eq_modern <- calculate_equilibrium(params_modern)
+```{r summary-stats}
+# Summary method shows key statistics
+summary(results_basic)
 
-cat("Historical equilibrium:", eq_historical$equilibrium_type, "\n")
-cat("Modern equilibrium:", eq_modern$equilibrium_type, "\n")
+# Manual calculation of key metrics
+infection_summary <- results_basic %>%
+  filter(compartment == "I") %>%
+  group_by(replicate) %>%
+  summarise(
+    peak_infected = max(value),
+    total_duration = sum(value > 10) * 0.1,  # time resolution
+    .groups = "drop"
+  ) %>%
+  summarise(
+    mean_peak = mean(peak_infected),
+    median_peak = median(peak_infected),
+    mean_duration = mean(total_duration),
+    .groups = "drop"
+  )
 
-# Show equilibrium values
-print(eq_historical[c("S_r", "I_r", "R_r")])
+print(infection_summary)
 ```
 
-## Force of Infection
+# Advanced Analysis
 
-Calculate the time-varying infection risk:
+## Parameter Sensitivity
 
-```{r force-of-infection, fig.cap="Force of infection over time for rats and humans"}
-# Calculate force of infection
-foi <- calculate_force_of_infection(results_humans)
+Explore how parameter changes affect outbreak dynamics:
 
-# Plot force of infection over time
-foi %>%
-  select(time, lambda, lambda_r) %>%
-  tidyr::pivot_longer(-time, names_to = "type", values_to = "force") %>%
-  mutate(type = ifelse(type == "lambda", "Humans", "Rats")) %>%
-  ggplot(aes(time, force, color = type)) +
-  geom_line(size = 1) +
-  scale_y_log10() +
+```{r sensitivity}
+# Test different transmission rates
+beta_values <- c(2, 4, 6, 8)
+sensitivity_results <- data.frame()
+
+for (beta in beta_values) {
+  result <- run_plague_model(
+    params = "defaults",
+    npop = 1,
+    n_particles = 10,  # Fewer particles for speed
+    beta_r = beta,
+    times = seq(0, 5, by = 0.2)
+  )
+  
+  # Calculate peak infection for each replicate
+  peaks <- result %>%
+    filter(compartment == "I") %>%
+    group_by(replicate) %>%
+    summarise(peak = max(value), .groups = "drop") %>%
+    mutate(beta_r = beta)
+  
+  sensitivity_results <- bind_rows(sensitivity_results, peaks)
+}
+
+# Plot sensitivity
+ggplot(sensitivity_results, aes(x = factor(beta_r), y = peak)) +
+  geom_boxplot() +
   labs(
-    title = "Force of Infection Over Time",
-    x = "Time (years)",
-    y = "Force of Infection (log scale)",
-    color = "Population"
+    title = "Sensitivity to Transmission Rate",
+    x = "Transmission Rate (beta_r)",
+    y = "Peak Infected Population"
   ) +
   theme_minimal()
 ```
 
-# Advanced Visualization
+## Comparing Model Types
 
-## Phase Portraits
+Compare single population vs spatial dynamics:
 
-Visualize system dynamics in phase space:
-
-```{r phase-portrait, fig.cap="Phase portrait showing susceptible vs infected rat dynamics"}
-plot_phase_portrait(results_basic, compartments = c("S_r", "I_r"))
-```
-
-## Multi-Compartment Dynamics
-
-Show multiple compartments with uncertainty:
-
-```{r multi-compartment, fig.cap="Multi-compartment dynamics for the rat-flea system"}
-plot_dynamics(
-  results_basic, 
-  compartments = c("S_r", "I_r", "R_r", "F"),
-  log_scale = TRUE
-)
-```
-
-## Parameter Sensitivity
-
-Explore how parameter changes affect outcomes:
-
-```{r sensitivity, fig.cap="Sensitivity of peak infection to transmission rate"}
-# Run sensitivity analysis on transmission rate
-sensitivity_results <- run_sensitivity_analysis(
-  load_parameters("defaults"),
-  param_name = "beta_r", 
-  range = seq(0.5, 2.0, by = 0.2)
+```{r model-comparison, fig.cap="Comparison of single population vs spatial model dynamics"}
+# Single population
+single <- run_plague_model(
+  params = "defaults",
+  npop = 1,
+  n_particles = 20,
+  times = seq(0, 5, by = 0.1)
 )
 
-# Plot sensitivity
-plot_sensitivity(sensitivity_results, compartment = "I_r", metric = "peak")
+# Spatial model
+spatial <- run_plague_model(
+  params = "defaults", 
+  npop = 25,
+  n_particles = 20,
+  times = seq(0, 5, by = 0.1)
+)
+
+# Compare total infected
+single_total <- single %>%
+  filter(compartment == "I") %>%
+  group_by(time, replicate) %>%
+  summarise(total_infected = sum(value), model = "Single", .groups = "drop")
+
+spatial_total <- spatial %>%
+  filter(compartment == "I") %>%
+  group_by(time, replicate) %>%
+  summarise(total_infected = sum(value), model = "Spatial", .groups = "drop")
+
+combined <- bind_rows(single_total, spatial_total)
+
+combined %>%
+  group_by(time, model) %>%
+  summarise(
+    median = median(total_infected),
+    lower = quantile(total_infected, 0.25),
+    upper = quantile(total_infected, 0.75),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(time, median, color = model, fill = model)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line() +
+  labs(
+    title = "Single Population vs Spatial Model",
+    x = "Time (years)",
+    y = "Total Infected Population",
+    color = "Model Type",
+    fill = "Model Type"
+  ) +
+  theme_minimal()
 ```
 
 # Historical Scenarios
 
 ## Black Death Parameters
 
-Model historical plague outbreaks:
+Model historical plague outbreaks using medieval parameter estimates:
 
-```{r historical-scenario, fig.cap="Modeling plague dynamics with historical (Black Death era) parameters"}
+```{r historical-scenario, fig.cap="Modeling plague dynamics with historical parameters"}
 # Use historical parameters representing medieval conditions
 results_black_death <- run_plague_model(
-  model = "deterministic",
   params = "historical",
   include_humans = TRUE,
-  times = seq(0, 5, by = 0.05)
+  npop = 1,
+  n_particles = 30,
+  times = seq(0, 5, by = 0.1)
 )
 
-# Focus on human compartments
-plot_dynamics(
-  results_black_death,
-  compartments = c("S_h", "I_h", "R_h"), 
-  log_scale = FALSE
-) +
+# Plot human compartments
+results_black_death %>%
+  filter(compartment %in% c("Sh", "Ih", "Rh")) %>%
+  group_by(time, compartment) %>%
+  summarise(
+    median = median(value),
+    lower = quantile(value, 0.25),
+    upper = quantile(value, 0.75),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(time, median, color = compartment, fill = compartment)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line() +
   labs(
     title = "Black Death Scenario: Human Population Dynamics",
-    subtitle = "Using historical parameter estimates"
-  )
+    subtitle = "Using historical parameter estimates",
+    x = "Time (years)",
+    y = "Population",
+    color = "Compartment"
+  ) +
+  theme_minimal()
 ```
 
 ## Parameter Set Comparison
 
-Compare different historical periods:
+Compare outbreak dynamics across different parameter sets:
 
 ```{r parameter-comparison, fig.cap="Comparison of plague dynamics across different parameter sets"}
 # Run models with different parameter sets
-scenarios <- list(
-  "Historical" = run_plague_model("deterministic", "historical", times = seq(0, 8, 0.1)),
-  "Modern" = run_plague_model("deterministic", "modern-estimates", times = seq(0, 8, 0.1)),
-  "Default" = run_plague_model("deterministic", "defaults", times = seq(0, 8, 0.1))
-)
+param_sets <- c("historical", "modern-estimates", "defaults")
+comparison_data <- data.frame()
 
-# Compare peak infections
-plot_comparison(scenarios, compartment = "I_r") +
+for (param_set in param_sets) {
+  result <- run_plague_model(
+    params = param_set,
+    npop = 1,
+    n_particles = 20,
+    times = seq(0, 6, by = 0.1)
+  )
+  
+  summary_data <- result %>%
+    filter(compartment == "I") %>%
+    group_by(time) %>%
+    summarise(
+      median = median(value),
+      lower = quantile(value, 0.25), 
+      upper = quantile(value, 0.75),
+      .groups = "drop"
+    ) %>%
+    mutate(parameter_set = param_set)
+  
+  comparison_data <- bind_rows(comparison_data, summary_data)
+}
+
+# Plot comparison
+ggplot(comparison_data, aes(time, median, color = parameter_set, fill = parameter_set)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line() +
   labs(
     title = "Parameter Set Comparison",
-    subtitle = "Infected rat dynamics across different scenarios"
-  )
+    subtitle = "Infected rat dynamics across different scenarios",
+    x = "Time (years)",
+    y = "Infected Rats",
+    color = "Parameter Set",
+    fill = "Parameter Set"
+  ) +
+  theme_minimal()
 ```
 
 # Practical Applications
 
 ## Intervention Scenarios
 
-Model the effect of control measures:
+Model the effect of different control measures:
 
-```{r interventions, fig.cap="Effect of rat control interventions on plague dynamics"}
-# Baseline scenario
-baseline <- run_plague_model(
-  "deterministic", 
-  "modern-estimates",
-  times = seq(0, 6, 0.1)
-)
+```{r interventions, fig.cap="Effect of control interventions on plague dynamics"}
+# Compare intervention strategies
+interventions <- c("baseline", "rat_control", "flea_control")
+intervention_data <- data.frame()
 
-# Rat control scenario (reduced carrying capacity)
-rat_control <- run_plague_model(
-  "deterministic",
-  "modern-estimates", 
-  K_r = 1500,  # 50% reduction in rat carrying capacity
-  times = seq(0, 6, 0.1)
-)
+for (intervention in interventions) {
+  if (intervention == "baseline") {
+    params_list <- list(params = "modern-estimates")
+  } else if (intervention == "rat_control") {
+    params_list <- list(params = "modern-estimates", K_r = 1500)  # 50% reduction
+  } else {
+    params_list <- list(params = "modern-estimates", K_f = 3.0)   # Reduced flea capacity
+  }
+  
+  result <- do.call(run_plague_model, c(
+    params_list,
+    list(npop = 1, n_particles = 20, times = seq(0, 5, by = 0.1))
+  ))
+  
+  summary_data <- result %>%
+    filter(compartment == "I") %>%
+    group_by(time) %>%
+    summarise(
+      median = median(value),
+      lower = quantile(value, 0.25),
+      upper = quantile(value, 0.75),
+      .groups = "drop"
+    ) %>%
+    mutate(intervention = intervention)
+  
+  intervention_data <- bind_rows(intervention_data, summary_data)
+}
 
-# Flea control scenario (reduced flea capacity)
-flea_control <- run_plague_model(
-  "deterministic",
-  "modern-estimates",
-  K_f = 3.0,   # Reduced flea carrying capacity
-  times = seq(0, 6, 0.1) 
-)
-
-# Compare interventions
-plot_comparison(
-  list(
-    "Baseline" = baseline,
-    "Rat Control" = rat_control, 
-    "Flea Control" = flea_control
-  ),
-  compartment = "I_r"
-) +
+# Plot comparison
+ggplot(intervention_data, aes(time, median, color = intervention, fill = intervention)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  geom_line() +
   labs(
     title = "Control Intervention Comparison",
-    subtitle = "Effect of different control strategies on infected rats"
-  )
+    subtitle = "Effect of different control strategies on infected rats",
+    x = "Time (years)",
+    y = "Infected Rats",
+    color = "Intervention",
+    fill = "Intervention"
+  ) +
+  theme_minimal()
 ```
 
 ## Risk Assessment
 
-Assess outbreak risk under different conditions:
+Assess outbreak risk under different scenarios using R₀:
 
 ```{r risk-assessment}
 # Calculate R₀ under different scenarios
 scenarios_r0 <- data.frame(
-  Scenario = c("Baseline", "High Transmission", "Poor Sanitation", "Climate Change"),
+  Scenario = c("Baseline", "High Transmission", "Poor Sanitation"),
   R0 = c(
     calculate_R0(load_parameters("modern-estimates")),
     calculate_R0(load_parameters("modern-estimates", beta_r = 7.0)),
-    calculate_R0(load_parameters("modern-estimates", K_f = 10.0, K_r = 4000)),
-    calculate_R0(load_parameters("modern-estimates", seasonal_amplitude = 0.5))
+    calculate_R0(load_parameters("modern-estimates", K_f = 10.0, K_r = 4000))
   )
 )
 
@@ -407,7 +493,7 @@ ggplot(scenarios_r0, aes(x = reorder(Scenario, R0), y = R0)) +
   geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
   coord_flip() +
   labs(
-    title = "Outbreak Risk Assessment",
+    title = "Outbreak Risk Assessment", 
     subtitle = "R₀ values under different scenarios (red line = epidemic threshold)",
     x = "Scenario",
     y = "Basic Reproduction Number (R₀)"
@@ -417,20 +503,22 @@ ggplot(scenarios_r0, aes(x = reorder(Scenario, R0), y = R0)) +
 
 # Summary
 
-The `yersinia` package provides a comprehensive toolkit for plague transmission modeling that includes:
+The `yersinia` package provides a modern toolkit for plague transmission modeling featuring:
 
-- **Flexible model types** from simple deterministic models to complex spatial-stochastic systems
-- **Evidence-based parameters** from historical and contemporary sources
-- **Comprehensive analysis** tools for outbreak characterization and risk assessment
-- **Professional visualization** capabilities for research and communication
+- **Stochastic simulation** with demographic noise and realistic population dynamics
+- **Spatial modeling** for metapopulation dynamics across connected populations  
+- **Evidence-based parameters** from historical and contemporary plague research
+- **Human dynamics** integration for epidemiological studies
+- **Comprehensive analysis** tools including R₀ calculation and outbreak metrics
 
-The package is designed to support both research applications and practical public health planning, with clean APIs that make complex modeling accessible while maintaining scientific rigor.
+The package emphasizes stochastic models that capture biological realism while providing uncertainty quantification essential for epidemiological research and public health applications.
 
 ## Getting Help
 
 - **Package documentation**: Use `help(package = "yersinia")` for function references
-- **Model details**: See individual function documentation (e.g., `?run_plague_model`)
+- **Model details**: See `?run_plague_model` for the main modeling function
 - **Parameter information**: Use `print()` on parameter objects to see sources and metadata
+- **Deterministic models**: See `vignette("reference-deterministic-models")` for educational examples
 
 ## References
 
