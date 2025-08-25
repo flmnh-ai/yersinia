@@ -1,5 +1,8 @@
 # R/plague_utils.R
 
+# Utility operators
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
 #' Load plague model parameters
 #' @param param_set Name of parameter set or path to YAML file or list of parameters
 #' @param validate Logical, whether to validate parameters
@@ -142,8 +145,120 @@ validate_parameters <- function(params) {
 #' @param ... Additional arguments (ignored)
 #' @export
 print.plague_parameters <- function(x, ...) {
-  cat("Plague Parameters (", attr(x, "param_set"), ")\n", sep = "")
-  NextMethod("print")
+  param_set <- attr(x, "param_set") %||% "custom"
+  cat("🦠 Plague Parameters (", param_set, ")\n", sep = "")
+  
+  # Add description if available from metadata
+  metadata <- attr(x, "metadata")
+  if (!is.null(metadata) && !is.null(metadata$description)) {
+    cat("📄 ", metadata$description, "\n")
+  }
+  if (!is.null(metadata) && !is.null(metadata$source)) {
+    cat("📚 Source: ", metadata$source, "\n")
+  }
+  
+  cat("\n")
+  
+  # Group parameters by biological meaning
+  cat("🐀 Rat Population Parameters:\n")
+  rat_params <- c("K_r", "r_r", "d_r", "p")
+  rat_descriptions <- list(
+    K_r = "Rat carrying capacity",
+    r_r = "Rat population growth rate (per year)", 
+    d_r = "Natural death rate of rats (per year)",
+    p = "Probability of inherited resistance"
+  )
+  
+  for (param in rat_params) {
+    if (param %in% names(x)) {
+      desc <- rat_descriptions[[param]] %||% ""
+      cat(sprintf("  %-6s = %8.3f  # %s\n", param, x[[param]], desc))
+    }
+  }
+  
+  cat("\n🦟 Flea Parameters:\n")
+  flea_params <- c("K_f", "r_f", "d_f", "a")
+  flea_descriptions <- list(
+    K_f = "Flea carrying capacity per rat",
+    r_f = "Flea reproduction rate (per year)",
+    d_f = "Death rate of free fleas (per year)",
+    a = "Flea search efficiency"
+  )
+  
+  for (param in flea_params) {
+    if (param %in% names(x)) {
+      desc <- flea_descriptions[[param]] %||% ""
+      cat(sprintf("  %-6s = %8.3f  # %s\n", param, x[[param]], desc))
+    }
+  }
+  
+  cat("\n🔬 Disease Parameters:\n")
+  disease_params <- c("beta_r", "m_r", "g_r")
+  disease_descriptions <- list(
+    beta_r = "Rat infection rate from fleas (per year)",
+    m_r = "Infected rat mortality rate (per year)", 
+    g_r = "Probability rat survives infection"
+  )
+  
+  for (param in disease_params) {
+    if (param %in% names(x)) {
+      desc <- disease_descriptions[[param]] %||% ""
+      cat(sprintf("  %-6s = %8.3f  # %s\n", param, x[[param]], desc))
+    }
+  }
+  
+  # Human parameters if present
+  human_params <- c("K_h", "r_h", "d_h", "beta_h", "m_h", "g_h")
+  has_human_params <- any(human_params %in% names(x))
+  
+  if (has_human_params) {
+    cat("\n👤 Human Parameters:\n")
+    human_descriptions <- list(
+      K_h = "Human carrying capacity",
+      r_h = "Human population growth rate (per year)",
+      d_h = "Natural death rate of humans (per year)",
+      beta_h = "Human infection rate from fleas",
+      m_h = "Human recovery rate (per year)",
+      g_h = "Probability human survives infection"
+    )
+    
+    for (param in human_params) {
+      if (param %in% names(x)) {
+        desc <- human_descriptions[[param]] %||% ""
+        cat(sprintf("  %-6s = %8.3f  # %s\n", param, x[[param]], desc))
+      }
+    }
+  }
+  
+  # Initial conditions and other parameters
+  other_params <- setdiff(names(x), c(rat_params, flea_params, disease_params, human_params))
+  if (length(other_params) > 0) {
+    cat("\n⚙️  Other Parameters:\n")
+    other_descriptions <- list(
+      I_ini = "Initial number of infected rats",
+      mu_r = "Rat movement rate (per year)",
+      mu_f = "Flea movement rate (per year)"
+    )
+    
+    for (param in other_params) {
+      desc <- other_descriptions[[param]] %||% ""
+      cat(sprintf("  %-6s = %8.3f  # %s\n", param, x[[param]], desc))
+    }
+  }
+  
+  # Calculate and display R0
+  R0 <- tryCatch(calculate_R0(x), error = function(e) NA)
+  if (!is.na(R0)) {
+    cat("\n📈 Basic Reproduction Number (R₀): ", round(R0, 3))
+    if (R0 > 1) {
+      cat(" ✅ (Disease can spread)")
+    } else {
+      cat(" ⚠️  (Disease may not persist)")
+    }
+    cat("\n")
+  }
+  
+  invisible(x)
 }
 
 # Plague Results Class --------------------------------------------------------
@@ -206,32 +321,146 @@ print.plague_results <- function(x, ...) {
 #' @param ... Additional arguments (ignored)
 #' @export
 summary.plague_results <- function(object, ...) {
-  cat("Plague Model Results Summary\n")
-  cat("============================\n")
+  cat("📊 Plague Model Results Summary\n")
+  cat("================================\n")
   
   # Model info
-  cat("Model type:", attr(object, "model_type"), "\n")
-  cat("Parameter set:", attr(attr(object, "params"), "param_set"), "\n")
+  model_type <- attr(object, "model_type")
+  param_set <- attr(attr(object, "params"), "param_set") %||% "custom"
+  run_info <- attr(object, "run_info")
   
-  # Calculate summary statistics by compartment
-  summary_stats <- object |>
+  cat("🔬 Model type: ", model_type, "\n")
+  cat("📋 Parameter set: ", param_set, "\n")
+  
+  if (!is.null(run_info)) {
+    if (!is.null(run_info$npop)) cat("🏘️  Populations: ", run_info$npop, "\n")
+    if (!is.null(run_info$n_particles)) cat("🎲 Particles: ", run_info$n_particles, "\n")
+    if (!is.null(run_info$include_humans) && run_info$include_humans) {
+      cat("👤 Includes humans: Yes\n")
+    }
+  }
+  
+  # Time span
+  time_range <- range(object$time, na.rm = TRUE)
+  n_time <- length(unique(object$time))
+  cat("⏱️  Time span: ", round(time_range[1], 2), " to ", round(time_range[2], 2), 
+      " years (", n_time, " points)\n")
+  
+  cat("\n")
+  
+  # Epidemic summary for infected compartments
+  infected_data <- object |> filter(compartment %in% c("I", "Ih"))
+  
+  if (nrow(infected_data) > 0) {
+    cat("📈 Epidemic Summary:\n")
+    
+    # Calculate key epidemic metrics
+    epidemic_stats <- infected_data |>
+      group_by(compartment, replicate) |>
+      summarise(
+        peak_infected = max(value, na.rm = TRUE),
+        peak_time = time[which.max(value)],
+        final_infected = last(value),
+        duration = sum(value > 1) * (max(time) - min(time)) / (n() - 1),
+        .groups = "drop"
+      ) |>
+      group_by(compartment) |>
+      summarise(
+        avg_peak = mean(peak_infected, na.rm = TRUE),
+        median_peak = median(peak_infected, na.rm = TRUE),
+        avg_peak_time = mean(peak_time, na.rm = TRUE),
+        avg_duration = mean(duration, na.rm = TRUE),
+        extinction_rate = mean(final_infected < 1, na.rm = TRUE) * 100,
+        .groups = "drop"
+      )
+    
+    for (i in seq_len(nrow(epidemic_stats))) {
+      comp <- epidemic_stats$compartment[i]
+      comp_name <- if (comp == "I") "Rats" else "Humans"
+      
+      cat("  ", comp_name, ":\n")
+      cat("    Peak infections: ", round(epidemic_stats$median_peak[i], 1), 
+          " (median), ", round(epidemic_stats$avg_peak[i], 1), " (mean)\n")
+      cat("    Time to peak: ", round(epidemic_stats$avg_peak_time[i], 2), " years\n")
+      cat("    Epidemic duration: ", round(epidemic_stats$avg_duration[i], 2), " years\n")
+      
+      if (epidemic_stats$extinction_rate[i] > 0) {
+        cat("    Extinction rate: ", round(epidemic_stats$extinction_rate[i], 1), "%\n")
+      }
+    }
+  }
+  
+  cat("\n")
+  
+  # Population impact summary
+  initial_pops <- object |> 
+    filter(time == min(time)) |>
     group_by(compartment) |>
-    summarise(
-      min_value = min(value),
-      max_value = max(value),
-      mean_value = mean(value),
-      final_value = value[which.max(time)],
-      .groups = "drop"
-    )
+    summarise(initial = sum(value, na.rm = TRUE), .groups = "drop")
   
-  cat("\nCompartment summaries:\n")
-  print(summary_stats)
+  final_pops <- object |>
+    filter(time == max(time)) |>
+    group_by(compartment) |>
+    summarise(final = sum(value, na.rm = TRUE), .groups = "drop")
+  
+  pop_change <- merge(initial_pops, final_pops, by = "compartment") |>
+    mutate(change = final - initial, pct_change = (final - initial) / initial * 100) |>
+    filter(compartment %in% c("S", "R", "Sh", "Rh"))
+  
+  if (nrow(pop_change) > 0) {
+    cat("🏘️  Population Changes:\n")
+    for (i in seq_len(nrow(pop_change))) {
+      comp <- pop_change$compartment[i]
+      comp_name <- switch(comp,
+        "S" = "Susceptible rats",
+        "R" = "Recovered rats", 
+        "Sh" = "Susceptible humans",
+        "Rh" = "Recovered humans",
+        comp  # default case
+      )
+      
+      change_icon <- if (pop_change$pct_change[i] > 0) "📈" else "📉"
+      cat("  ", change_icon, " ", comp_name, ": ", 
+          sprintf("%+.1f%% (%+.0f)", pop_change$pct_change[i], pop_change$change[i]), "\n")
+    }
+  }
+  
+  cat("\n")
   
   # Basic reproduction number if parameters available
   params <- attr(object, "params")
   if (!is.null(params)) {
-    R0 <- calculate_R0(params)
-    cat("\nBasic reproduction number (R0):", round(R0, 3), "\n")
+    R0 <- tryCatch(calculate_R0(params), error = function(e) NA)
+    if (!is.na(R0)) {
+      cat("📊 Basic Reproduction Number (R₀): ", round(R0, 3))
+      if (R0 > 1) {
+        cat(" ✅ (Epidemic potential)")
+      } else {
+        cat(" ⚠️  (Below epidemic threshold)")
+      }
+      cat("\n")
+    }
+  }
+  
+  # Spatial summary if multiple populations
+  n_pops <- length(unique(object$population))
+  if (n_pops > 1) {
+    cat("\n🗺️  Spatial Distribution:\n")
+    
+    spatial_summary <- object |>
+      filter(compartment == "I", time == max(time)) |>
+      group_by(population) |>
+      summarise(final_infected = mean(value, na.rm = TRUE), .groups = "drop") |>
+      summarise(
+        affected_pops = sum(final_infected > 1),
+        max_infected = max(final_infected),
+        total_infected = sum(final_infected),
+        .groups = "drop"
+      )
+    
+    cat("  Populations affected: ", spatial_summary$affected_pops, " of ", n_pops, "\n")
+    cat("  Peak population infection: ", round(spatial_summary$max_infected, 1), "\n")
+    cat("  Total infected: ", round(spatial_summary$total_infected, 1), "\n")
   }
   
   invisible(object)
@@ -327,6 +556,7 @@ plot.plague_results <- function(x, compartments = NULL, log_scale = FALSE, ...) 
 #' @param n_particles Number of particles for stochastic models
 #' @param n_threads Number of threads for parallel processing
 #' @param seasonal Logical, include seasonal forcing
+#' @param progress Logical, show progress messages for long simulations (default TRUE)
 #' @param ... Additional parameters to override
 #' @return plague_results object
 #' @export
@@ -338,6 +568,7 @@ run_plague_model <- function(params = "defaults",
                              n_particles = 100,
                              n_threads = 1,
                              seasonal = FALSE,
+                             progress = TRUE,
                              ...) {
   
   # Load and validate parameters
@@ -377,8 +608,22 @@ run_plague_model <- function(params = "defaults",
     contact_matrix <- matrix(1, 1, 1)
   }
   
-  # Prepare model-specific parameters
+  # Prepare model-specific parameters - filter to avoid warnings
   sim_params <- as.list(model_params)
+  
+  # Define expected parameters for each model type
+  if (include_humans) {
+    # Human model parameters (no movement parameters)
+    expected_params <- c("K_r", "r_r", "p", "d_r", "beta_r", "a", "m_r", "g_r", "r_f", "K_f", "d_f",
+                        "K_h", "r_h", "d_h", "beta_h", "m_h", "g_h", "I_ini", "seasonal_amplitude")
+  } else {
+    # Spatial rat model parameters (includes movement parameters)
+    expected_params <- c("K_r", "r_r", "p", "d_r", "beta_r", "a", "m_r", "g_r", "r_f", "K_f", "d_f",
+                        "mu_r", "mu_f", "I_ini", "seasonal_amplitude")
+  }
+  
+  # Filter to only expected parameters to avoid warnings
+  sim_params <- sim_params[intersect(names(sim_params), expected_params)]
   
   # Always set up parameters for spatial framework (works for npop = 1 too)
   sim_params$npop <- npop
@@ -411,15 +656,28 @@ run_plague_model <- function(params = "defaults",
     sim_params$season <- rep(0, length(timesteps))
   }
   
+  # Simple progress messages for long simulations
+  show_messages <- progress && (n_particles > 50 || length(timesteps) > 1000)
+  if (show_messages) {
+    start_time <- Sys.time()
+    message("🚀 Running ", n_particles, " particles over ", length(timesteps), " time steps...")
+  }
+  
   # Run the appropriate stochastic model
   if (include_humans) {
     # Single-population human model (npop = 1 enforced above)
-    results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads)
+    results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads, show_messages)
     model_type <- "stochastic_humans"
   } else {
     # Always use spatial model (works for npop = 1 or npop > 1)
-    results <- run_spatial_stochastic_model(sim_params, timesteps, n_particles, n_threads)
+    results <- run_spatial_stochastic_model(sim_params, timesteps, n_particles, n_threads, show_messages)
     model_type <- if (npop > 1) "stochastic_spatial" else "stochastic_single"
+  }
+  
+  # Completion message
+  if (show_messages && exists("start_time")) {
+    elapsed <- round(as.numeric(Sys.time() - start_time, units = "secs"), 1)
+    message("✅ Simulation completed in ", elapsed, "s")
   }
   
   # Create run info
@@ -443,10 +701,11 @@ run_plague_model <- function(params = "defaults",
 #' @param timesteps Vector of timesteps
 #' @param n_particles Number of particles
 #' @param n_threads Number of threads
+#' @param show_progress Logical, show progress messages
 #' @return Tidy tibble with results
-run_spatial_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
+run_spatial_stochastic_model <- function(params, timesteps, n_particles, n_threads, show_progress = FALSE) {
   # Clean pipeline - no redundant processing needed
-  results <- run_stochastic_simulation(params, timesteps, n_particles, n_threads)
+  results <- run_stochastic_simulation(params, timesteps, n_particles, n_threads, show_progress)
   return(results)
 }
 
@@ -455,8 +714,9 @@ run_spatial_stochastic_model <- function(params, timesteps, n_particles, n_threa
 #' @param timesteps Vector of timesteps
 #' @param n_particles Number of particles
 #' @param n_threads Number of threads
+#' @param show_progress Logical, show progress messages
 #' @return Tidy tibble with results
-run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
+run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads, show_progress = FALSE) {
   # Initialize model using plague_stochastic_humans.R
   model_path <- system.file("odin", "plague_stochastic_humans.R", package = "yersinia")
   if (model_path == "") {
@@ -473,7 +733,9 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
   )
   
   # Run simulation
-  state <- model$simulate(timesteps) |>
+  state <- model$simulate(timesteps)
+  
+  state <- state |>
     array(
       dim = c(10, n_particles, length(timesteps)),
       dimnames = list(
@@ -714,8 +976,9 @@ animate_spatial_spread <- function(results, timepoints, n_rows, n_cols) {
 #' @param timesteps Vector of timesteps
 #' @param n_particles Number of particles (replicates)
 #' @param n_threads Number of threads for parallel processing
+#' @param show_progress Logical, show progress messages
 #' @return Data frame with simulation results
-run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1) {
+run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1, show_progress = FALSE) {
   # Initialize model
   model_path <- system.file("odin", "plague_stochastic.R", package = "yersinia")
   if (model_path == "") {
@@ -732,7 +995,9 @@ run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_thre
   )
 
   # Run simulation
-  state <- model$simulate(timesteps) |>
+  state <- model$simulate(timesteps)
+  
+  state <- state |>
     array(
       dim = c(params$npop, 5, n_particles, length(timesteps)),
       dimnames = list(
