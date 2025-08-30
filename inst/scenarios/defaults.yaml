@@ -1,15 +1,13 @@
-# Keeling & Gilligan (2000) parameter set
-# Parameters from the foundational plague modeling paper
+# Default plague model scenario
+# Baseline biological/disease parameters
 
 # Metadata
-name: "keeling-gilligan"
-description: "Parameters from Keeling & Gilligan (2000) metapopulation plague model"
-source: "Keeling, M. J., & Gilligan, C. A. (2000)"
-reference: "Metapopulation dynamics of bubonic plague. Nature, 407(6806), 903-906"
-doi: "10.1038/35038564"
+name: "defaults"
+description: "Default biological parameters for plague models"
+source: "Package defaults"
+reference: "Plague modeling package"
 
 # Rat population parameters
-K_r: 2500    # Rat carrying capacity (total system)
 r_r: 5.0     # Rat population growth rate (per year)
 p: 0.975     # Probability of inherited resistance
 d_r: 0.2     # Natural death rate of rats (per year)
@@ -26,22 +24,13 @@ K_f: 6.57    # Flea carrying capacity per rat
 d_f: 10.0    # Death rate of free fleas (per year)
 
 # Human population parameters (when applicable)
-K_h: 5000    # Human carrying capacity
 r_h: 0.045   # Human population growth rate (per year)
 d_h: 0.04    # Natural death rate of humans (per year)
 beta_h: 0.01 # Human infection rate from fleas
 m_h: 26      # Infected human recovery rate (per year)
 g_h: 0.1     # Probability human survives infection
 
-# Initial conditions
-I_ini: 1     # Initial number of infected rats
-
 # Spatial parameters
 mu_r: 0.03   # Rat movement rate (per year)
 mu_f: 0.008  # Flea movement rate (per year)
 
-# Notes
-notes: |
-  These are the original parameters from the seminal Keeling & Gilligan (2000)
-  Nature paper that established the mathematical framework for plague modeling.
-  The paper focused on metapopulation dynamics and spatial spread patterns.

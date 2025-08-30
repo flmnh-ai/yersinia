@@ -184,7 +184,7 @@ We use the package parameter system to load established parameter values:
 
 ```{r run_basic}
 # Load Keeling & Gilligan parameter values
-params <- load_parameters("keeling-gilligan")
+params <- load_scenario("keeling-gilligan")
 print(params)
 
 # Create model instance with package parameters
@@ -237,7 +237,7 @@ if (R0 > 1) {
 scenarios <- c("keeling-gilligan", "modern-estimates", "historical")
 R0_comparison <- data.frame(
   Scenario = scenarios,
-  R0 = sapply(scenarios, function(x) calculate_R0(load_parameters(x)))
+  R0 = sapply(scenarios, function(x) calculate_R0(load_scenario(x)))
 )
 print(R0_comparison)
 ```
@@ -337,7 +337,7 @@ seasonal_plague_model <- suppressMessages(odin::odin({
 
 ```{r run_seasonal}
 # Load parameters and add seasonal forcing
-params <- load_parameters("keeling-gilligan")
+params <- load_scenario("keeling-gilligan")
 params$seasonal_amplitude <- 0.3  # 30% seasonal variation
 
 # Create seasonal forcing (sinusoidal pattern)
@@ -453,7 +453,7 @@ human_plague_model <- suppressMessages(odin::odin({
 
 ```{r run_human}
 # Load parameters including human parameters
-params_human <- load_parameters("historical")  # Use historical parameters for medieval scenario
+params_human <- load_scenario("historical")  # Use historical parameters for medieval scenario
 print(params_human)
 
 # Create human model
@@ -510,7 +510,7 @@ param_sets <- c("keeling-gilligan", "modern-estimates", "historical", "defaults"
 comparison_results <- list()
 
 for (param_set in param_sets) {
-  params <- load_parameters(param_set)
+  params <- load_scenario(param_set)
   model <- basic_plague_model$new(user = params)
   
   results <- model$run(seq(0, 8, by = 0.1))
@@ -544,9 +544,9 @@ all_results |>
 # Summary table of key characteristics
 param_summary <- data.frame(
   Parameter_Set = param_sets,
-  R0 = sapply(param_sets, function(x) round(calculate_R0(load_parameters(x)), 3)),
+  R0 = sapply(param_sets, function(x) round(calculate_R0(load_scenario(x)), 3)),
   Peak_Infected = sapply(param_sets, function(x) {
-    params <- load_parameters(x)
+    params <- load_scenario(x)
     model <- basic_plague_model$new(user = params)
     results <- model$run(seq(0, 8, by = 0.1))
     round(max(results[, "I_r"]), 0)

@@ -1,15 +1,14 @@
-# Historical parameter estimates
-# Parameters representing medieval/historical plague conditions
+# Historical plague scenario
+# Biological parameters representing medieval/historical plague conditions
 
 # Metadata
 name: "historical"
-description: "Parameter estimates for historical plague outbreaks (14th-17th centuries)"
+description: "Biological parameters for historical plague outbreaks (14th-17th centuries)"
 source: "Historical analysis and paleoepidemiology"
 reference: "Estimated from Black Death and subsequent pandemic data"
 period: "1347-1700"
 
 # Rat population parameters
-K_r: 2000    # Rat carrying capacity (total system, smaller medieval cities)
 r_r: 6.0     # Higher growth rate (less urbanization pressure)
 p: 0.98      # Higher resistance probability (natural selection)
 d_r: 0.15    # Lower baseline death rate (rural/natural conditions)
@@ -26,22 +25,16 @@ K_f: 5.0     # Lower carrying capacity (different housing/hygiene)
 d_f: 8.0     # Lower death rate (less urban stress)
 
 # Human population parameters
-K_h: 3000    # Much smaller population centers
 r_h: 0.03    # Lower growth rate (high infant mortality)
 d_h: 0.08    # Very high death rate (pre-modern conditions)
 beta_h: 0.015 # Higher infection rate (close quarters, poor hygiene)
 m_h: 35      # Slower disease progression (different strains?)
 g_h: 0.05    # Very low survival probability (no antibiotics)
 
-# Initial conditions
-I_ini: 5     # Multiple introduction points common
-
 # Spatial parameters
 mu_r: 0.02   # Lower movement (less transportation)
 mu_f: 0.005  # Much lower flea movement (walking/animal transport only)
 
-# Environmental parameters
-seasonal_amplitude: 0.4  # Strong seasonal effects (Little Ice Age)
 
 # Notes
 notes: |

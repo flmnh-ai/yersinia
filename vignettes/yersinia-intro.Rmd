@@ -79,7 +79,7 @@ plot(results)
 The package includes several parameter sets from the literature:
 
 ```{r parameter-sets}
-load_parameters("defaults")
+load_scenario("defaults")
 
 # Available parameter sets
 param_sets <- c("defaults", "keeling-gilligan", "modern-estimates", "historical")
@@ -87,7 +87,7 @@ param_sets <- c("defaults", "keeling-gilligan", "modern-estimates", "historical"
 # Compare R₀ values across parameter sets
 tibble(
   name = param_sets,
-  parameters = map(name, load_parameters),
+  parameters = map(name, load_scenario),
   R0 = map_dbl(parameters, calculate_R0)
 )
 ```
@@ -98,11 +98,11 @@ Parameters can be easily modified:
 
 ```{r custom-parameters}
 # Load and examine default parameters
-params <- load_parameters("defaults")
+params <- load_scenario("defaults")
 
 # Modify parameters on-the-fly
 results_high_transmission <- run_plague_model(
-  params = "defaults",
+  scenario = "defaults",
   npop = 1,
   n_particles = 20,
   beta_r = 8.0,     # Higher transmission rate
@@ -120,7 +120,7 @@ Basic rat-flea dynamics in a single population:
 ```{r single-population}
 # Basic rat-flea model
 results_basic <- run_plague_model(
-  params = "keeling-gilligan",
+  scenario = "keeling-gilligan",
   npop = 1,
   n_particles = 30,
   years = 8
@@ -136,7 +136,7 @@ Include human populations in the transmission cycle:
 ```{r human-model, fig.cap="Plague dynamics including human populations"}
 # Model with human dynamics (single population only)
 results_humans <- run_plague_model(
-  params = "modern-estimates",
+  scenario = "modern-estimates",
   include_humans = TRUE,
   npop = 1,                # Human models require npop = 1
   n_particles = 30,
@@ -154,40 +154,22 @@ Multi-population metapopulation dynamics with migration:
 ```{r spatial-model, fig.cap="Spatial plague dynamics across 25 connected populations"}
 # Spatial model with 25 populations (5x5 grid)
 results_spatial <- run_plague_model(
-  params = "defaults", 
+  scenario = "defaults", 
   K_r = 10000,             # Higher total capacity (400 per population)
   npop = 25,               # Creates 5x5 grid automatically
   n_particles = 20,
-  years = 5,
-  seasonal = FALSE,
-  seasonal_amplitue = 1
+  years = 30,
+  K_f = 4,
+  p = 0.6
 )
-
-
-years <- 30
-timesteps <- 1:(dt ^ -1 * years)
-
-I_ini = c(10, rep(0, npop - 1)), 
-                                 S_ini = 1,
-                                 K_r = 10000 / npop,
-                                 contact = contact_matrix, #matrix(0,nrow = 16, ncol = 16), # this should cause divide by zero errors!
-                                 K_f = 4,
-                                 dt = dt,
-                                 p = 0.6,
-                                 season = seasonal_kf,
-                                 # g_r = 1,
-                                 npop = npop),
-                     time = 1L,
-                     n_particles = n_particles,
-                     n_threads = 4L,
-                     seed = 6L
 
 # Show dynamics for a few populations
 plot(results_spatial)
 ```
 ```{r}
+map(1:10, ~
 results_spatial |>
-  filter(replicate == 1) |>
+  filter(replicate == .x) |>
   select(-replicate) |>
   tidyr::pivot_wider(names_from = compartment) |>
   ggplot(aes(time, ymax = I)) +
@@ -200,6 +182,7 @@ results_spatial |>
     color = "Compartment"
   ) +
   theme_bw()
+)
 ```
 
 
@@ -277,10 +260,10 @@ The basic reproduction number determines whether an outbreak can occur:
 
 ```{r r0-calculation}
 # Calculate R₀ for different parameter sets
-params_historical <- load_parameters("historical")
+params_historical <- load_scenario("historical")
 R0_historical <- calculate_R0(params_historical)
 
-params_modern <- load_parameters("modern-estimates")  
+params_modern <- load_scenario("modern-estimates")  
 R0_modern <- calculate_R0(params_modern)
 
 cat("Historical R₀:", round(R0_historical, 2), "\n")
@@ -334,7 +317,7 @@ sensitivity_results <- data.frame()
 
 for (beta in beta_values) {
   result <- run_plague_model(
-    params = "defaults",
+    scenario = "defaults",
     npop = 1,
     n_particles = 10,  # Fewer particles for speed
     beta_r = beta,
@@ -369,7 +352,7 @@ Compare single population vs spatial dynamics:
 ```{r model-comparison, fig.cap="Comparison of single population vs spatial model dynamics"}
 # Single population
 single <- run_plague_model(
-  params = "defaults",
+  scenario = "defaults",
   npop = 1,
   n_particles = 20,
   years = 5
@@ -377,7 +360,7 @@ single <- run_plague_model(
 
 # Spatial model
 spatial <- run_plague_model(
-  params = "defaults", 
+  scenario = "defaults", 
   K_r = 10000,             # Higher total capacity (400 per population)
   npop = 25,
   n_particles = 20,
@@ -427,7 +410,7 @@ Model historical plague outbreaks using medieval parameter estimates:
 ```{r historical-scenario, fig.cap="Modeling plague dynamics with historical parameters"}
 # Use historical parameters representing medieval conditions
 results_black_death <- run_plague_model(
-  params = "historical",
+  scenario = "historical",
   include_humans = TRUE,
   npop = 1,
   n_particles = 30,
@@ -468,7 +451,7 @@ comparison_data <- data.frame()
 
 for (param_set in param_sets) {
   result <- run_plague_model(
-    params = param_set,
+    scenario = param_set,
     npop = 1,
     n_particles = 20,
     years = 6
@@ -516,11 +499,11 @@ intervention_data <- data.frame()
 
 for (intervention in interventions) {
   if (intervention == "baseline") {
-    params_list <- list(params = "modern-estimates")
+    params_list <- list(scenario = "modern-estimates")
   } else if (intervention == "rat_control") {
-    params_list <- list(params = "modern-estimates", K_r = 1500)  # 50% reduction
+    params_list <- list(scenario = "modern-estimates", K_r = 1500)  # 50% reduction
   } else {
-    params_list <- list(params = "modern-estimates", K_f = 3.0)   # Reduced flea capacity
+    params_list <- list(scenario = "modern-estimates", K_f = 3.0)   # Reduced flea capacity
   }
   
   result <- do.call(run_plague_model, c(
@@ -566,9 +549,9 @@ Assess outbreak risk under different scenarios using R₀:
 scenarios_r0 <- data.frame(
   Scenario = c("Baseline", "High Transmission", "Poor Sanitation"),
   R0 = c(
-    calculate_R0(load_parameters("modern-estimates")),
-    calculate_R0(load_parameters("modern-estimates", beta_r = 7.0)),
-    calculate_R0(load_parameters("modern-estimates", K_f = 10.0, K_r = 4000))
+    calculate_R0(load_scenario("modern-estimates")),
+    calculate_R0(load_scenario("modern-estimates", beta_r = 7.0)),
+    calculate_R0(load_scenario("modern-estimates", K_f = 10.0, K_r = 4000))
   )
 )
 

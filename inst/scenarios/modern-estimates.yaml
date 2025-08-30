@@ -1,15 +1,14 @@
-# Modern parameter estimates
-# Updated parameters based on contemporary data and studies
+# Modern plague scenario
+# Biological parameters based on contemporary data and studies
 
 # Metadata
 name: "modern-estimates"
-description: "Updated parameter estimates based on recent empirical studies"
+description: "Biological parameters based on recent empirical studies"
 source: "Multiple contemporary sources"
 reference: "Compiled from recent plague ecology and epidemiology literature"
 last_updated: "2024"
 
 # Rat population parameters
-K_r: 3000    # Rat carrying capacity (total system, higher urban populations)
 r_r: 4.5     # Slightly lower growth rate (urbanization effects)
 p: 0.96      # Slightly lower resistance probability
 d_r: 0.25    # Higher death rate (urban stressors)
@@ -26,22 +25,16 @@ K_f: 7.0     # Higher carrying capacity (urban food sources)
 d_f: 12.0    # Higher death rate (urban challenges)
 
 # Human population parameters
-K_h: 10000   # Higher human density in modern urban areas
 r_h: 0.05    # Higher growth rate (demographic transition)
 d_h: 0.035   # Lower mortality (modern medicine)
 beta_h: 0.012 # Slightly higher infection rate (closer contact)
 m_h: 24      # Faster recovery (medical care)
 g_h: 0.15    # Much higher survival probability (antibiotics)
 
-# Initial conditions
-I_ini: 1     # Initial number of infected rats
-
 # Spatial parameters
 mu_r: 0.05   # Higher movement rates (transportation networks)
 mu_f: 0.012  # Higher flea movement (human transport)
 
-# Environmental parameters
-seasonal_amplitude: 0.3  # Stronger seasonal effects (climate change)
 
 # Notes
 notes: |

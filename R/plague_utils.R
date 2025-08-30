@@ -3,26 +3,26 @@
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
 
-#' Load plague model parameters
-#' @param param_set Name of parameter set or path to YAML file or list of parameters
+#' Load plague model scenario parameters
+#' @param scenario Name of scenario or path to YAML file or list of parameters
 #' @param validate Logical, whether to validate parameters
-#' @param ... Additional parameters to override
-#' @return List of validated parameters
+#' @param ... Additional model parameters to override
+#' @return List of validated model parameters
 #' @export
-load_parameters <- function(param_set = "defaults", validate = TRUE, ...) {
+load_scenario <- function(scenario = "defaults", validate = TRUE, ...) {
   # Handle different input types
-  if (is.list(param_set)) {
-    params <- param_set
-  } else if (is.character(param_set)) {
-    if (file.exists(param_set)) {
+  if (is.list(scenario)) {
+    params <- scenario
+  } else if (is.character(scenario)) {
+    if (file.exists(scenario)) {
       # It's a file path
-      params <- yaml::read_yaml(param_set)
+      params <- yaml::read_yaml(scenario)
     } else {
-      # It's a named parameter set
-      params <- load_named_parameters(param_set)
+      # It's a named scenario
+      params <- load_named_scenario(scenario)
     }
   } else {
-    stop("param_set must be a character string, file path, or list")
+    stop("scenario must be a character string, file path, or list")
   }
 
   # Override with any additional parameters
@@ -36,32 +36,32 @@ load_parameters <- function(param_set = "defaults", validate = TRUE, ...) {
   }
 
   # Add metadata
-  attr(params, "param_set") <- if(is.character(param_set)) param_set else "custom"
+  attr(params, "scenario") <- if(is.character(scenario)) scenario else "custom"
   attr(params, "modified") <- length(override_params) > 0
 
-  class(params) <- c("plague_parameters", "list")
+  class(params) <- c("scenario_parameters", "list")
   return(params)
 }
 
-#' Load named parameter sets
-#' @param name Name of parameter set
-#' @return List of parameters
-load_named_parameters <- function(name) {
-  # Available parameter sets
-  available_sets <- c("defaults", "keeling-gilligan", "modern-estimates", "historical")
+#' Load named scenario parameters
+#' @param name Name of scenario
+#' @return List of model parameters
+load_named_scenario <- function(name) {
+  # Available scenarios
+  available_scenarios <- c("defaults", "keeling-gilligan", "modern-estimates", "historical")
 
-  if (!name %in% available_sets) {
-    stop("Parameter set '", name, "' not found. Available sets: ",
-         paste(available_sets, collapse = ", "))
+  if (!name %in% available_scenarios) {
+    stop("Scenario '", name, "' not found. Available scenarios: ",
+         paste(available_scenarios, collapse = ", "))
   }
 
   # Try to load from YAML file first
   # Use system.file for installed packages, fallback to inst/ for development
-  yaml_file <- system.file("parameters", paste0(name, ".yaml"), package = "yersinia")
+  yaml_file <- system.file("scenarios", paste0(name, ".yaml"), package = "yersinia")
 
   if (yaml_file == "" || !file.exists(yaml_file)) {
     # Fallback for development mode
-    yaml_file <- file.path("inst", "parameters", paste0(name, ".yaml"))
+    yaml_file <- file.path("inst", "scenarios", paste0(name, ".yaml"))
   }
 
   if (file.exists(yaml_file)) {
@@ -87,22 +87,22 @@ load_named_parameters <- function(name) {
     switch(name,
       "defaults" = ,
       "keeling-gilligan" = list(
-        K_r = 2500, r_r = 5.0, p = 0.975, d_r = 0.2, beta_r = 4.7, a = 4e-3,
+        r_r = 5.0, p = 0.975, d_r = 0.2, beta_r = 4.7, a = 4e-3,
         m_r = 20.0, g_r = 0.02, r_f = 20.0, K_f = 6.57, d_f = 10.0,
-        K_h = 5000, r_h = 0.045, d_h = 0.04, beta_h = 0.01, m_h = 26, g_h = 0.1,
-        I_ini = 1, mu_r = 0.03, mu_f = 0.008
+        r_h = 0.045, d_h = 0.04, beta_h = 0.01, m_h = 26, g_h = 0.1,
+        mu_r = 0.03, mu_f = 0.008
       ),
       "modern-estimates" = list(
-        K_r = 3000, r_r = 4.5, p = 0.96, d_r = 0.25, beta_r = 5.0, a = 5e-3,
+        r_r = 4.5, p = 0.96, d_r = 0.25, beta_r = 5.0, a = 5e-3,
         m_r = 18.0, g_r = 0.03, r_f = 22.0, K_f = 7.0, d_f = 12.0,
-        K_h = 10000, r_h = 0.05, d_h = 0.035, beta_h = 0.012, m_h = 24, g_h = 0.15,
-        I_ini = 1, mu_r = 0.05, mu_f = 0.012
+        r_h = 0.05, d_h = 0.035, beta_h = 0.012, m_h = 24, g_h = 0.15,
+        mu_r = 0.05, mu_f = 0.012
       ),
       "historical" = list(
-        K_r = 2000, r_r = 6.0, p = 0.98, d_r = 0.15, beta_r = 6.0, a = 3e-3,
+        r_r = 6.0, p = 0.98, d_r = 0.15, beta_r = 6.0, a = 3e-3,
         m_r = 25.0, g_r = 0.01, r_f = 15.0, K_f = 5.0, d_f = 8.0,
-        K_h = 3000, r_h = 0.03, d_h = 0.08, beta_h = 0.015, m_h = 35, g_h = 0.05,
-        I_ini = 5, mu_r = 0.02, mu_f = 0.005
+        r_h = 0.03, d_h = 0.08, beta_h = 0.015, m_h = 35, g_h = 0.05,
+        mu_r = 0.02, mu_f = 0.005
       )
     )
   }
@@ -112,8 +112,8 @@ load_named_parameters <- function(name) {
 #' @param params List of parameters
 #' @return TRUE if valid, stops with error if invalid
 validate_parameters <- function(params) {
-  # Core rat-flea parameters (always required)
-  required_params <- c("K_r", "r_r", "p", "d_r", "beta_r", "a",
+  # Core rat-flea parameters (always required) - excluding simulation parameters
+  required_params <- c("r_r", "p", "d_r", "beta_r", "a",
                        "m_r", "g_r", "r_f", "K_f", "d_f")
 
   # Check for missing core parameters
@@ -144,9 +144,9 @@ validate_parameters <- function(params) {
 #' @param x plague_parameters object
 #' @param ... Additional arguments (ignored)
 #' @export
-print.plague_parameters <- function(x, ...) {
-  param_set <- attr(x, "param_set") %||% "custom"
-  cat("🦠 Plague Parameters (", param_set, ")\n", sep = "")
+print.scenario_parameters <- function(x, ...) {
+  scenario <- attr(x, "scenario") %||% "custom"
+  cat("🦠 Plague Scenario (", scenario, ")\n", sep = "")
 
   # Add description if available from metadata
   metadata <- attr(x, "metadata")
@@ -529,7 +529,7 @@ plot.plague_results <- function(x, compartments = NULL) {
 #' @param ... Additional parameters to override
 #' @return plague_results object
 #' @export
-run_plague_model <- function(params = "defaults",
+run_plague_model <- function(scenario = "defaults",
                              years = 10,
                              timestep = c("weekly", "daily"),
                              include_humans = FALSE,
@@ -538,17 +538,21 @@ run_plague_model <- function(params = "defaults",
                              n_particles = 100,
                              n_threads = 1,
                              seasonal = FALSE,
+                             K_r = 2500,
+                             K_h = 5000,
+                             I_ini = 1,
+                             seasonal_amplitude = 1,
                              ...) {
   
   # Validate arguments
   timestep <- match.arg(timestep)
   stopifnot(is.numeric(years), years > 0)
 
-  # Load and validate parameters
-  if (inherits(params, "plague_parameters")) {
-    model_params <- params
+  # Load and validate scenario parameters
+  if (inherits(scenario, "scenario_parameters")) {
+    model_params <- scenario
   } else {
-    model_params <- load_parameters(params, ...)
+    model_params <- load_scenario(scenario, ...)
   }
 
   # Multi-population human models not yet implemented
@@ -574,38 +578,30 @@ run_plague_model <- function(params = "defaults",
     contact_matrix <- matrix(1, 1, 1)
   }
 
-  # Prepare model-specific parameters - filter to avoid warnings
+  # Prepare odin parameters from scenario
   sim_params <- as.list(model_params)
+  
+  # No parameter filtering needed - scenario files only contain model parameters
 
-  # Define expected parameters for each model type
-  if (include_humans) {
-    # Human model parameters (no movement parameters)
-    expected_params <- c("K_r", "r_r", "p", "d_r", "beta_r", "a", "m_r", "g_r", "r_f", "K_f", "d_f",
-                        "K_h", "r_h", "d_h", "beta_h", "m_h", "g_h", "I_ini", "seasonal_amplitude")
-  } else {
-    # Spatial rat model parameters (includes movement parameters)
-    expected_params <- c("K_r", "r_r", "p", "d_r", "beta_r", "a", "m_r", "g_r", "r_f", "K_f", "d_f",
-                        "mu_r", "mu_f", "I_ini", "seasonal_amplitude")
-  }
-
-  # Filter to only expected parameters to avoid warnings
-  sim_params <- sim_params[intersect(names(sim_params), expected_params)]
-
-  # Always set up parameters for spatial framework (works for npop = 1 too)
+  # Add simulation structure parameters
   sim_params$npop <- npop
   sim_params$contact <- contact_matrix
-
-  # Handle I_ini (needs to be a vector for odin model)
-  if ("I_ini" %in% names(sim_params) && length(sim_params$I_ini) == 1) {
-    sim_params$I_ini <- c(sim_params$I_ini, rep(0, npop - 1))  # Start infection in population 1
-  } else if (!"I_ini" %in% names(sim_params)) {
-    sim_params$I_ini <- c(10, rep(0, npop - 1))  # Default initial infection
+  
+  # Add carrying capacities from function arguments
+  sim_params$K_r <- K_r
+  sim_params$K_h <- K_h
+  
+  # Handle I_ini from function argument (needs to be a vector for odin model)
+  if (length(I_ini) == 1) {
+    sim_params$I_ini <- c(I_ini, rep(0, npop - 1))  # Start infection in population 1
+  } else {
+    sim_params$I_ini <- I_ini  # User provided vector
   }
 
   sim_params$S_ini <- 1
 
   # Distribute carrying capacity across populations
-  # K_r in parameter files represents total system capacity
+  # K_r represents total system capacity
   if (npop > 1) {
     sim_params$K_r <- sim_params$K_r / npop
   }
@@ -621,8 +617,10 @@ run_plague_model <- function(params = "defaults",
   time_years <- timesteps * dt
   if (seasonal) {
     sim_params$season <- sin(2 * pi * time_years)
+    sim_params$seasonal_amplitude <- seasonal_amplitude
   } else {
     sim_params$season <- rep(0, length(timesteps))
+    sim_params$seasonal_amplitude <- 0  # No seasonal effects
   }
 
   # Show simulation info
