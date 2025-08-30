@@ -11,13 +11,9 @@
 #' @export
 plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"), 
                                population = 1, replicate = 1, ...) {
-  if (!inherits(results, "plague_results")) {
-    stop("Input must be a plague_results object")
-  }
+  check_plague_results(results)
   
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("ggplot2 required for plotting")
-  }
+  check_ggplot2()
   
   # Filter and prepare data
   phase_data <- results |>
@@ -29,9 +25,8 @@ plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"),
     dplyr::select(time, compartment, value) |>
     tidyr::pivot_wider(names_from = compartment, values_from = value)
   
-  if (ncol(phase_data) != 3) {
-    stop("Need exactly two compartments for phase portrait")
-  }
+  checkmate::assert_true(ncol(phase_data) == 3,
+                        .var.name = "phase portrait data (need exactly two compartments)")
   
   # Create plot
   x_var <- names(phase_data)[2]
@@ -64,18 +59,12 @@ plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"),
 #' @export
 plot_spatial_heatmap <- function(results, time_point, compartment = "I", 
                                 replicate = 1, n_rows = 5, n_cols = 5) {
-  if (!inherits(results, "plague_results")) {
-    stop("Input must be a plague_results object")
-  }
+  check_plague_results(results)
   
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("ggplot2 required for plotting")
-  }
+  check_ggplot2()
   
   # Check if spatial
-  if (length(unique(results$population)) <= 1) {
-    stop("Results must be from a spatial model")
-  }
+  check_spatial_model(results)
   
   # Find closest time point
   available_times <- unique(results$time)
@@ -126,22 +115,14 @@ plot_spatial_heatmap <- function(results, time_point, compartment = "I",
 #' @export
 animate_spatial_spread <- function(results, compartment = "I", replicate = 1,
                                   n_rows = 5, n_cols = 5, time_points = NULL) {
-  if (!inherits(results, "plague_results")) {
-    stop("Input must be a plague_results object")
-  }
+  check_plague_results(results)
   
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("ggplot2 required for plotting")
-  }
+  check_ggplot2()
   
-  if (!requireNamespace("gganimate", quietly = TRUE)) {
-    stop("gganimate required for animation")
-  }
+  check_gganimate()
   
   # Check if spatial
-  if (length(unique(results$population)) <= 1) {
-    stop("Results must be from a spatial model")
-  }
+  check_spatial_model(results)
   
   # Select time points
   if (is.null(time_points)) {
@@ -196,13 +177,9 @@ animate_spatial_spread <- function(results, compartment = "I", replicate = 1,
 #' @export
 plot_dynamics <- function(results, compartments = NULL, population = 1, 
                          show_uncertainty = TRUE, log_scale = FALSE) {
-  if (!inherits(results, "plague_results")) {
-    stop("Input must be a plague_results object")
-  }
+  check_plague_results(results)
   
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("ggplot2 required for plotting")
-  }
+  check_ggplot2()
   
   # Filter data
   plot_data <- results |>
@@ -283,9 +260,7 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
 #' @return ggplot2 object  
 #' @export
 plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = "peak") {
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("ggplot2 required for plotting")
-  }
+  check_ggplot2()
   
   # Calculate summary metric
   metric_data <- sensitivity_results |>
@@ -303,7 +278,7 @@ plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = 
     "peak" = "peak",
     "final" = "final", 
     "auc" = "auc",
-    stop("metric must be 'peak', 'final', or 'auc'")
+    checkmate::assert_choice(metric, c("peak", "final", "auc"))
   )
   
   p <- metric_data |>
@@ -329,9 +304,7 @@ plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = 
 #' @return ggplot2 object
 #' @export
 plot_comparison <- function(results_list, compartment = "I", population = 1) {
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("ggplot2 required for plotting")
-  }
+  check_ggplot2()
   
   # Combine results
   combined_data <- purrr::map_dfr(names(results_list), function(name) {

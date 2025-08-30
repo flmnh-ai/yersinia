@@ -25,7 +25,10 @@ Imports:
     yaml,
     rlang,
     purrr,
-    cubelyr
+    cubelyr,
+    checkmate,
+    glue,
+    cli
 Suggests: 
     testthat,
     ggplot2,

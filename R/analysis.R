@@ -8,9 +8,7 @@
 #' @return Data frame with outbreak statistics
 #' @export
 calculate_outbreak_metrics <- function(results, compartment = "I", threshold = 1) {
-  if (!inherits(results, "plague_results")) {
-    stop("Input must be a plague_results object")
-  }
+  check_plague_results(results, "outbreak analysis")
   
   # Filter to specified compartment
   outbreak_data <- results |>
@@ -46,9 +44,7 @@ calculate_outbreak_metrics <- function(results, compartment = "I", threshold = 1
 #' @return Summary statistics
 #' @export
 summarize_outbreak_metrics <- function(outbreak_metrics) {
-  if (!inherits(outbreak_metrics, "plague_outbreak_metrics")) {
-    stop("Input must be output from calculate_outbreak_metrics()")
-  }
+  checkmate::assert_class(outbreak_metrics, "plague_outbreak_metrics")
   
   # Overall summary
   summary_stats <- outbreak_metrics |>
@@ -109,7 +105,7 @@ calculate_R0 <- function(params, model_type = "rats_only", K_r = 2500, K_h = 500
       
       list(rats = R0_rats, humans = R0_humans, combined = max(R0_rats, R0_humans))
     },
-    stop("Unknown model_type: ", model_type)
+    cli::cli_abort("Unknown model_type: {model_type}")
   )
 }
 
@@ -174,9 +170,7 @@ calculate_equilibrium <- function(params, model_type = "rats_only") {
 #' @return Tibble with force of infection by time
 #' @export
 calculate_force_of_infection <- function(results) {
-  if (!inherits(results, "plague_results")) {
-    stop("Input must be a plague_results object")
-  }
+  check_plague_results(results, "outbreak analysis")
   
   # Extract relevant compartments
   force_data <- results |>
@@ -201,14 +195,10 @@ calculate_force_of_infection <- function(results) {
 #' @return Correlation matrix
 #' @export
 calculate_spatial_correlation <- function(results, compartment = "I", method = "pearson") {
-  if (!inherits(results, "plague_results")) {
-    stop("Input must be a plague_results object")
-  }
+  check_plague_results(results, "outbreak analysis")
   
   # Check if spatial
-  if (length(unique(results$population)) <= 1) {
-    stop("Results must be from a spatial model")
-  }
+  check_spatial_model(results, "spatial correlation analysis")
   
   # Prepare data for correlation analysis
   spatial_data <- results |>

@@ -2,6 +2,52 @@
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+# Helper functions for validation (not exported)
+
+# Try to infer grid dimensions from population count
+infer_grid_size <- function(npop) {
+  sqrt_npop <- sqrt(npop)
+  if (sqrt_npop == round(sqrt_npop)) {
+    # Perfect square - use square grid
+    return(c(sqrt_npop, sqrt_npop))
+  }
+  
+  # Try to find nice rectangular grids
+  for (rows in 2:ceiling(sqrt_npop)) {
+    if (npop %% rows == 0) {
+      cols <- npop / rows
+      return(c(rows, cols))
+    }
+  }
+  
+  # No nice grid found
+  return(NULL)
+}
+
+# Helper functions for validation (not exported)
+check_plague_results <- function(results, context = "analysis") {
+  checkmate::assert_class(results, "plague_results", 
+                         .var.name = glue::glue("results (for {context})"))
+}
+
+check_spatial_model <- function(results, context = "spatial analysis") {
+  n_populations <- length(unique(results$population))
+  checkmate::assert_true(n_populations > 1,
+                        .var.name = glue::glue("spatial model requirement (for {context})"))
+}
+
+check_ggplot2 <- function(context = "plotting") {
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    cli::cli_abort("ggplot2 package required for {context}")
+  }
+}
+
+check_gganimate <- function(context = "animation") {
+  if (!requireNamespace("gganimate", quietly = TRUE)) {
+    cli::cli_abort("gganimate package required for {context}")
+  }
+}
+
 
 #' Load plague model scenario parameters
 #' @param scenario Name of scenario or path to YAML file or list of parameters
@@ -22,7 +68,7 @@ load_scenario <- function(scenario = "defaults", validate = TRUE, ...) {
       params <- load_named_scenario(scenario)
     }
   } else {
-    stop("scenario must be a character string, file path, or list")
+    cli::cli_abort("scenario must be a character string, file path, or list")
   }
 
   # Override with any additional parameters
@@ -50,10 +96,8 @@ load_named_scenario <- function(name) {
   # Available scenarios
   available_scenarios <- c("defaults", "keeling-gilligan", "modern-estimates", "historical")
 
-  if (!name %in% available_scenarios) {
-    stop("Scenario '", name, "' not found. Available scenarios: ",
-         paste(available_scenarios, collapse = ", "))
-  }
+  checkmate::assert_choice(name, available_scenarios, 
+                          .var.name = glue::glue("scenario name '{name}'"))
 
   # Try to load from YAML file first
   # Use system.file for installed packages, fallback to inst/ for development
@@ -64,13 +108,11 @@ load_named_scenario <- function(name) {
     yaml_file <- file.path("inst", "scenarios", paste0(name, ".yaml"))
   }
 
-  if (!file.exists(yaml_file)) {
-    stop("YAML file not found for scenario '", name, "'. Expected at: ", yaml_file, 
-         "\nThis indicates a package installation problem.")
-  }
+  checkmate::assert_file_exists(yaml_file, 
+    .var.name = glue::glue("YAML file for scenario '{name}' (package installation issue)"))
 
   if (!requireNamespace("yaml", quietly = TRUE)) {
-    stop("yaml package required for loading parameter files")
+    cli::cli_abort("yaml package required for loading parameter files")
   }
 
   params_full <- yaml::read_yaml(yaml_file)
@@ -94,25 +136,27 @@ validate_parameters <- function(params) {
   required_params <- c("r_r", "p", "d_r", "beta_r", "a",
                        "m_r", "g_r", "r_f", "K_f", "d_f")
 
-  # Check for missing core parameters
-  missing_params <- setdiff(required_params, names(params))
-  if (length(missing_params) > 0) {
-    stop("Missing required parameters: ", paste(missing_params, collapse = ", "))
-  }
+  # Check basic structure
+  checkmate::assert_list(params, names = "named")
+  
+  # Check for required parameters
+  checkmate::assert_names(names(params), must.include = required_params,
+                         .var.name = "scenario parameters")
 
-  # Validate parameter ranges
-  if (params$p < 0 || params$p > 1) stop("p must be between 0 and 1")
-  if (params$g_r < 0 || params$g_r > 1) stop("g_r must be between 0 and 1")
-
+  # Validate probability parameters (0-1 range)
+  checkmate::assert_number(params$p, lower = 0, upper = 1, .var.name = "p (resistance probability)")
+  checkmate::assert_number(params$g_r, lower = 0, upper = 1, .var.name = "g_r (rat survival probability)")
+  
   # Check human parameters if present
   if ("g_h" %in% names(params)) {
-    if (params$g_h < 0 || params$g_h > 1) stop("g_h must be between 0 and 1")
+    checkmate::assert_number(params$g_h, lower = 0, upper = 1, .var.name = "g_h (human survival probability)")
   }
 
-  # Check all parameters are non-negative
+  # Check all numeric parameters are non-negative
   numeric_params <- params[sapply(params, is.numeric)]
-  if (any(unlist(numeric_params) < 0)) {
-    stop("All numeric parameters must be non-negative")
+  for (param_name in names(numeric_params)) {
+    checkmate::assert_number(numeric_params[[param_name]], lower = 0, 
+                           .var.name = glue::glue("parameter '{param_name}'"))
   }
 
   TRUE
@@ -251,10 +295,8 @@ print.scenario_parameters <- function(x, ...) {
 new_plague_results <- function(data, model_type, params, run_info = list()) {
   # Validate data structure
   required_cols <- c("time", "compartment", "population", "replicate", "value")
-  missing_cols <- setdiff(required_cols, names(data))
-  if (length(missing_cols) > 0) {
-    stop("Missing required columns: ", paste(missing_cols, collapse = ", "))
-  }
+  checkmate::assert_names(names(data), must.include = required_cols,
+                         .var.name = "simulation results data")
 
   structure(
     data,
@@ -449,9 +491,7 @@ summary.plague_results <- function(object, ...) {
 #' @param compartments Vector of compartments to plot (NULL for all)
 #' @export
 plot.plague_results <- function(x, compartments = NULL) {
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("ggplot2 required for plotting")
-  }
+  check_ggplot2("results plotting")
 
   if (!is.null(compartments)) {
     x <- x |> dplyr::filter(compartment %in% compartments)
@@ -535,22 +575,24 @@ run_plague_model <- function(scenario = "defaults",
 
   # Multi-population human models not yet implemented
   if (npop > 1 && include_humans) {
-    stop("Multi-population human models not yet implemented - use npop = 1 with include_humans = TRUE")
+    cli::cli_abort("Multi-population human models not yet implemented - use npop = 1 with include_humans = TRUE")
   }
 
   # Generate contact matrix for multi-population models
   if (npop > 1 && is.null(contact_matrix)) {
-    # Default to 5x5 grid if npop = 25, otherwise error
-    if (npop == 25) {
-      contact_matrix <- make_contact_matrix(5, 5)
+    # Try to infer grid dimensions automatically
+    grid_dims <- infer_grid_size(npop)
+    if (!is.null(grid_dims)) {
+      contact_matrix <- make_contact_matrix(grid_dims[1], grid_dims[2])
+      cli::cli_inform("📍 Auto-generated {grid_dims[1]}x{grid_dims[2]} grid contact matrix for {npop} populations")
     } else {
-      stop("contact_matrix required when npop > 1 (except npop = 25 defaults to 5x5 grid)")
+      cli::cli_abort("Cannot automatically create contact matrix for npop = {npop}.
+                     Please provide a contact_matrix or use a population count with nice factors (e.g., 4, 9, 16, 25, etc.)")
     }
   } else if (npop > 1) {
     # Validate contact matrix dimensions
-    if (nrow(contact_matrix) != npop || ncol(contact_matrix) != npop) {
-      stop("contact_matrix must be ", npop, "x", npop, " matrix")
-    }
+    checkmate::assert_matrix(contact_matrix, nrows = npop, ncols = npop,
+                            .var.name = glue::glue("contact_matrix ({npop}x{npop})"))
   } else {
     # Single population case
     contact_matrix <- matrix(1, 1, 1)
@@ -603,7 +645,7 @@ run_plague_model <- function(scenario = "defaults",
 
   # Show simulation info
   start_time <- Sys.time() # use tic/toc instead?
-  message("🚀 Running ", n_particles, " particles over ", length(timesteps), " time steps...")
+  cli::cli_progress_step("🚀 Running {n_particles} particles over {length(timesteps)} time steps")
 
   # Run the appropriate stochastic model
   if (include_humans) {
@@ -618,7 +660,8 @@ run_plague_model <- function(scenario = "defaults",
 
   # Completion message
   elapsed <- round(as.numeric(Sys.time() - start_time, units = "secs"), 1)
-  message("✅ Simulation completed in ", elapsed, "s")
+  cli::cli_progress_done()
+  cli::cli_inform("✅ Simulation completed in {elapsed}s")
 
   # Create run info
   run_info <- list(
