@@ -158,6 +158,7 @@ results_spatial <- run_plague_model(
   K_r = 10000,             # Higher total capacity (400 per population)
   npop = 25,               # Creates 5x5 grid automatically
   n_particles = 20,
+  seasonal = TRUE,
   years = 30,
   K_f = 4,
   p = 0.6
@@ -187,53 +188,6 @@ results_spatial |>
 
 
 ## Seasonal Forcing
-
-Environmental seasonality affects flea dynamics. The package uses two different approaches for generating seasonal forcing:
-
-```{r seasonal-comparison, fig.cap="Comparison of seasonal forcing approaches"}
-# Package approach: matches model timestep
-years <- 5
-dt_weekly <- 1/52
-dt_daily <- 1/365
-
-# Weekly approach (current package - FIXED)
-timesteps_weekly <- seq_len(as.integer(dt_weekly^-1 * years))
-time_years_weekly <- timesteps_weekly * dt_weekly
-seasonal_weekly <- sin(2 * pi * time_years_weekly)
-
-# Daily approach (archive-style, high resolution)
-get_season_daily <- function(years = 1) {
-  days <- 1:(365 * years)
-  season <- (days - 1) %% 365 / 365
-  return(season)
-}
-season_daily <- get_season_daily(years)
-seasonal_daily_full <- sin(2 * pi * season_daily)
-# Sample at weekly intervals (what archive actually uses)
-weekly_indices <- seq(1, length(seasonal_daily_full), by = 7)
-seasonal_daily_sampled <- seasonal_daily_full[weekly_indices[1:length(timesteps_weekly)]]
-
-# Create comparison data
-comparison_data <- data.frame(
-  week = rep(1:length(timesteps_weekly), 2),
-  time = rep(time_years_weekly, 2),
-  seasonal_value = c(seasonal_weekly, seasonal_daily_sampled),
-  approach = rep(c("Package (Weekly)", "Archive (Daily→Weekly)"), each = length(timesteps_weekly))
-)
-
-library(ggplot2)
-ggplot(comparison_data, aes(time, seasonal_value, color = approach, linetype = approach)) +
-  geom_line(linewidth = 1) +
-  labs(
-    title = "Seasonal Forcing Approaches",
-    x = "Time (years)",
-    y = "Seasonal Multiplier",
-    color = "Method",
-    linetype = "Method"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-```
 
 ```{r seasonal-model, fig.cap="Effect of seasonal forcing on plague dynamics"}
 # Model with seasonal forcing

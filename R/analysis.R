@@ -80,33 +80,32 @@ summarize_outbreak_metrics <- function(outbreak_metrics) {
 #' Calculate basic reproduction number (R0) for different model types
 #' @param params plague_parameters object or list
 #' @param model_type Type of model ("rats_only", "with_humans", etc.)
+#' @param K_r Rat carrying capacity (defaults to 2500 if not in params)
+#' @param K_h Human carrying capacity (defaults to 5000 if not in params, only used for "with_humans")
 #' @return Numeric R0 value or list of R0 values
 #' @export
-calculate_R0 <- function(params, model_type = "rats_only") {
+calculate_R0 <- function(params, model_type = "rats_only", K_r = 2500, K_h = 5000) {
   if (inherits(params, "plague_parameters")) {
     p <- as.list(params)
   } else {
     p <- params
   }
   
+  # Use K_r/K_h from params if available, otherwise use provided defaults
+  K_r_val <- p$K_r %||% K_r
+  K_h_val <- p$K_h %||% K_h
+  
   switch(model_type,
     "rats_only" = {
       # R0 for rat-flea cycle
-      with(p, {
-        # Transmission rate * flea searching success * rat density / (death + recovery)
-        beta_r * K_r * (1 - exp(-a * K_r)) / (d_r + m_r)
-      })
+      # Transmission rate * flea searching success * rat density / (death + recovery)
+      p$beta_r * K_r_val * (1 - exp(-p$a * K_r_val)) / (p$d_r + p$m_r)
     },
     "with_humans" = {
       # Calculate both rat and human R0
-      R0_rats <- with(p, {
-        beta_r * K_r * (1 - exp(-a * K_r)) / (d_r + m_r)
-      })
+      R0_rats <- p$beta_r * K_r_val * (1 - exp(-p$a * K_r_val)) / (p$d_r + p$m_r)
       
-      R0_humans <- with(p, {
-        # Simplified human R0 (assumes constant flea exposure)
-        beta_h * K_f / (d_h + m_h)
-      })
+      R0_humans <- p$beta_h * p$K_f / (p$d_h + p$m_h)
       
       list(rats = R0_rats, humans = R0_humans, combined = max(R0_rats, R0_humans))
     },

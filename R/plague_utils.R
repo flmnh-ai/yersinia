@@ -64,48 +64,26 @@ load_named_scenario <- function(name) {
     yaml_file <- file.path("inst", "scenarios", paste0(name, ".yaml"))
   }
 
-  if (file.exists(yaml_file)) {
-    if (!requireNamespace("yaml", quietly = TRUE)) {
-      stop("yaml package required for loading parameter files")
-    }
-
-    params_full <- yaml::read_yaml(yaml_file)
-
-    # Extract just the parameter values (exclude metadata)
-    metadata_keys <- c("name", "description", "source", "reference", "doi",
-                      "last_updated", "period", "notes")
-    params <- params_full[!names(params_full) %in% metadata_keys]
-
-    # Store metadata as attributes
-    attr(params, "metadata") <- params_full[intersect(names(params_full), metadata_keys)]
-
-    return(params)
-  } else {
-    # Fallback to hardcoded values if YAML files not found
-    warning("YAML file not found for '", name, "', using fallback parameters")
-
-    switch(name,
-      "defaults" = ,
-      "keeling-gilligan" = list(
-        r_r = 5.0, p = 0.975, d_r = 0.2, beta_r = 4.7, a = 4e-3,
-        m_r = 20.0, g_r = 0.02, r_f = 20.0, K_f = 6.57, d_f = 10.0,
-        r_h = 0.045, d_h = 0.04, beta_h = 0.01, m_h = 26, g_h = 0.1,
-        mu_r = 0.03, mu_f = 0.008
-      ),
-      "modern-estimates" = list(
-        r_r = 4.5, p = 0.96, d_r = 0.25, beta_r = 5.0, a = 5e-3,
-        m_r = 18.0, g_r = 0.03, r_f = 22.0, K_f = 7.0, d_f = 12.0,
-        r_h = 0.05, d_h = 0.035, beta_h = 0.012, m_h = 24, g_h = 0.15,
-        mu_r = 0.05, mu_f = 0.012
-      ),
-      "historical" = list(
-        r_r = 6.0, p = 0.98, d_r = 0.15, beta_r = 6.0, a = 3e-3,
-        m_r = 25.0, g_r = 0.01, r_f = 15.0, K_f = 5.0, d_f = 8.0,
-        r_h = 0.03, d_h = 0.08, beta_h = 0.015, m_h = 35, g_h = 0.05,
-        mu_r = 0.02, mu_f = 0.005
-      )
-    )
+  if (!file.exists(yaml_file)) {
+    stop("YAML file not found for scenario '", name, "'. Expected at: ", yaml_file, 
+         "\nThis indicates a package installation problem.")
   }
+
+  if (!requireNamespace("yaml", quietly = TRUE)) {
+    stop("yaml package required for loading parameter files")
+  }
+
+  params_full <- yaml::read_yaml(yaml_file)
+
+  # Extract just the parameter values (exclude metadata)
+  metadata_keys <- c("name", "description", "source", "reference", "doi",
+                    "last_updated", "period", "notes")
+  params <- params_full[!names(params_full) %in% metadata_keys]
+
+  # Store metadata as attributes
+  attr(params, "metadata") <- params_full[intersect(names(params_full), metadata_keys)]
+
+  return(params)
 }
 
 #' Validate plague model parameters
