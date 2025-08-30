@@ -8,7 +8,7 @@ source: "Package defaults"
 reference: "Plague modeling package"
 
 # Rat population parameters
-K_r: 2500    # Rat carrying capacity
+K_r: 2500    # Rat carrying capacity (total system)
 r_r: 5.0     # Rat population growth rate (per year)
 p: 0.975     # Probability of inherited resistance
 d_r: 0.2     # Natural death rate of rats (per year)

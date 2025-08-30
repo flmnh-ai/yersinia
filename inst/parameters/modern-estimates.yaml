@@ -9,7 +9,7 @@ reference: "Compiled from recent plague ecology and epidemiology literature"
 last_updated: "2024"
 
 # Rat population parameters
-K_r: 3000    # Higher urban rat populations in modern cities
+K_r: 3000    # Rat carrying capacity (total system, higher urban populations)
 r_r: 4.5     # Slightly lower growth rate (urbanization effects)
 p: 0.96      # Slightly lower resistance probability
 d_r: 0.25    # Higher death rate (urban stressors)

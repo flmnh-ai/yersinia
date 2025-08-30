@@ -518,7 +518,8 @@ plot.plague_results <- function(x, compartments = NULL) {
 
 #' Run plague model simulation
 #' @param params Parameter set name, file path, or list of parameters
-#' @param times Vector of time points (default 0 to 10 years)
+#' @param years Number of years to simulate (default 10)
+#' @param timestep Time step resolution: "weekly" or "daily" (default "weekly")
 #' @param include_humans Logical, include human dynamics (only npop = 1 supported)
 #' @param npop Number of populations (1 for single population, >1 for spatial)
 #' @param contact_matrix Contact matrix for multi-population models (auto-generated if NULL and npop = 25)
@@ -529,7 +530,8 @@ plot.plague_results <- function(x, compartments = NULL) {
 #' @return plague_results object
 #' @export
 run_plague_model <- function(params = "defaults",
-                             times = seq(0, 10, by = 0.1),
+                             years = 10,
+                             timestep = c("weekly", "daily"),
                              include_humans = FALSE,
                              npop = 1,
                              contact_matrix = NULL,
@@ -537,6 +539,10 @@ run_plague_model <- function(params = "defaults",
                              n_threads = 1,
                              seasonal = FALSE,
                              ...) {
+  
+  # Validate arguments
+  timestep <- match.arg(timestep)
+  stopifnot(is.numeric(years), years > 0)
 
   # Load and validate parameters
   if (inherits(params, "plague_parameters")) {
@@ -599,19 +605,22 @@ run_plague_model <- function(params = "defaults",
   sim_params$S_ini <- 1
 
   # Distribute carrying capacity across populations
+  # K_r in parameter files represents total system capacity
   if (npop > 1) {
     sim_params$K_r <- sim_params$K_r / npop
   }
 
   # Add temporal parameters
-  dt <- 1/52  # Weekly timesteps for stochastic models # this correct? w/r/t times param?
+  dt <- switch(timestep,
+    "weekly" = 1/52,
+    "daily" = 1/365
+  )
   sim_params$dt <- dt
-  timesteps <- seq_len(as.integer(dt^-1 * max(times)))
+  timesteps <- seq_len(as.integer(dt^-1 * years))
 
   time_years <- timesteps * dt
   if (seasonal) {
-    amp <- sim_params$seasonal_amplitude %||% 0.2
-    sim_params$season <- sin(2 * pi * time_years) * amp
+    sim_params$season <- sin(2 * pi * time_years)
   } else {
     sim_params$season <- rep(0, length(timesteps))
   }
@@ -754,7 +763,7 @@ run_sensitivity_analysis <- function(base_params, param_name,
       params = params,
       npop = 1,  # Single population for sensitivity analysis
       n_particles = 5,  # Few particles for speed
-      times = seq(0, 10, by = 0.1),
+      years = 10,
       seasonal = seasonal
     )
     sim |>

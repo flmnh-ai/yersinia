@@ -9,7 +9,7 @@ reference: "Estimated from Black Death and subsequent pandemic data"
 period: "1347-1700"
 
 # Rat population parameters
-K_r: 2000    # Lower carrying capacity (smaller medieval cities)
+K_r: 2000    # Rat carrying capacity (total system, smaller medieval cities)
 r_r: 6.0     # Higher growth rate (less urbanization pressure)
 p: 0.98      # Higher resistance probability (natural selection)
 d_r: 0.15    # Lower baseline death rate (rural/natural conditions)

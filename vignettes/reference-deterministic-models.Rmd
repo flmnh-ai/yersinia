@@ -125,9 +125,9 @@ The parameters capture key biological and epidemiological processes:
 
 We implement the core model using the `odin` framework, integrating with the package parameter system:
 
-```{r basic_model}
+```{r basic_model, message=FALSE}
 # Basic deterministic model using inline odin code
-basic_plague_model <- odin::odin({
+basic_plague_model <- suppressMessages(odin::odin({
   # State variables
   initial(S_r) <- K_r - I_ini
   initial(I_r) <- I_ini  
@@ -175,7 +175,7 @@ basic_plague_model <- odin::odin({
   K_f <- user()      # Flea carrying capacity per rat
   d_f <- user()      # Death rate of free fleas
   I_ini <- user()    # Initial infected rats
-})
+}))
 ```
 
 ## Running the Basic Model
@@ -248,13 +248,14 @@ Phase portraits reveal the system's dynamical behavior:
 
 ```{r phase_portrait}
 # Create phase portrait (S_r vs I_r)
-results_tidy |>
+dat <- results_tidy |>
   select(time, compartment, value) |>
-  pivot_wider(names_from = compartment, values_from = value) |>
-  ggplot(aes(S_r, I_r)) +
+  pivot_wider(names_from = compartment, values_from = value)
+
+ggplot(dat, aes(S_r, I_r)) +
   geom_path(alpha = 0.7) +
-  geom_point(data = . |> slice(1), color = "green", size = 3) +  # Start
-  geom_point(data = . |> slice(n()), color = "red", size = 3) +   # End
+  geom_point(data = slice(dat, 1), color = "green", size = 3) +  # Start
+  geom_point(data = slice(dat, n()), color = "red", size = 3) +   # End
   labs(
     title = "Phase Portrait: Susceptible vs Infected Rats",
     subtitle = "Green = start, Red = end",
@@ -268,8 +269,8 @@ results_tidy |>
 
 Environmental seasonality affects plague dynamics through flea population cycles. We extend the basic model to include seasonal forcing:
 
-```{r seasonal_model}
-seasonal_plague_model <- odin::odin({
+```{r seasonal_model, message=FALSE}
+seasonal_plague_model <- suppressMessages(odin::odin({
   # State variables (same as basic model)
   initial(S_r) <- K_r - I_ini
   initial(I_r) <- I_ini  
@@ -329,7 +330,7 @@ seasonal_plague_model <- odin::odin({
   season[] <- user()           # Vector of seasonal values
   dim(day) <- user()
   dim(season) <- user()
-})
+}))
 ```
 
 ## Seasonal Model Analysis
@@ -380,8 +381,8 @@ results_seasonal_tidy |>
 
 The model can be extended to include human populations, important for understanding plague's impact on human societies:
 
-```{r human_model}
-human_plague_model <- odin::odin({
+```{r human_model, message=FALSE}
+human_plague_model <- suppressMessages(odin::odin({
   # Rat state variables
   initial(S_r) <- K_r - I_ini
   initial(I_r) <- I_ini  
@@ -445,7 +446,7 @@ human_plague_model <- odin::odin({
   beta_h <- user()   # Human infection rate from fleas
   m_h <- user()      # Human recovery rate
   g_h <- user()      # Probability human survives infection
-})
+}))
 ```
 
 ## Human Model Analysis

@@ -40,6 +40,7 @@ The `yersinia` package provides a comprehensive toolkit for modeling plague tran
 library(yersinia)
 library(dplyr)
 library(ggplot2)
+library(purrr)
 
 # Set a random seed for reproducible results
 set.seed(123)
@@ -52,16 +53,13 @@ set.seed(123)
 The simplest way to run a plague model is with the `run_plague_model()` function:
 
 ```{r basic-model}
-# Run a basic stochastic model
+# Run a basic stochastic model, defaults to a single population
 results <- run_plague_model(
-  params = "defaults",
-  npop = 1,                    # Single population
-  n_particles = 50,            # Number of stochastic replicates
-  times = seq(0, 10, by = 0.1)
+  n_particles = 50            # Number of stochastic replicates
 )
 
 # View the results
-print(results)
+results
 ```
 
 The model returns a `plague_results` object that contains tidy data with standardized column names, along with metadata about the model run.
@@ -81,16 +79,17 @@ plot(results)
 The package includes several parameter sets from the literature:
 
 ```{r parameter-sets}
+load_parameters("defaults")
+
 # Available parameter sets
 param_sets <- c("defaults", "keeling-gilligan", "modern-estimates", "historical")
 
 # Compare R₀ values across parameter sets
-r0_comparison <- data.frame(
-  Parameter_Set = param_sets,
-  R0 = sapply(param_sets, function(x) calculate_R0(load_parameters(x)))
+tibble(
+  name = param_sets,
+  parameters = map(name, load_parameters),
+  R0 = map_dbl(parameters, calculate_R0)
 )
-
-print(r0_comparison)
 ```
 
 ## Parameter Customization
@@ -100,7 +99,6 @@ Parameters can be easily modified:
 ```{r custom-parameters}
 # Load and examine default parameters
 params <- load_parameters("defaults")
-print(params)
 
 # Modify parameters on-the-fly
 results_high_transmission <- run_plague_model(
@@ -109,7 +107,7 @@ results_high_transmission <- run_plague_model(
   n_particles = 20,
   beta_r = 8.0,     # Higher transmission rate
   g_r = 0.05,       # Higher survival rate
-  times = seq(0, 8, by = 0.1)
+  years = 8
 )
 ```
 
@@ -125,7 +123,7 @@ results_basic <- run_plague_model(
   params = "keeling-gilligan",
   npop = 1,
   n_particles = 30,
-  times = seq(0, 8, by = 0.1)
+  years = 8
 )
 
 plot(results_basic, compartments = c("S", "I", "R"))
@@ -142,7 +140,7 @@ results_humans <- run_plague_model(
   include_humans = TRUE,
   npop = 1,                # Human models require npop = 1
   n_particles = 30,
-  times = seq(0, 10, by = 0.1)
+  years = 10
 )
 
 # Plot showing both rat and human compartments
@@ -157,31 +155,119 @@ Multi-population metapopulation dynamics with migration:
 # Spatial model with 25 populations (5x5 grid)
 results_spatial <- run_plague_model(
   params = "defaults", 
+  K_r = 10000,             # Higher total capacity (400 per population)
   npop = 25,               # Creates 5x5 grid automatically
   n_particles = 20,
-  times = seq(0, 5, by = 0.1)
+  years = 5,
+  seasonal = FALSE,
+  seasonal_amplitue = 1
 )
+
+
+years <- 30
+timesteps <- 1:(dt ^ -1 * years)
+
+I_ini = c(10, rep(0, npop - 1)), 
+                                 S_ini = 1,
+                                 K_r = 10000 / npop,
+                                 contact = contact_matrix, #matrix(0,nrow = 16, ncol = 16), # this should cause divide by zero errors!
+                                 K_f = 4,
+                                 dt = dt,
+                                 p = 0.6,
+                                 season = seasonal_kf,
+                                 # g_r = 1,
+                                 npop = npop),
+                     time = 1L,
+                     n_particles = n_particles,
+                     n_threads = 4L,
+                     seed = 6L
 
 # Show dynamics for a few populations
 plot(results_spatial)
 ```
+```{r}
+results_spatial |>
+  filter(replicate == 1) |>
+  select(-replicate) |>
+  tidyr::pivot_wider(names_from = compartment) |>
+  ggplot(aes(time, ymax = I)) +
+  geom_ribbon(aes(ymin = 0), alpha = 1) +
+  facet_wrap(~population) +
+  labs(
+    title = "Stochastic Simulation of Bubonic Plague Transmission",
+    x = "Time (years)",
+    y = "Population",
+    color = "Compartment"
+  ) +
+  theme_bw()
+```
+
 
 ## Seasonal Forcing
 
-Environmental seasonality affects flea dynamics:
+Environmental seasonality affects flea dynamics. The package uses two different approaches for generating seasonal forcing:
+
+```{r seasonal-comparison, fig.cap="Comparison of seasonal forcing approaches"}
+# Package approach: matches model timestep
+years <- 5
+dt_weekly <- 1/52
+dt_daily <- 1/365
+
+# Weekly approach (current package - FIXED)
+timesteps_weekly <- seq_len(as.integer(dt_weekly^-1 * years))
+time_years_weekly <- timesteps_weekly * dt_weekly
+seasonal_weekly <- sin(2 * pi * time_years_weekly)
+
+# Daily approach (archive-style, high resolution)
+get_season_daily <- function(years = 1) {
+  days <- 1:(365 * years)
+  season <- (days - 1) %% 365 / 365
+  return(season)
+}
+season_daily <- get_season_daily(years)
+seasonal_daily_full <- sin(2 * pi * season_daily)
+# Sample at weekly intervals (what archive actually uses)
+weekly_indices <- seq(1, length(seasonal_daily_full), by = 7)
+seasonal_daily_sampled <- seasonal_daily_full[weekly_indices[1:length(timesteps_weekly)]]
+
+# Create comparison data
+comparison_data <- data.frame(
+  week = rep(1:length(timesteps_weekly), 2),
+  time = rep(time_years_weekly, 2),
+  seasonal_value = c(seasonal_weekly, seasonal_daily_sampled),
+  approach = rep(c("Package (Weekly)", "Archive (Daily→Weekly)"), each = length(timesteps_weekly))
+)
+
+library(ggplot2)
+ggplot(comparison_data, aes(time, seasonal_value, color = approach, linetype = approach)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Seasonal Forcing Approaches",
+    x = "Time (years)",
+    y = "Seasonal Multiplier",
+    color = "Method",
+    linetype = "Method"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
 
 ```{r seasonal-model, fig.cap="Effect of seasonal forcing on plague dynamics"}
 # Model with seasonal forcing
 results_seasonal <- run_plague_model(
-  params = "defaults",
-  npop = 1,
   n_particles = 30,
   seasonal = TRUE,
-  times = seq(0, 15, by = 0.1)
+  years = 15
 )
 
 plot(results_seasonal, compartments = c("I", "F"))
 ```
+
+**Key Differences:**
+- **Package approach**: Calculates seasonal values at model timestep resolution
+- **Archive approach**: Pre-calculates high-resolution daily seasonal pattern, then samples it at model timesteps  
+- **Accuracy**: Daily approach captures sub-weekly seasonal variations more precisely
+- **Amplitude**: Both now use the same amplitude system - full ±1.0 sine values with `seasonal_amplitude` parameter controlling the effect in the model
 
 # Analysis Functions
 
@@ -217,14 +303,14 @@ Get outbreak summaries from stochastic models:
 summary(results_basic)
 
 # Manual calculation of key metrics
-infection_summary <- results_basic %>%
-  filter(compartment == "I") %>%
-  group_by(replicate) %>%
+infection_summary <- results_basic |>
+  filter(compartment == "I") |>
+  group_by(replicate) |>
   summarise(
     peak_infected = max(value),
     total_duration = sum(value > 10) * 0.1,  # time resolution
     .groups = "drop"
-  ) %>%
+  ) |>
   summarise(
     mean_peak = mean(peak_infected),
     median_peak = median(peak_infected),
@@ -252,14 +338,14 @@ for (beta in beta_values) {
     npop = 1,
     n_particles = 10,  # Fewer particles for speed
     beta_r = beta,
-    times = seq(0, 5, by = 0.2)
+    years = 5
   )
   
   # Calculate peak infection for each replicate
-  peaks <- result %>%
-    filter(compartment == "I") %>%
-    group_by(replicate) %>%
-    summarise(peak = max(value), .groups = "drop") %>%
+  peaks <- result |>
+    filter(compartment == "I") |>
+    group_by(replicate) |>
+    summarise(peak = max(value), .groups = "drop") |>
     mutate(beta_r = beta)
   
   sensitivity_results <- bind_rows(sensitivity_results, peaks)
@@ -286,38 +372,39 @@ single <- run_plague_model(
   params = "defaults",
   npop = 1,
   n_particles = 20,
-  times = seq(0, 5, by = 0.1)
+  years = 5
 )
 
 # Spatial model
 spatial <- run_plague_model(
   params = "defaults", 
+  K_r = 10000,             # Higher total capacity (400 per population)
   npop = 25,
   n_particles = 20,
-  times = seq(0, 5, by = 0.1)
+  years = 5
 )
 
 # Compare total infected
-single_total <- single %>%
-  filter(compartment == "I") %>%
-  group_by(time, replicate) %>%
+single_total <- single |>
+  filter(compartment == "I") |>
+  group_by(time, replicate) |>
   summarise(total_infected = sum(value), model = "Single", .groups = "drop")
 
-spatial_total <- spatial %>%
-  filter(compartment == "I") %>%
-  group_by(time, replicate) %>%
+spatial_total <- spatial |>
+  filter(compartment == "I") |>
+  group_by(time, replicate) |>
   summarise(total_infected = sum(value), model = "Spatial", .groups = "drop")
 
 combined <- bind_rows(single_total, spatial_total)
 
-combined %>%
-  group_by(time, model) %>%
+combined |>
+  group_by(time, model) |>
   summarise(
     median = median(total_infected),
     lower = quantile(total_infected, 0.25),
     upper = quantile(total_infected, 0.75),
     .groups = "drop"
-  ) %>%
+  ) |>
   ggplot(aes(time, median, color = model, fill = model)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   geom_line() +
@@ -344,19 +431,19 @@ results_black_death <- run_plague_model(
   include_humans = TRUE,
   npop = 1,
   n_particles = 30,
-  times = seq(0, 5, by = 0.1)
+  years = 5
 )
 
 # Plot human compartments
-results_black_death %>%
-  filter(compartment %in% c("Sh", "Ih", "Rh")) %>%
-  group_by(time, compartment) %>%
+results_black_death |>
+  filter(compartment %in% c("Sh", "Ih", "Rh")) |>
+  group_by(time, compartment) |>
   summarise(
     median = median(value),
     lower = quantile(value, 0.25),
     upper = quantile(value, 0.75),
     .groups = "drop"
-  ) %>%
+  ) |>
   ggplot(aes(time, median, color = compartment, fill = compartment)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
   geom_line() +
@@ -384,18 +471,18 @@ for (param_set in param_sets) {
     params = param_set,
     npop = 1,
     n_particles = 20,
-    times = seq(0, 6, by = 0.1)
+    years = 6
   )
   
-  summary_data <- result %>%
-    filter(compartment == "I") %>%
-    group_by(time) %>%
+  summary_data <- result |>
+    filter(compartment == "I") |>
+    group_by(time) |>
     summarise(
       median = median(value),
       lower = quantile(value, 0.25), 
       upper = quantile(value, 0.75),
       .groups = "drop"
-    ) %>%
+    ) |>
     mutate(parameter_set = param_set)
   
   comparison_data <- bind_rows(comparison_data, summary_data)
@@ -438,18 +525,18 @@ for (intervention in interventions) {
   
   result <- do.call(run_plague_model, c(
     params_list,
-    list(npop = 1, n_particles = 20, times = seq(0, 5, by = 0.1))
+    list(npop = 1, n_particles = 20, years = 5)
   ))
   
-  summary_data <- result %>%
-    filter(compartment == "I") %>%
-    group_by(time) %>%
+  summary_data <- result |>
+    filter(compartment == "I") |>
+    group_by(time) |>
     summarise(
       median = median(value),
       lower = quantile(value, 0.25),
       upper = quantile(value, 0.75),
       .groups = "drop"
-    ) %>%
+    ) |>
     mutate(intervention = intervention)
   
   intervention_data <- bind_rows(intervention_data, summary_data)

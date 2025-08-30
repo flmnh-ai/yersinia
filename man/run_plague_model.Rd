@@ -6,7 +6,8 @@
 \usage{
 run_plague_model(
   params = "defaults",
-  times = seq(0, 10, by = 0.1),
+  years = 10,
+  timestep = c("weekly", "daily"),
   include_humans = FALSE,
   npop = 1,
   contact_matrix = NULL,
@@ -19,7 +20,9 @@ run_plague_model(
 \arguments{
 \item{params}{Parameter set name, file path, or list of parameters}
 
-\item{times}{Vector of time points (default 0 to 10 years)}
+\item{years}{Number of years to simulate (default 10)}
+
+\item{timestep}{Time step resolution: "weekly" or "daily" (default "weekly")}
 
 \item{include_humans}{Logical, include human dynamics (only npop = 1 supported)}
 
