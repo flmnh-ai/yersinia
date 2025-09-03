@@ -4,7 +4,7 @@ pkgdown_sha: ~
 articles:
   reference-deterministic-models: reference-deterministic-models.html
   yersinia-intro: yersinia-intro.html
-last_built: 2025-09-03T19:22Z
+last_built: 2025-09-03T20:00Z
 urls:
   reference: https://flmnh-ai.github.io/yersinia/reference
   article: https://flmnh-ai.github.io/yersinia/articles
