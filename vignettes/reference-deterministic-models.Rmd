@@ -187,6 +187,10 @@ We use the package parameter system to load established parameter values:
 params <- load_scenario("keeling-gilligan")
 print(params)
 
+# Add initial conditions (not included in scenario files)
+params$I_ini <- 10    # Initial infected rats
+params$K_r <- 3000    # Rat carrying capacity for deterministic model
+
 # Create model instance with package parameters
 model <- basic_plague_model$new(user = params)
 
@@ -347,6 +351,8 @@ seasonal_pattern <- sin(2 * pi * days / 365)
 # Add seasonal data to parameters
 params$day <- days
 params$season <- seasonal_pattern
+params$I_ini <- 10    # Initial infected rats
+params$K_r <- 3000    # Rat carrying capacity
 
 # Create seasonal model
 model_seasonal <- seasonal_plague_model$new(user = params)
@@ -456,6 +462,11 @@ human_plague_model <- suppressMessages(odin::odin({
 params_human <- load_scenario("historical")  # Use historical parameters for medieval scenario
 print(params_human)
 
+# Add initial conditions for human model
+params_human$I_ini <- 10     # Initial infected rats
+params_human$K_r <- 3000     # Rat carrying capacity
+params_human$K_h <- 5000     # Human carrying capacity
+
 # Create human model
 model_human <- human_plague_model$new(user = params_human)
 
@@ -511,6 +522,8 @@ comparison_results <- list()
 
 for (param_set in param_sets) {
   params <- load_scenario(param_set)
+  params$I_ini <- 10    # Add initial conditions
+  params$K_r <- 3000    # Add carrying capacity
   model <- basic_plague_model$new(user = params)
   
   results <- model$run(seq(0, 8, by = 0.1))
@@ -547,6 +560,8 @@ param_summary <- data.frame(
   R0 = sapply(param_sets, function(x) round(calculate_R0(load_scenario(x)), 3)),
   Peak_Infected = sapply(param_sets, function(x) {
     params <- load_scenario(x)
+    params$I_ini <- 10    # Add initial conditions
+    params$K_r <- 3000    # Add carrying capacity
     model <- basic_plague_model$new(user = params)
     results <- model$run(seq(0, 8, by = 0.1))
     round(max(results[, "I_r"]), 0)
