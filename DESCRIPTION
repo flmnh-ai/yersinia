@@ -14,7 +14,9 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 URL: https://github.com/flmnh-ai/yersinia, https://flmnh-ai.github.io/yersinia/
 BugReports: https://github.com/flmnh-ai/yersinia/issues
-Remotes: mrc-ide/odin.dust
+Remotes: 
+    mrc-ide/odin.dust,
+    mrc-ide/dust
 Depends: 
     R (>= 4.1.0)
 Imports:
