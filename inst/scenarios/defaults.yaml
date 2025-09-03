@@ -9,7 +9,7 @@ reference: "Plague modeling package"
 
 # Rat population parameters
 r_r: 5.0     # Rat population growth rate (per year)
-p: 0.975     # Probability of inherited resistance
+p: 0.6     # Probability of inherited resistance
 d_r: 0.2     # Natural death rate of rats (per year)
 
 # Disease transmission parameters
@@ -20,7 +20,7 @@ g_r: 0.02    # Probability rat survives infection
 
 # Flea population parameters
 r_f: 20.0    # Flea reproduction rate (per year)
-K_f: 6.57    # Flea carrying capacity per rat
+K_f: 4    # Flea carrying capacity per rat
 d_f: 10.0    # Death rate of free fleas (per year)
 
 # Human population parameters (when applicable)
