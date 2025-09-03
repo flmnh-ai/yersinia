@@ -1,9 +1,11 @@
 Package: yersinia
 Title: Plague Transmission Models for Epidemiological Research
 Version: 0.1.0
-Authors@R: 
+Authors@R: c(
     person("Nick", "Gauthier", , "nicolas.gauthier@ufl.edu", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0002-2225-5827"))
+           comment = c(ORCID = "0000-0002-2225-5827")),
+    person("Nich", "Martin", , "n.martin@ufl.edu", role = "aut"),
+            comment = c(ORCID = "0000-0001-9539-250X"))
 Description: A comprehensive toolkit for plague transmission modeling using 
     deterministic and stochastic differential equation models. Provides 
     implementations of rat-flea-human plague dynamics with spatial structure,
