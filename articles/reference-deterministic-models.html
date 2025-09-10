@@ -61,7 +61,7 @@
                         <h4 data-toc-skip class="author">yersinia
 package</h4>
             
-            <h4 data-toc-skip class="date">2025-09-03</h4>
+            <h4 data-toc-skip class="date">2025-09-10</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/flmnh-ai/yersinia/blob/main/vignettes/reference-deterministic-models.Rmd" class="external-link"><code>vignettes/reference-deterministic-models.Rmd</code></a></small>
       <div class="d-none name"><code>reference-deterministic-models.Rmd</code></div>
@@ -327,7 +327,7 @@ integrating with the package parameter system:</p>
 <span><span class="co">#&gt;       |                  <span style="color: #BB00BB; font-weight: bold;">^~~~~~~~</span></span></span>
 <span><span class="co">#&gt; gcc -std=gnu2x -I"/opt/R/4.5.1/lib/R/include" -DNDEBUG   -I/usr/local/include    -fpic  -g -O2  -UNDEBUG -Wall -pedantic -g -O0 -fdiagnostics-color=always -c registration.c -o registration.o</span></span>
 <span><span class="co">#&gt; gcc -std=gnu2x -shared -L/opt/R/4.5.1/lib/R/lib -L/usr/local/lib -o odin801fafed.so odin.o registration.o -L/opt/R/4.5.1/lib/R/lib -lR</span></span>
-<span><span class="co">#&gt; installing to /tmp/RtmpBkGfid/devtools_install_1f722fc3f050/00LOCK-file1f7274179dc5/00new/odin801fafed/libs</span></span>
+<span><span class="co">#&gt; installing to /tmp/Rtmp7sK1J7/devtools_install_1fac2f68a0c7/00LOCK-file1fac1a506dd/00new/odin801fafed/libs</span></span>
 <span><span class="co">#&gt; ** checking absolute paths in shared objects and dynamic libraries</span></span>
 <span><span class="co">#&gt; * DONE (odin801fafed)</span></span></code></pre></div>
 </div>
@@ -370,6 +370,7 @@ values:</p>
 <span><span class="co">#&gt; ⚙️  Other Parameters:</span></span>
 <span><span class="co">#&gt;   mu_r   =    0.030  # Rat movement rate (per year)</span></span>
 <span><span class="co">#&gt;   mu_f   =    0.008  # Flea movement rate (per year)</span></span>
+<span><span class="co">#&gt;   seasonal_amplitude =    0.200  # </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; 📈 Basic Reproduction Number (R₀):  581.657 ✅ (Disease can spread)</span></span>
 <span></span>
@@ -542,7 +543,7 @@ forcing:</p>
 <span><span class="co">#&gt; gcc -std=gnu2x -I"/opt/R/4.5.1/lib/R/include" -DNDEBUG   -I/usr/local/include    -fpic  -g -O2  -UNDEBUG -Wall -pedantic -g -O0 -fdiagnostics-color=always -c odin.c -o odin.o</span></span>
 <span><span class="co">#&gt; gcc -std=gnu2x -I"/opt/R/4.5.1/lib/R/include" -DNDEBUG   -I/usr/local/include    -fpic  -g -O2  -UNDEBUG -Wall -pedantic -g -O0 -fdiagnostics-color=always -c registration.c -o registration.o</span></span>
 <span><span class="co">#&gt; gcc -std=gnu2x -shared -L/opt/R/4.5.1/lib/R/lib -L/usr/local/lib -o odin38e1bca9.so odin.o registration.o -L/opt/R/4.5.1/lib/R/lib -lR</span></span>
-<span><span class="co">#&gt; installing to /tmp/RtmpBkGfid/devtools_install_1f724ca065d4/00LOCK-file1f726fa7e060/00new/odin38e1bca9/libs</span></span>
+<span><span class="co">#&gt; installing to /tmp/Rtmp7sK1J7/devtools_install_1fac5765e9da/00LOCK-file1fac194dfbca/00new/odin38e1bca9/libs</span></span>
 <span><span class="co">#&gt; ** checking absolute paths in shared objects and dynamic libraries</span></span>
 <span><span class="co">#&gt; * DONE (odin38e1bca9)</span></span></code></pre></div>
 <div class="section level3">
@@ -677,7 +678,7 @@ understanding plague’s impact on human societies:</p>
 <span><span class="co">#&gt;       |                  <span style="color: #BB00BB; font-weight: bold;">^~~~~~~~</span></span></span>
 <span><span class="co">#&gt; gcc -std=gnu2x -I"/opt/R/4.5.1/lib/R/include" -DNDEBUG   -I/usr/local/include    -fpic  -g -O2  -UNDEBUG -Wall -pedantic -g -O0 -fdiagnostics-color=always -c registration.c -o registration.o</span></span>
 <span><span class="co">#&gt; gcc -std=gnu2x -shared -L/opt/R/4.5.1/lib/R/lib -L/usr/local/lib -o odin5d49a224.so odin.o registration.o -L/opt/R/4.5.1/lib/R/lib -lR</span></span>
-<span><span class="co">#&gt; installing to /tmp/RtmpBkGfid/devtools_install_1f727026c6fa/00LOCK-file1f72820afa5/00new/odin5d49a224/libs</span></span>
+<span><span class="co">#&gt; installing to /tmp/Rtmp7sK1J7/devtools_install_1fac3e58e038/00LOCK-file1fac680b0d69/00new/odin5d49a224/libs</span></span>
 <span><span class="co">#&gt; ** checking absolute paths in shared objects and dynamic libraries</span></span>
 <span><span class="co">#&gt; * DONE (odin5d49a224)</span></span></code></pre></div>
 <div class="section level3">
@@ -717,6 +718,7 @@ understanding plague’s impact on human societies:</p>
 <span><span class="co">#&gt; ⚙️  Other Parameters:</span></span>
 <span><span class="co">#&gt;   mu_r   =    0.020  # Rat movement rate (per year)</span></span>
 <span><span class="co">#&gt;   mu_f   =    0.005  # Flea movement rate (per year)</span></span>
+<span><span class="co">#&gt;   seasonal_amplitude =    0.300  # </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; 📈 Basic Reproduction Number (R₀):  596.092 ✅ (Disease can spread)</span></span>
 <span></span>
@@ -988,7 +990,7 @@ Academy of Sciences</em>, 116(28), 13931-13940.</li>
 
 
     <footer><div class="pkgdown-footer-left">
-  <p>Developed by Nick Gauthier.</p>
+  <p>Developed by Nick Gauthier, Nich Martin.</p>
 </div>
 
 <div class="pkgdown-footer-right">
