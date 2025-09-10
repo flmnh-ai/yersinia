@@ -17,10 +17,10 @@ plague <- function(t, state, parameters) {
     fracSR   <- SR / RTot_eps
     infect   <- 1 - exp(-alpha * RTot)
     
-    ## ODEs (the “_” symbols in the Stan snippet were placeholders for “*”)
+    ## 
     dH  <- - d_H  * fracF * H
     dF  <-   (d_R  + m_R * (1 - g_R)) * IR * Np - d_F * Fl
-    dNp <-   r_F * Np * (1 - Np /( K_F)) + fracD * infect 
+    dNp <-   r_F * Np * (1 - Np /( K_F)) + fracD * infect ##Fleas per rat
     dIR <-   b_R * fracSR * Fl * infect - (d_R + m_R) * IR
     dRR <-   r_R * RR * (p - RTot / K_R) + m_R * g_R * IR - d_R * RR
     dSR <-   r_R * SR * (1 - RTot / K_R) + r_R * RR * (1 - p)
@@ -35,45 +35,24 @@ plague <- function(t, state, parameters) {
 ## -------------------------------------------------------------
 init <- c(
   H  = 25000.0,   # Humans
-  Fl  = 1e2,   # Infected Fleas
-  Np = 5e5,   # Uninfected Fleas
-  IR = 5e2,   # Infected Rats
-  RR = 5e2,   # Resistant Rats
-  SR = 5e6    # Susceptible Rats
+  Fl  = 10,   # Infected Fleas
+  Np = 10,   # Uninfected Fleas
+  IR = 10,   # Infected Rats
+  RR = 10,   # Resistant Rats
+  SR = 25000    # Susceptible Rats
 )
 
 ## -------------------------------------------------------------
-## 4.  Set parameter values (replace with your own!)
+## 4.  Set parameter values 
 ## -------------------------------------------------------------
 
-## Parameters from Keeling and Giligan
-
 params <- c(
-  d_H  = 0.04,   # Human death rate
-  d_R  = 0.2,     # Rat natural death rate
-  m_R  = 20,     # Rate at which infected rats become infectious
-  g_R  = 0.02,      
-  d_F  = 10,    # Flea mortality
-  K_F  = 20,      # Flea carrying capacity
-  alpha= 4e-3,     # Transmission scale
-  b_R  = 4.7,     # Rat infection rate from fleas
-  r_R  = 5,      # Rat growth rate
-  r_F  = 20,      # Flea growth rate
-  p    = 0.5,      # Proportion that become resistant
-  K_R  = 2500       # Rat carrying capacity
-)
-
-###################################################
-
-## "Working" parameters
-
-params <- c(
-  d_H  = 0.0001,   # Human death rate
+  d_H  = 0.001,   # Human death rate
   d_R  = 0.001,     # Rat natural death rate
   m_R  = 0.005,     # Rate at which infected rats become infectious
   g_R  = 0.51,      
   d_F  = 0.001,    # Flea mortality
-  K_F  = 1e9,      # Flea carrying capacity
+  K_F  = 20,      # Flea carrying capacity
   alpha= 0.0002,     # Transmission scale
   b_R  = 0.05,     # Rat infection rate from fleas
   r_R  = 0.1,      # Rat growth rate
@@ -85,12 +64,12 @@ params <- c(
 ## -------------------------------------------------------------
 ## 5.  Run the solver
 ## -------------------------------------------------------------
-times <- seq(0, 100, by = 1)           # 0 to 100 time units
+times <- seq(0, 365, by = 1)           # 0 to 100 time units
 out   <- ode(y = init, times = times,
              func = plague, parms = params)
 
 ## -------------------------------------------------------------
-## 6.  Quick plot to visualise the runs
+## 6.  Quick plot to visualize the runs
 ## -------------------------------------------------------------
 
 par(mfrow=c(3,2))
