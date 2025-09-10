@@ -76,7 +76,7 @@ parameters {
   real<lower=0> g_R;
   real<lower=0> d_F;
   real<lower=0> K_F;
-  real<lower=0,upper=1> alpha;
+  real<lower=0> alpha;
   real<lower=0> b_R;
   real<lower=0> r_R;
   real<lower=0> r_F;
@@ -131,7 +131,7 @@ model {
   g_R ~ exponential(10);
   d_F ~ exponential(10);
   K_F ~ exponential(10);
-  alpha ~ normal(0.01, 0.05);
+  alpha ~ exponential(10);
   r_R ~ exponential(10);
   r_F ~ exponential(10);
   b_R ~ exponential(10);
