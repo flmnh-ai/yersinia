@@ -16,7 +16,8 @@ plague_stochastic_humans <- R6::R6Class(
     gpu_config_ = NULL,
     ode_control_ = NULL,
     methods_ = NULL,
-    param_ = list(a = list(has_default = TRUE, default_value = 0.004, rank = 0, min = -Inf, max = Inf, integer = FALSE),
+    param_ = list(season = list(has_default = FALSE, default_value = NULL, rank = 1, min = -Inf, max = Inf, integer = FALSE),
+     a = list(has_default = TRUE, default_value = 0.004, rank = 0, min = -Inf, max = Inf, integer = FALSE),
      beta_h = list(has_default = TRUE, default_value = 0.01, rank = 0, min = -Inf, max = Inf, integer = FALSE),
      beta_r = list(has_default = TRUE, default_value = 4.7, rank = 0, min = -Inf, max = Inf, integer = FALSE),
      d_f = list(has_default = TRUE, default_value = 10L, rank = 0, min = -Inf, max = Inf, integer = FALSE),
@@ -35,7 +36,8 @@ plague_stochastic_humans <- R6::R6Class(
      r_f = list(has_default = TRUE, default_value = 20L, rank = 0, min = -Inf, max = Inf, integer = FALSE),
      r_h = list(has_default = TRUE, default_value = 0.045, rank = 0, min = -Inf, max = Inf, integer = FALSE),
      r_r = list(has_default = TRUE, default_value = 5L, rank = 0, min = -Inf, max = Inf, integer = FALSE),
-     S_ini = list(has_default = TRUE, default_value = 1L, rank = 0, min = -Inf, max = Inf, integer = FALSE)),
+     S_ini = list(has_default = TRUE, default_value = 1L, rank = 0, min = -Inf, max = Inf, integer = FALSE),
+     seasonal_amplitude = list(has_default = TRUE, default_value = 0.2, rank = 0, min = -Inf, max = Inf, integer = FALSE)),
     reload_ = NULL
   ),
 

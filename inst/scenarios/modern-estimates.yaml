@@ -35,6 +35,9 @@ g_h: 0.15    # Much higher survival probability (antibiotics)
 mu_r: 0.05   # Higher movement rates (transportation networks)
 mu_f: 0.012  # Higher flea movement (human transport)
 
+# Seasonal parameters
+seasonal_amplitude: 0.25  # Moderate seasonality (climate change effects)
+
 
 # Notes
 notes: |

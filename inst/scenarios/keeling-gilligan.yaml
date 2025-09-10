@@ -35,6 +35,9 @@ g_h: 0.1     # Probability human survives infection
 mu_r: 0.03   # Rat movement rate (per year)
 mu_f: 0.008  # Flea movement rate (per year)
 
+# Seasonal parameters
+seasonal_amplitude: 0.2  # Default seasonality (not specified in original paper)
+
 
 # Notes
 notes: |

@@ -23,6 +23,12 @@ print("human susceptibles {S_h}", when = S_h < 0)
 print("human infected {I_h}", when = I_h < 0)
 print("human recovered {R_h}", when = R_h < 0)
 
+# Seasonal forcing
+season[] <- user()
+dim(season) <- user()
+season_t <- season[step + 1]
+K_f_seasonal <- K_f * (1 + seasonal_amplitude) ^ season_t
+
 ### Rats
 ## Intermediate calculations
 T_r <- S + I + R  # total rat population
@@ -89,7 +95,7 @@ n_recovered_h <- rbinom(n_IR_h, g_h)
 ### Fleas
 # dead infected rats x flea index
 n_new_free_fleas <- floor(N * (n_deaths_I + (n_IR - n_recovered)))
-flea_growth_rate <- r_f * N * (1 - N / K_f) * dt  # absolute growth rate in flea index
+flea_growth_rate <- r_f * N * (1 - N / K_f_seasonal) * dt  # absolute growth rate in flea index
 
 ## Initial states
 initial(S) <- K_r * S_ini
@@ -124,3 +130,4 @@ g_h <- user(0.1)     # Probability human survives infection
 r_f <- user(20)      # Flea reproduction rate
 K_f <- user(6.57)    # Flea carrying capacity per rat
 d_f <- user(10)      # Death rate of free fleas
+seasonal_amplitude <- user(0.2)  # Amplitude of seasonal forcing

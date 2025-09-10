@@ -35,6 +35,9 @@ g_h: 0.05    # Very low survival probability (no antibiotics)
 mu_r: 0.02   # Lower movement (less transportation)
 mu_f: 0.005  # Much lower flea movement (walking/animal transport only)
 
+# Seasonal parameters
+seasonal_amplitude: 0.3  # Stronger seasonality (more dependent on climate)
+
 
 # Notes
 notes: |
