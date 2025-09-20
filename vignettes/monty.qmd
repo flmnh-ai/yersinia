@@ -1,0 +1,387 @@
+---
+title: "Monty"
+format: html
+editor: visual
+---
+
+## Setup
+
+```{r}
+install.packages(
+  c("monty", "dust2", "odin2"),
+  repos = c("https://mrc-ide.r-universe.dev", "https://cloud.r-project.org"))
+
+remotes::install_github('flmnh-ai/yersinia')
+```
+
+```{r}
+pkgbuild::has_build_tools(debug = TRUE)
+```
+
+```{r}
+library(monty)
+library(odin2)
+library(dust2)
+
+library(yersinia)
+library(tidyverse)
+
+library(posterior)
+library(bayesplot)
+```
+
+## Outbreak Data
+
+```{r}
+dat <- outbreaks |>
+  filter(location == 'Barcelona') |>
+  select(time = day, deaths)
+  
+ggplot(dat, aes(time, deaths)) +
+  geom_point() +
+  theme_bw()
+```
+
+## Odin
+
+Rewrite the stochastic plague model for `odin2`.
+
+```{r}
+plague <- odin2::odin({
+  # Core equations for transitions between compartments:
+  update(S) <- S - n_SI + n_susceptible_births - n_deaths_S
+  update(I) <- I + n_SI - n_IR - n_deaths_I
+  update(R) <- R + n_recovered + n_resistant_births - n_deaths_R
+  update(D) <-  n_deaths_S + n_deaths_I + n_deaths_R + (n_IR - n_recovered)
+  
+  update(F) <- F + n_new_free_fleas - n_fleas_to_rats - n_flea_deaths
+  update(N) <- N + flea_growth_rate + n_fleas_to_rats / T_r
+  
+  # Human compartments
+  update(S_h) <- S_h - n_SI_h + births_h - n_deaths_S_h
+  update(I_h) <- I_h + n_SI_h - n_IR_h - n_deaths_I_h
+  update(R_h) <- R_h + n_recovered_h - n_deaths_R_h
+  update(D_h) <-  n_deaths_S_h + n_deaths_I_h + n_deaths_R_h + (n_IR_h - n_recovered_h)
+  
+  ### Rats
+  ## Intermediate calculations
+  T_r <- S + I + R  # total rat population
+  T_h <- S_h + I_h + R_h  # total human population
+  
+  
+  rat_birth_rate <- r_r * (1 - T_r / K_r)  # per capita
+  rat_birth_rate_clipped <- if(rat_birth_rate > 0) rat_birth_rate else 0
+  
+  ## Flea dynamics
+  # Fleas attempt to find rats
+  p_flea_to_rat <- 1 - exp(-a * T_r * dt_test)
+  n_fleas_to_rats <- Binomial(F, p_flea_to_rat)
+  
+  # Remaining fleas may die
+  remaining_fleas <- F - n_fleas_to_rats
+  p_flea_death <- 1 - exp(-d_f * dt_test)
+  n_flea_deaths <- Binomial(remaining_fleas, p_flea_death)
+  
+  ## Infection forces
+  lambda_r <- beta_r * n_fleas_to_rats / T_r  # rat infection rate
+  # Human infection force based on fleas that don't find rats
+  lambda_h <- beta_h * remaining_fleas  # human infection rate
+  
+  ## Individual probabilities of transition for rats:
+  p_SI <- 1 - exp(-lambda_r)  # S to I probability for rats
+  p_IR <- 1 - exp(-m_r * dt_test)  # I to R
+  p_rat_birth <- 1 - exp(-rat_birth_rate_clipped * dt_test)  # natural rat birth probability
+  p_rat_death <- 1 - exp(-d_r * dt_test)  # natural rat death probability
+  
+  ## Draws from binomial distributions for rats
+  n_deaths_S <- Binomial(S, p_rat_death)
+  n_deaths_I <- Binomial(I, p_rat_death)
+  n_deaths_R <- Binomial(R, p_rat_death)
+  n_SI <- Binomial(S - n_deaths_S, p_SI)
+  n_IR <- Binomial(I - n_deaths_I, p_IR)  # rats whose disease ends
+  n_recovered <- Binomial(n_IR, g_r)  # rats who recover AND survive
+  n_births_S <- Binomial(S - n_deaths_S, p_rat_birth)
+  n_births_R <- Binomial(R - n_deaths_R, p_rat_birth * 0.75)
+  n_resistant_births <- Binomial(n_births_R, p)
+  n_susceptible_births <- n_births_S + n_births_R - n_resistant_births
+  
+  ## Human transitions
+  # Human demographic rates
+  p_human_death <- 1 - exp(-d_h * dt_test)
+  birth_rate_h <- r_h * (1 - T_h / K_h)  # logistic growth
+  birth_rate_h_clipped <- if(birth_rate_h > 0) birth_rate_h else 0
+  p_human_birth <- 1 - exp(-birth_rate_h_clipped * dt_test)
+  
+  # Disease transitions
+  p_SI_h <- 1 - exp(-lambda_h * dt_test)  # S to I probability for humans
+  p_IR_h <- 1 - exp(-m_h * dt_test)
+  
+  # Actual transitions
+  n_deaths_S_h <- Binomial(S_h, p_human_death)
+  n_deaths_I_h <- Binomial(I_h, p_human_death)
+  n_deaths_R_h <- Binomial(R_h, p_human_death)
+  births_h <- Binomial(S_h + R_h, p_human_birth)
+  n_SI_h <- Binomial(S_h - n_deaths_S_h, p_SI_h)
+  n_IR_h <- Binomial(I_h - n_deaths_I_h, p_IR_h)
+  n_recovered_h <- Binomial(n_IR_h, g_h)
+  
+  ### Fleas
+  # dead infected rats x flea index
+  n_new_free_fleas <- floor(N * (n_deaths_I + (n_IR - n_recovered)))
+  flea_growth_rate <- r_f * N * (1 - N / K_f) * dt_test  # absolute growth rate in flea index
+  
+  
+  deaths <- data()
+  deaths ~ Poisson(D_h)
+  
+  ## Initial states
+  initial(S) <- K_r * S_ini
+  initial(I) <- I_ini
+  initial(R) <- K_r * (1 - S_ini)
+  initial(D) <- 0
+  initial(N) <- K_f
+  initial(F) <- 0
+  initial(S_h) <- K_h
+  initial(I_h) <- 0
+  initial(R_h) <- 0
+  initial(D_h) <- 0
+  
+  ## User defined parameters
+  dt_test <- parameter(1/365)
+  I_ini <- parameter(10)    # initial infected rats
+  S_ini <- parameter(1)     # proportion initial susceptible rats
+  K_r <- parameter(2500)    # Rat carrying capacity
+  K_h <- parameter(5000)    # Human carrying capacity
+  r_r <- parameter(5)       # Rat population growth rate
+  r_h <- parameter(0.045)   # Human population growth rate
+  p <- parameter(0.975)     # Probability of inherited resistance
+  d_r <- parameter(0.2)     # Natural death rate of rats
+  d_h <- parameter(0.04)    # Natural death rate of humans
+  beta_r <- parameter(4.7)  # Rat infection rate from fleas
+  beta_h <- parameter(0.01) # Human infection rate from remaining fleas
+  a <- parameter(4e-3)      # Flea search efficiency for rats
+  m_r <- parameter(20)      # Infected rat recovery rate
+  m_h <- parameter(26)      # Infected human recovery rate
+  g_r <- parameter(0.02)    # Probability rat survives infection
+  g_h <- parameter(0.1)     # Probability human survives infection
+  r_f <- parameter(20)      # Flea reproduction rate
+  K_f <- parameter(6.57)    # Flea carrying capacity per rat
+  d_f <- parameter(10)      # Death rate of free fleas
+})
+```
+
+## Dust
+
+This is how we run the model through `dust` with default parameters
+
+```{r}
+sys <- dust_system_create(plague, n_particles = 100)
+
+dust_system_set_state_initial(sys)
+
+t <- seq(0, 200)
+y <- dust_system_simulate(sys, t)
+deaths <- dust_unpack_state(sys, y)$D_h #|>
+ # abind::adrop(1) # for multidimensional arrays
+
+matplot(t, t(deaths), type = "l", lty = 1, col = "#00000033",
+        xlab = "Time", ylab = "Deaths")
+```
+
+### Particle Filter
+
+This is how we setup a particle filter in `dust`
+
+```{r}
+filter <- dust_filter_create(plague, time_start = 0, data = dat, n_particles = 2000)
+```
+
+This creates an arbitrary function we can use to generate a likelihood. We need to run this at least once to "activate" the particle filter for some reason
+
+```{r}
+dust_likelihood_run(filter, list()) # use default parameters with list()
+```
+
+```{r}
+get_ll <- function(particles) {
+  filter <- dust_filter_create(plague, time_start = 0, data = dat, n_particles = particles)
+  ll <- replicate(100, dust_likelihood_run(filter, list(beta_h = 0.0075, beta_r = 2, g_h = .15, K_r =1500, K_h = 4000, I_ini = 15)))
+  sd(ll)
+}
+
+test <- c(100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600) |>
+  map_dbl(get_ll)
+
+
+plot(log(c(100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600)), log(test))
+plot(c(100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600), sqrt(test))
+
+```
+
+Look at the filter object.
+
+```{r}
+filter
+```
+
+We can use this particle filter as is with the default parameters.
+
+```{r}
+huh <- dust_likelihood_run(filter, list(beta_h = 0.0075, beta_r = 2, g_h = .15, K_r =1500, K_h = 4000, I_ini = 15), save_trajectories = TRUE)
+h <- dust_likelihood_last_trajectories(filter)
+
+
+matplot(dat$time, t(dust_unpack_state(filter, h)$D_h), type = "l",
+        lty = 1, col = "#00000044", ylim = c(0, 120),
+        xlab = "Time", ylab = "Deaths")
+
+points(deaths ~ time, dat, pch = 19, col = "red")
+```
+
+## Monty
+
+Set up our particle filter for use as the likelihood in `monty`.
+
+```{r}
+packer <- monty_packer(c("beta_h", "beta_r", "g_h", "K_r", "K_h", "I_ini")) # free parameters
+likelihood <- dust_likelihood_monty(filter, packer, save_trajectories = FALSE)
+```
+
+Define the prior.
+
+```{r}
+prior <- monty_dsl({
+  beta_h ~ Uniform(0.001, 0.02)    # around your default ±50%
+  beta_r ~ Uniform(1, 6)           # around your default  
+  g_h ~ Uniform(0.05, 0.6)         # survival rates
+  K_r ~ Uniform(500, 2500)        # rat carrying capacity
+  K_h ~ Uniform(1000, 10000)        # human carrying capacity
+  I_ini ~ Uniform(1, 50)           # initial infected
+})
+```
+
+Combine the likelihood and prior.
+
+```{r}
+posterior <- likelihood + prior
+```
+
+Define a diagonal variance-covariance matrix for the random walk sampler.
+
+```{r}
+vcv <- diag(c(0.004^2,   # beta_h
+              0.6^2,     # beta_r  
+              0.12^2,    # g_h
+              500^2,     # K_r
+              200^2,     # K_h
+              7^2))      # I_ini
+
+sampler <- monty_sampler_random_walk(vcv)
+```
+
+Run the sampler in parallel with 4 chains.
+
+```{r}
+runner <- monty_runner_callr(n_workers = 6)
+samples <- monty_sample(posterior, sampler, 10000, runner = runner, n_chains = 6, burnin = 2000)
+```
+
+### Diagnostics
+
+```{r}
+samples_df <- as_draws_df(samples)
+summarise_draws(samples_df)
+```
+
+Check to see if the chains converged
+
+```{r}
+matplot(samples$density, type = "l", lty = 1,
+        xlab = "Sample", ylab = "Log posterior probability density")
+```
+
+We should probably do some kind of thinning?
+
+```{r}
+length(unique(samples$density)) / length(samples$density)
+```
+
+```{r}
+mcmc_hist(samples_df)
+```
+
+```{r}
+mcmc_pairs(samples_df)
+mcmc_trace(samples_df)
+```
+
+We can make a new vcov using the empirical one.
+
+```{r}
+param_cols <- samples_df |> 
+  select(-c(.chain, .iteration, .draw)) |>  # remove metadata columns
+  select(where(is.numeric))  # keep only parameter columns
+
+# Calculate covariance and tune
+sample_cov <- cov(param_cols)
+d <- ncol(param_cols)
+tuned_cov <- (2.38^2 / d) * sample_cov
+tuned_cov
+```
+
+```{r}
+sampler <- monty_sampler_random_walk(tuned_cov)
+samples <- monty_sample(posterior, sampler, 10000, runner = runner, n_chains = 4, burnin = 2000)
+```
+
+```{r}
+summarise_draws(samples_df)
+```
+
+```{r}
+draws <- as_draws_array(samples)
+
+# Key diagnostic plots:
+mcmc_trace(draws)  # Trace plots for all parameters
+mcmc_rank_hist(draws)  # Rank histograms (should be flat if mixing well)
+#mcmc_rhat_hist(draws)  # Distribution of R-hat values
+#mcmc_neff_hist(draws)  # Effective sample sizes
+
+# Pairs plot to see parameter correlations
+mcmc_pairs(draws)
+
+# Autocorrelation
+mcmc_acf(draws)
+```
+
+## Final Reconstruction
+
+```{r}
+y <- dust_unpack_state(filter, samples$observations$trajectories)
+
+## Resize the array to remove the chains dimension
+deaths <- array(y$D_h, c(nrow(dat), 8000)) # this number needs to be adjusted based on sampler, should find a way to automate!
+
+matplot(dat$time, (deaths), type = "l", lty = 1, col = "#00008822",
+        xlab = "Days", ylab = "Deaths")
+points(dat$time, dat$deaths, pch = 19, col = "red")
+```
+
+```{r}
+y$D_h[,,1] |>
+  as_tibble() |>
+  mutate(time = 1:n()) |>
+  pivot_longer(-time) |>
+  ggplot(aes(time)) +
+  geom_line(aes(y = value, group = name), alpha = 0.01) +
+  geom_point(data = dat, aes(y = deaths), color = 'red') +
+  theme_bw()
+```
+
+Different!
+
+```{r}
+mcmc_hist(samples_df)
+as_draws_df(samples) |>
+  mcmc_hist()
+```
