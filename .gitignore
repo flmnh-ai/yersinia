@@ -48,7 +48,6 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 .DS_Store
-/data
 /figures
 /archive
 docs
