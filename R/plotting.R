@@ -18,9 +18,9 @@ plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"),
   # Filter and prepare data
   phase_data <- results |>
     dplyr::filter(
-      compartment %in% compartments,
-      population == !!population,
-      replicate == !!replicate
+      .data$compartment %in% compartments,
+      .data$population == .env$population,
+      .data$replicate == .env$replicate
     ) |>
     dplyr::select(time, compartment, value) |>
     tidyr::pivot_wider(names_from = compartment, values_from = value)
@@ -74,8 +74,8 @@ plot_spatial_heatmap <- function(results, time_point, compartment = "I",
   spatial_data <- results |>
     dplyr::filter(
       time == closest_time,
-      compartment == !!compartment,
-      replicate == !!replicate
+      .data$compartment == .env$compartment,
+      .data$replicate == .env$replicate
     ) |>
     dplyr::mutate(
       row = ceiling(population / n_cols),
@@ -135,8 +135,8 @@ animate_spatial_spread <- function(results, compartment = "I", replicate = 1,
   anim_data <- results |>
     dplyr::filter(
       time %in% time_points,
-      compartment == !!compartment,
-      replicate == !!replicate
+      .data$compartment == .env$compartment,
+      .data$replicate == .env$replicate
     ) |>
     dplyr::mutate(
       row = ceiling(population / n_cols),
@@ -183,10 +183,10 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
   
   # Filter data
   plot_data <- results |>
-    dplyr::filter(population == !!population)
+    dplyr::filter(.data$population == .env$population)
   
   if (!is.null(compartments)) {
-    plot_data <- plot_data |> dplyr::filter(compartment %in% compartments)
+    plot_data <- plot_data |> dplyr::filter(.data$compartment %in% compartments)
   }
   
   # Check if multiple replicates
@@ -264,7 +264,7 @@ plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = 
   
   # Calculate summary metric
   metric_data <- sensitivity_results |>
-    dplyr::filter(compartment == !!compartment) |>
+    dplyr::filter(.data$compartment == .env$compartment) |>
     dplyr::group_by(parameter, multiplier) |>
     dplyr::summarise(
       peak = max(value),
@@ -289,7 +289,7 @@ plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = 
       title = paste("Sensitivity Analysis:", compartment),
       subtitle = paste("Parameter:", unique(metric_data$parameter)),
       x = "Parameter Multiplier",
-      y = paste(stringr::str_to_title(metric), compartment),
+      y = paste(paste0(toupper(substring(metric, 1, 1)), substring(metric, 2)), compartment),
       caption = "Relative to baseline parameter value"
     ) +
     ggplot2::theme_minimal()
@@ -309,7 +309,7 @@ plot_comparison <- function(results_list, compartment = "I", population = 1) {
   # Combine results
   combined_data <- purrr::map_dfr(names(results_list), function(name) {
     results_list[[name]] |>
-      dplyr::filter(compartment == !!compartment, population == !!population) |>
+      dplyr::filter(.data$compartment == .env$compartment, .data$population == .env$population) |>
       dplyr::mutate(
         time = as.numeric(time),      # Convert deSolve to numeric
         value = as.numeric(value),    # Convert deSolve to numeric

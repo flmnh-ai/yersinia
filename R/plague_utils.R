@@ -369,23 +369,23 @@ summary.plague_results <- function(object, ...) {
   cat("\n")
 
   # Epidemic summary for infected compartments
-  infected_data <- object |> filter(compartment %in% c("I", "Ih"))
+  infected_data <- object |> dplyr::filter(.data$compartment %in% c("I", "Ih"))
 
   if (nrow(infected_data) > 0) {
     cat("📈 Epidemic Summary:\n")
 
     # Calculate key epidemic metrics
     epidemic_stats <- infected_data |>
-      group_by(compartment, replicate) |>
-      summarise(
+      dplyr::group_by(.data$compartment, .data$replicate) |>
+      dplyr::summarise(
         peak_infected = max(value, na.rm = TRUE),
         peak_time = time[which.max(value)],
-        final_infected = last(value),
-        duration = sum(value > 1) * (max(time) - min(time)) / (n() - 1),
+        final_infected = dplyr::last(value),
+        duration = sum(value > 1) * (max(time) - min(time)) / (dplyr::n() - 1),
         .groups = "drop"
       ) |>
-      group_by(compartment) |>
-      summarise(
+      dplyr::group_by(.data$compartment) |>
+      dplyr::summarise(
         avg_peak = mean(peak_infected, na.rm = TRUE),
         median_peak = median(peak_infected, na.rm = TRUE),
         avg_peak_time = mean(peak_time, na.rm = TRUE),
@@ -414,18 +414,18 @@ summary.plague_results <- function(object, ...) {
 
   # Population impact summary
   initial_pops <- object |>
-    filter(time == min(time)) |>
-    group_by(compartment) |>
-    summarise(initial = sum(value, na.rm = TRUE), .groups = "drop")
+    dplyr::filter(time == min(time)) |>
+    dplyr::group_by(.data$compartment) |>
+    dplyr::summarise(initial = sum(value, na.rm = TRUE), .groups = "drop")
 
   final_pops <- object |>
-    filter(time == max(time)) |>
-    group_by(compartment) |>
-    summarise(final = sum(value, na.rm = TRUE), .groups = "drop")
+    dplyr::filter(time == max(time)) |>
+    dplyr::group_by(.data$compartment) |>
+    dplyr::summarise(final = sum(value, na.rm = TRUE), .groups = "drop")
 
   pop_change <- merge(initial_pops, final_pops, by = "compartment") |>
-    mutate(change = final - initial, pct_change = (final - initial) / initial * 100) |>
-    filter(compartment %in% c("S", "R", "Sh", "Rh"))
+    dplyr::mutate(change = final - initial, pct_change = (final - initial) / initial * 100) |>
+    dplyr::filter(.data$compartment %in% c("S", "R", "Sh", "Rh"))
 
   if (nrow(pop_change) > 0) {
     cat("🏘️  Population Changes:\n")
@@ -468,10 +468,10 @@ summary.plague_results <- function(object, ...) {
     cat("\n🗺️  Spatial Distribution:\n")
 
     spatial_summary <- object |>
-      filter(compartment == "I", time == max(time)) |>
-      group_by(population) |>
-      summarise(final_infected = mean(value, na.rm = TRUE), .groups = "drop") |>
-      summarise(
+      dplyr::filter(.data$compartment == "I", time == max(time)) |>
+      dplyr::group_by(.data$population) |>
+      dplyr::summarise(final_infected = mean(value, na.rm = TRUE), .groups = "drop") |>
+      dplyr::summarise(
         affected_pops = sum(final_infected > 1),
         max_infected = max(final_infected),
         total_infected = sum(final_infected),
@@ -494,7 +494,7 @@ plot.plague_results <- function(x, compartments = NULL) {
   check_ggplot2("results plotting")
 
   if (!is.null(compartments)) {
-    x <- x |> dplyr::filter(compartment %in% compartments)
+    x <- x |> dplyr::filter(.data$compartment %in% compartments)
   }
 
   # Determine if spatial and if multiple replicates
@@ -779,7 +779,7 @@ run_sensitivity_analysis <- function(base_params, param_name,
 
     # Use current API instead of broken run_plague_simulation
     sim <- run_plague_model(
-      params = params,
+      scenario = params,
       npop = 1,  # Single population for sensitivity analysis
       n_particles = 5,  # Few particles for speed
       years = 10,
@@ -939,7 +939,7 @@ analyze_outbreaks <- function(results) {
       n_patches = sum(value > 0),
       .groups = "drop"
     ) |>
-    dplyr::group_by(rep) |>
+    dplyr::group_by(replicate) |>
     dplyr::summarize(
       peak_infected = max(total_infected),
       peak_patches = max(n_patches),
@@ -949,11 +949,8 @@ analyze_outbreaks <- function(results) {
 }
 
 validate_inputs <- function(params, times, npop, n_particles) {
-  assert_that(is.list(params) || is.character(params))
-  assert_that(is.numeric(times))
-  assert_that(length(times) >= 2)
-  assert_that(is_scalar_integerish(npop))
-  assert_that(npop >= 1)
-  assert_that(is_scalar_integerish(n_particles))
-  assert_that(n_particles >= 1)
+  checkmate::assert_true(is.list(params) || is.character(params))
+  checkmate::assert_numeric(times, min.len = 2)
+  checkmate::assert_int(npop, lower = 1)
+  checkmate::assert_int(n_particles, lower = 1)
 }

@@ -12,7 +12,7 @@ calculate_outbreak_metrics <- function(results, compartment = "I", threshold = 1
   
   # Filter to specified compartment
   outbreak_data <- results |>
-    dplyr::filter(compartment == !!compartment)
+    dplyr::filter(.data$compartment == .env$compartment)
   
   # Calculate metrics by replicate and population
   metrics <- outbreak_data |>
@@ -174,7 +174,7 @@ calculate_force_of_infection <- function(results) {
   
   # Extract relevant compartments
   force_data <- results |>
-    dplyr::filter(compartment %in% c("F", "S_r", "I_r", "R_r")) |>
+    dplyr::filter(.data$compartment %in% c("F", "S_r", "I_r", "R_r")) |>
     tidyr::pivot_wider(names_from = compartment, values_from = value, values_fill = 0) |>
     dplyr::mutate(
       T_r = S_r + I_r + R_r,
@@ -202,7 +202,7 @@ calculate_spatial_correlation <- function(results, compartment = "I", method = "
   
   # Prepare data for correlation analysis
   spatial_data <- results |>
-    dplyr::filter(compartment == !!compartment) |>
+    dplyr::filter(.data$compartment == .env$compartment) |>
     dplyr::select(time, population, replicate, value) |>
     # Average across replicates if multiple
     dplyr::group_by(time, population) |>
