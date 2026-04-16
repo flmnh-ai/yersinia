@@ -8,43 +8,41 @@ run_plague_model(
   scenario = "defaults",
   years = 10,
   timestep = c("weekly", "daily"),
-  include_humans = FALSE,
-  npop = 1,
-  contact_matrix = NULL,
   n_particles = 100,
   n_threads = 1,
-  seasonal = FALSE,
   K_r = 2500,
   K_h = 5000,
   I_ini = 1,
-  seasonal_amplitude = 1,
   ...
 )
 }
 \arguments{
-\item{years}{Number of years to simulate (default 10)}
+\item{scenario}{Parameter set name, file path, or list of parameters.}
 
-\item{timestep}{Time step resolution: "weekly" or "daily" (default "weekly")}
+\item{years}{Number of years to simulate (default 10).}
 
-\item{include_humans}{Logical, include human dynamics (only npop = 1 supported)}
+\item{timestep}{Time step resolution: "weekly" or "daily" (default "weekly").}
 
-\item{npop}{Number of populations (1 for single population, >1 for spatial)}
+\item{n_particles}{Number of particles for the stochastic run.}
 
-\item{contact_matrix}{Contact matrix for multi-population models (auto-generated if NULL and npop = 25)}
+\item{n_threads}{Number of threads for parallel processing.}
 
-\item{n_particles}{Number of particles for stochastic models}
+\item{K_r}{Rat carrying capacity (used only when scenario does not set it).}
 
-\item{n_threads}{Number of threads for parallel processing}
+\item{K_h}{Human carrying capacity (used only when scenario does not set it).}
 
-\item{seasonal}{Logical, include seasonal forcing}
+\item{I_ini}{Initial infected rats.}
 
-\item{...}{Additional parameters to override}
-
-\item{params}{Parameter set name, file path, or list of parameters}
+\item{...}{Additional parameters to override on top of the scenario.}
 }
 \value{
-plague_results object
+plague_results object.
 }
 \description{
-Run plague model simulation
+Runs the stochastic rats + humans plague model
+(\code{inst/odin/plague_stochastic_humans.R}) via dust2. The spatial rats-only
+model was retired in April 2026 along with the dust v1 backend (see
+\code{archive/plague_stochastic.R}). Re-adding spatial support means writing
+a spatial+humans odin2 model first; this function will then grow a
+\code{npop} argument again.
 }

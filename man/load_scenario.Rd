@@ -4,17 +4,15 @@
 \alias{load_scenario}
 \title{Load plague model scenario parameters}
 \usage{
-load_scenario(scenario = "defaults", validate = TRUE, ...)
+load_scenario(scenario = "defaults", ...)
 }
 \arguments{
 \item{scenario}{Name of scenario or path to YAML file or list of parameters}
 
-\item{validate}{Logical, whether to validate parameters}
-
 \item{...}{Additional model parameters to override}
 }
 \value{
-List of validated model parameters
+List of model parameters
 }
 \description{
 Load plague model scenario parameters

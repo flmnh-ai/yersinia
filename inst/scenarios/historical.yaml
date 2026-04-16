@@ -1,5 +1,7 @@
 # Historical plague scenario
 # Biological parameters representing medieval/historical plague conditions
+# Using carcass-based transmission formulation
+# ALL rates per day.
 
 # Metadata
 name: "historical"
@@ -7,37 +9,30 @@ description: "Biological parameters for historical plague outbreaks (14th-17th c
 source: "Historical analysis and paleoepidemiology"
 reference: "Estimated from Black Death and subsequent pandemic data"
 period: "1347-1700"
+time_unit: "day"
 
 # Rat population parameters
-r_r: 6.0     # Higher growth rate (less urbanization pressure)
-p: 0.98      # Higher resistance probability (natural selection)
-d_r: 0.15    # Lower baseline death rate (rural/natural conditions)
+r_r: 0.01644     # Higher growth rate (per day, = 6/365)
+p: 0.98          # Higher resistance probability (natural selection)
+d_r: 0.000411    # Lower baseline death rate (per day, = 0.15/365)
 
 # Disease transmission parameters
-beta_r: 6.0  # Very high transmission (no control measures)
-a: 0.003     # Lower search efficiency (different flea species mix)
-m_r: 25.0    # Higher mortality rate (virulent historical strains)
-g_r: 0.01    # Very low survival probability (no medical care)
-
-# Flea population parameters
-r_f: 15.0    # Lower reproduction (cooler Little Ice Age climate)
-K_f: 5.0     # Lower carrying capacity (different housing/hygiene)
-d_f: 8.0     # Lower death rate (less urban stress)
+beta_r: 1.0      # Higher transmission rate (per day, no control measures)
+rho: 2.0         # Infectivity range (lower, different flea species mix)
+m_r: 0.04        # Plague resolution rate (per day, ~25 days, virulent strains)
+g_r: 0.01        # Very low survival probability (no medical care)
+delta_R: 0.2     # Slower carcass decay (per day, cooler climates)
 
 # Human population parameters
-r_h: 0.03    # Lower growth rate (high infant mortality)
-d_h: 0.08    # Very high death rate (pre-modern conditions)
-beta_h: 0.015 # Higher infection rate (close quarters, poor hygiene)
-m_h: 35      # Slower disease progression (different strains?)
-g_h: 0.05    # Very low survival probability (no antibiotics)
+r_h: 0.0000822   # Lower growth rate (per day, = 0.03/365)
+d_h: 0.000219    # Very high death rate (per day, = 0.08/365)
+beta_h: 0.02     # Higher infection rate (close quarters, poor hygiene, per day)
+beta_I: 0.03     # Higher human-to-human transmission (pneumonic plague, per day)
+m_h: 0.08        # Slower disease progression (per day, ~12.5 days)
+g_h: 0.05        # Very low survival probability (no antibiotics)
 
 # Spatial parameters
-mu_r: 0.02   # Lower movement (less transportation)
-mu_f: 0.005  # Much lower flea movement (walking/animal transport only)
-
-# Seasonal parameters
-seasonal_amplitude: 0.3  # Stronger seasonality (more dependent on climate)
-
+mu_r: 0.0000548  # Lower movement (per day, = 0.02/365)
 
 # Notes
 notes: |
@@ -55,11 +50,7 @@ notes: |
   - Poor sanitation and hygiene
   - Different Yersinia pestis strains
   - Slower transportation networks
-  - Smaller, denser urban centers
-  - Climate cooling (Little Ice Age)
+  - Cooler climates slowing carcass decay
+  - Higher human-to-human transmission (pneumonic plague)
 
-  These parameters are estimated from:
-  - Historical mortality records
-  - Archaeological evidence
-  - Paleoclimatic data
-  - Comparative analysis with modern outbreaks
+  All rates are per day.

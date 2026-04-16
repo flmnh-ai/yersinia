@@ -2,7 +2,7 @@
 % Please edit documentation in R/plague_utils.R
 \name{run_human_stochastic_model}
 \alias{run_human_stochastic_model}
-\title{Run human stochastic model}
+\title{Run human stochastic model (dust2/odin2 backend)}
 \usage{
 run_human_stochastic_model(params, timesteps, n_particles, n_threads)
 }
@@ -19,5 +19,5 @@ run_human_stochastic_model(params, timesteps, n_particles, n_threads)
 Tidy tibble with results
 }
 \description{
-Run human stochastic model
+Run human stochastic model (dust2/odin2 backend)
 }

@@ -15,9 +15,9 @@ experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](h
 
 The `yersinia` package provides a comprehensive toolkit for modeling
 plague transmission dynamics using realistic stochastic simulation.
-Built on the robust `odin.dust` framework, it captures the complex
-biological processes that drive plague outbreaks, including demographic
-stochasticity, spatial spread, and multi-host transmission cycles.
+Built on the `odin.dust` framework, it uses a carcass-based transmission
+formulation (Didelot et al. 2017) to capture demographic stochasticity,
+spatial spread, and multi-host dynamics.
 
 ## Why Stochastic Models?
 
@@ -33,9 +33,9 @@ population effects** where random events drive extinction/persistence -
   population dynamics
 - 🗺️ **Spatial metapopulations** with migration and local adaptation
 - 📚 **Evidence-based parameters** from historical and contemporary
-  plague research  
-- 🏥 **Multi-host dynamics** including rat-flea-human transmission
-  cycles
+  plague research\
+- 🏥 **Multi-host dynamics** with carcass-based rat-to-human
+  transmission
 - 📊 **Professional analysis** tools for R₀, outbreak metrics, and
   spatial patterns
 - 📈 **Publication-ready plotting** with uncertainty quantification
@@ -66,7 +66,7 @@ results <- run_plague_model(
 plot(results)
 ```
 
-<img src="man/figures/README-quickstart-1.png" width="100%" />
+<img src="man/figures/README-quickstart-1.png" alt="" width="100%" />
 
 ## Core Capabilities
 
@@ -81,38 +81,36 @@ print(params)
 #> 📚 Source:  Historical analysis and paleoepidemiology 
 #> 
 #> 🐀 Rat Population Parameters:
-#>   r_r    =    6.000  # Rat population growth rate (per year)
-#>   d_r    =    0.150  # Natural death rate of rats (per year)
+#>   r_r    =    0.016  # Rat population growth rate (per day)
+#>   d_r    =    0.000  # Natural death rate of rats (per day)
 #>   p      =    0.980  # Probability of inherited resistance
 #> 
-#> 🦟 Flea Parameters:
-#>   K_f    =    5.000  # Flea carrying capacity per rat
-#>   r_f    =   15.000  # Flea reproduction rate (per year)
-#>   d_f    =    8.000  # Death rate of free fleas (per year)
-#>   a      =    0.003  # Flea search efficiency
+#> 💀 Carcass/Transmission Parameters:
+#>   rho      =    2.000  # Rat carcass infectivity range
+#>   delta_R  =    0.200  # Carcass decay rate
 #> 
 #> 🔬 Disease Parameters:
-#>   beta_r =    6.000  # Rat infection rate from fleas (per year)
-#>   m_r    =   25.000  # Infected rat mortality rate (per year)
+#>   beta_r =    1.000  # Transmission rate from carcasses to rats (per day)
+#>   m_r    =    0.040  # Plague resolution rate in rats (per day)
 #>   g_r    =    0.010  # Probability rat survives infection
 #> 
 #> 👤 Human Parameters:
-#>   r_h    =    0.030  # Human population growth rate (per year)
-#>   d_h    =    0.080  # Natural death rate of humans (per year)
-#>   beta_h =    0.015  # Human infection rate from fleas
-#>   m_h    =   35.000  # Human recovery rate (per year)
+#>   r_h    =    0.000  # Human population growth rate (per day)
+#>   d_h    =    0.000  # Natural death rate of humans (per day)
+#>   beta_h =    0.020  # Transmission rate from carcasses to humans (per day)
+#>   beta_I =    0.030  # Human-to-human transmission rate (per day)
+#>   m_h    =    0.080  # Plague resolution rate in humans (per day)
 #>   g_h    =    0.050  # Probability human survives infection
 #> 
 #> ⚙️  Other Parameters:
-#>   mu_r   =    0.020  # Rat movement rate (per year)
-#>   mu_f   =    0.005  # Flea movement rate (per year)
+#>   mu_r   =    0.000  # Rat movement rate (per day)
 #> 
-#> 📈 Basic Reproduction Number (R₀):  596.092 ✅ (Disease can spread)
+#> 📈 Basic Reproduction Number (R₀):  4.28 ✅ (Disease can spread)
 
 # Calculate basic reproduction number
 R0 <- calculate_R0(params)
 cat("Historical R₀:", round(R0, 2))
-#> Historical R₀: 596.09
+#> Historical R₀: 4.28
 ```
 
 ### Professional Analysis Tools
@@ -127,7 +125,7 @@ print(outbreak_stats[c("outbreak_probability", "mean_peak", "mean_duration")])
 #> # A tibble: 1 × 3
 #>   outbreak_probability mean_peak mean_duration
 #>                  <dbl>     <dbl>         <dbl>
-#> 1                    1     1185.         0.849
+#> 1                 0.74      0.76        0.0733
 ```
 
 ### Spatial Modeling
@@ -149,7 +147,7 @@ plot_comparison(
 )
 ```
 
-<img src="man/figures/README-spatial-1.png" width="100%" />
+<img src="man/figures/README-spatial-1.png" alt="" width="100%" />
 
 ### Historical Applications
 
@@ -166,25 +164,25 @@ black_death <- run_plague_model(
 plot_dynamics(black_death, compartments = c("Ih", "Rh"))
 ```
 
-<img src="man/figures/README-historical-1.png" width="100%" />
+<img src="man/figures/README-historical-1.png" alt="" width="100%" />
 
 ## Model Types
 
 | Model | Description | Use Case |
 |----|----|----|
-| **Single Population** | Basic rat-flea dynamics | Parameter exploration, R₀ analysis |
+| **Single Population** | Basic carcass-based dynamics | Parameter exploration, R₀ analysis |
 | **Spatial** | Multi-population with migration | Landscape epidemiology, spatial spread |
-| **Multi-host** | Rat-flea-human transmission | Epidemiological studies, intervention planning |
-| **Seasonal** | Environmental forcing | Climate effects, annual cycles |
+| **Multi-host** | Carcass-based rat-to-human transmission | Epidemiological studies, intervention planning |
 
 ## Parameter Sets
 
 | Scenario | Source | Description | R₀ |
 |----|----|----|----|
-| `"defaults"` | Package defaults | Baseline parameters | 581.66 |
-| `"keeling-gilligan"` | Keeling & Gilligan (2000) | Foundational metapopulation model | 581.66 |
-| `"modern-estimates"` | Contemporary research | Current parameter estimates | 684.93 |
-| `"historical"` | Medieval records | Black Death era parameters | 596.09 |
+| `"defaults"` | Package defaults | Baseline parameters | 2.62 |
+| `"didelot"` | Didelot et al. (2017) | Cairo 1801 posterior estimates | 2.68 |
+| `"keeling-gilligan"` | Keeling & Gilligan (2000) | Adapted to carcass formulation | 0.46 |
+| `"modern-estimates"` | Contemporary research | Current parameter estimates | 2.77 |
+| `"historical"` | Medieval records | Black Death era parameters | 4.28 |
 
 ## Getting Help
 
@@ -204,8 +202,10 @@ citation("yersinia")
 
 ## Related Work
 
+- **Didelot et al. (2017)**: Carcass-based plague transmission model
+  ([J. R. Soc. Interface](https://doi.org/10.1098/rsif.2017.0160))
 - **Keeling & Gilligan (2000)**: Foundational plague metapopulation
-  model ([Nature](https://doi.org/10.1038/35038564))
+  model ([Nature](https://doi.org/10.1038/35038073))
 - **odin.dust framework**: Stochastic compartmental modeling
   ([CRAN](https://cran.r-project.org/package=odin.dust))
 

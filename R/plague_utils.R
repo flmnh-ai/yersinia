@@ -3,37 +3,9 @@
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
 # Helper functions for validation (not exported)
-
-# Try to infer grid dimensions from population count
-infer_grid_size <- function(npop) {
-  sqrt_npop <- sqrt(npop)
-  if (sqrt_npop == round(sqrt_npop)) {
-    # Perfect square - use square grid
-    return(c(sqrt_npop, sqrt_npop))
-  }
-  
-  # Try to find nice rectangular grids
-  for (rows in 2:ceiling(sqrt_npop)) {
-    if (npop %% rows == 0) {
-      cols <- npop / rows
-      return(c(rows, cols))
-    }
-  }
-  
-  # No nice grid found
-  return(NULL)
-}
-
-# Helper functions for validation (not exported)
 check_plague_results <- function(results, context = "analysis") {
-  checkmate::assert_class(results, "plague_results", 
+  checkmate::assert_class(results, "plague_results",
                          .var.name = glue::glue("results (for {context})"))
-}
-
-check_spatial_model <- function(results, context = "spatial analysis") {
-  n_populations <- length(unique(results$population))
-  checkmate::assert_true(n_populations > 1,
-                        .var.name = glue::glue("spatial model requirement (for {context})"))
 }
 
 check_ggplot2 <- function(context = "plotting") {
@@ -42,20 +14,17 @@ check_ggplot2 <- function(context = "plotting") {
   }
 }
 
-check_gganimate <- function(context = "animation") {
-  if (!requireNamespace("gganimate", quietly = TRUE)) {
-    cli::cli_abort("gganimate package required for {context}")
-  }
-}
+# check_spatial_model() and check_gganimate() moved to
+# archive/spatial_helpers.R in April 2026 alongside the retirement of the
+# spatial plague model.
 
 
 #' Load plague model scenario parameters
 #' @param scenario Name of scenario or path to YAML file or list of parameters
-#' @param validate Logical, whether to validate parameters
 #' @param ... Additional model parameters to override
-#' @return List of validated model parameters
+#' @return List of model parameters
 #' @export
-load_scenario <- function(scenario = "defaults", validate = TRUE, ...) {
+load_scenario <- function(scenario = "defaults", ...) {
   # Handle different input types
   if (is.list(scenario)) {
     params <- scenario
@@ -77,9 +46,13 @@ load_scenario <- function(scenario = "defaults", validate = TRUE, ...) {
     params[names(override_params)] <- override_params
   }
 
-  if (validate) {
-    validate_parameters(params)
-  }
+  # Lightweight probability bounds check
+  if (!is.null(params$p) && (params$p < 0 || params$p > 1))
+    cli::cli_abort("p (resistance probability) must be between 0 and 1")
+  if (!is.null(params$g_r) && (params$g_r < 0 || params$g_r > 1))
+    cli::cli_abort("g_r (rat survival probability) must be between 0 and 1")
+  if (!is.null(params$g_h) && (params$g_h < 0 || params$g_h > 1))
+    cli::cli_abort("g_h (human survival probability) must be between 0 and 1")
 
   # Add metadata
   attr(params, "scenario") <- if(is.character(scenario)) scenario else "custom"
@@ -94,9 +67,9 @@ load_scenario <- function(scenario = "defaults", validate = TRUE, ...) {
 #' @return List of model parameters
 load_named_scenario <- function(name) {
   # Available scenarios
-  available_scenarios <- c("defaults", "keeling-gilligan", "modern-estimates", "historical")
+  available_scenarios <- c("defaults", "keeling-gilligan", "modern-estimates", "historical", "didelot")
 
-  checkmate::assert_choice(name, available_scenarios, 
+  checkmate::assert_choice(name, available_scenarios,
                           .var.name = glue::glue("scenario name '{name}'"))
 
   # Try to load from YAML file first
@@ -108,7 +81,7 @@ load_named_scenario <- function(name) {
     yaml_file <- file.path("inst", "scenarios", paste0(name, ".yaml"))
   }
 
-  checkmate::assert_file_exists(yaml_file, 
+  checkmate::assert_file_exists(yaml_file,
     .var.name = glue::glue("YAML file for scenario '{name}' (package installation issue)"))
 
   if (!requireNamespace("yaml", quietly = TRUE)) {
@@ -119,47 +92,13 @@ load_named_scenario <- function(name) {
 
   # Extract just the parameter values (exclude metadata)
   metadata_keys <- c("name", "description", "source", "reference", "doi",
-                    "last_updated", "period", "notes")
+                    "last_updated", "period", "notes", "time_unit")
   params <- params_full[!names(params_full) %in% metadata_keys]
 
   # Store metadata as attributes
   attr(params, "metadata") <- params_full[intersect(names(params_full), metadata_keys)]
 
   return(params)
-}
-
-#' Validate plague model parameters
-#' @param params List of parameters
-#' @return TRUE if valid, stops with error if invalid
-validate_parameters <- function(params) {
-  # Core rat-flea parameters (always required) - excluding simulation parameters
-  required_params <- c("r_r", "p", "d_r", "beta_r", "a",
-                       "m_r", "g_r", "r_f", "K_f", "d_f")
-
-  # Check basic structure
-  checkmate::assert_list(params, names = "named")
-  
-  # Check for required parameters
-  checkmate::assert_names(names(params), must.include = required_params,
-                         .var.name = "scenario parameters")
-
-  # Validate probability parameters (0-1 range)
-  checkmate::assert_number(params$p, lower = 0, upper = 1, .var.name = "p (resistance probability)")
-  checkmate::assert_number(params$g_r, lower = 0, upper = 1, .var.name = "g_r (rat survival probability)")
-  
-  # Check human parameters if present
-  if ("g_h" %in% names(params)) {
-    checkmate::assert_number(params$g_h, lower = 0, upper = 1, .var.name = "g_h (human survival probability)")
-  }
-
-  # Check all numeric parameters are non-negative
-  numeric_params <- params[sapply(params, is.numeric)]
-  for (param_name in names(numeric_params)) {
-    checkmate::assert_number(numeric_params[[param_name]], lower = 0, 
-                           .var.name = glue::glue("parameter '{param_name}'"))
-  }
-
-  TRUE
 }
 
 #' Print method for plague_parameters
@@ -186,8 +125,8 @@ print.scenario_parameters <- function(x, ...) {
   rat_params <- c("K_r", "r_r", "d_r", "p")
   rat_descriptions <- list(
     K_r = "Rat carrying capacity",
-    r_r = "Rat population growth rate (per year)",
-    d_r = "Natural death rate of rats (per year)",
+    r_r = "Rat population growth rate (per day)",
+    d_r = "Natural death rate of rats (per day)",
     p = "Probability of inherited resistance"
   )
 
@@ -198,27 +137,25 @@ print.scenario_parameters <- function(x, ...) {
     }
   }
 
-  cat("\n🦟 Flea Parameters:\n")
-  flea_params <- c("K_f", "r_f", "d_f", "a")
-  flea_descriptions <- list(
-    K_f = "Flea carrying capacity per rat",
-    r_f = "Flea reproduction rate (per year)",
-    d_f = "Death rate of free fleas (per year)",
-    a = "Flea search efficiency"
+  cat("\n💀 Carcass/Transmission Parameters:\n")
+  carcass_params <- c("rho", "delta_R")
+  carcass_descriptions <- list(
+    rho = "Rat carcass infectivity range",
+    delta_R = "Carcass decay rate"
   )
 
-  for (param in flea_params) {
+  for (param in carcass_params) {
     if (param %in% names(x)) {
-      desc <- flea_descriptions[[param]] %||% ""
-      cat(sprintf("  %-6s = %8.3f  # %s\n", param, x[[param]], desc))
+      desc <- carcass_descriptions[[param]] %||% ""
+      cat(sprintf("  %-8s = %8.3f  # %s\n", param, x[[param]], desc))
     }
   }
 
   cat("\n🔬 Disease Parameters:\n")
   disease_params <- c("beta_r", "m_r", "g_r")
   disease_descriptions <- list(
-    beta_r = "Rat infection rate from fleas (per year)",
-    m_r = "Infected rat mortality rate (per year)",
+    beta_r = "Transmission rate from carcasses to rats (per day)",
+    m_r = "Plague resolution rate in rats (per day)",
     g_r = "Probability rat survives infection"
   )
 
@@ -230,17 +167,18 @@ print.scenario_parameters <- function(x, ...) {
   }
 
   # Human parameters if present
-  human_params <- c("K_h", "r_h", "d_h", "beta_h", "m_h", "g_h")
+  human_params <- c("K_h", "r_h", "d_h", "beta_h", "beta_I", "m_h", "g_h")
   has_human_params <- any(human_params %in% names(x))
 
   if (has_human_params) {
     cat("\n👤 Human Parameters:\n")
     human_descriptions <- list(
       K_h = "Human carrying capacity",
-      r_h = "Human population growth rate (per year)",
-      d_h = "Natural death rate of humans (per year)",
-      beta_h = "Human infection rate from fleas",
-      m_h = "Human recovery rate (per year)",
+      r_h = "Human population growth rate (per day)",
+      d_h = "Natural death rate of humans (per day)",
+      beta_h = "Transmission rate from carcasses to humans (per day)",
+      beta_I = "Human-to-human transmission rate (per day)",
+      m_h = "Plague resolution rate in humans (per day)",
       g_h = "Probability human survives infection"
     )
 
@@ -253,13 +191,12 @@ print.scenario_parameters <- function(x, ...) {
   }
 
   # Initial conditions and other parameters
-  other_params <- setdiff(names(x), c(rat_params, flea_params, disease_params, human_params))
+  other_params <- setdiff(names(x), c(rat_params, carcass_params, disease_params, human_params))
   if (length(other_params) > 0) {
     cat("\n⚙️  Other Parameters:\n")
     other_descriptions <- list(
       I_ini = "Initial number of infected rats",
-      mu_r = "Rat movement rate (per year)",
-      mu_f = "Flea movement rate (per year)"
+      mu_r = "Rat movement rate (per day)"
     )
 
     for (param in other_params) {
@@ -535,33 +472,35 @@ plot.plague_results <- function(x, compartments = NULL) {
 # Main Simulation Interface ---------------------------------------------------
 
 #' Run plague model simulation
-#' @param params Parameter set name, file path, or list of parameters
-#' @param years Number of years to simulate (default 10)
-#' @param timestep Time step resolution: "weekly" or "daily" (default "weekly")
-#' @param include_humans Logical, include human dynamics (only npop = 1 supported)
-#' @param npop Number of populations (1 for single population, >1 for spatial)
-#' @param contact_matrix Contact matrix for multi-population models (auto-generated if NULL and npop = 25)
-#' @param n_particles Number of particles for stochastic models
-#' @param n_threads Number of threads for parallel processing
-#' @param seasonal Logical, include seasonal forcing
-#' @param ... Additional parameters to override
-#' @return plague_results object
+#'
+#' Runs the stochastic rats + humans plague model
+#' (`inst/odin/plague_stochastic_humans.R`) via dust2. The spatial rats-only
+#' model was retired in April 2026 along with the dust v1 backend (see
+#' `archive/plague_stochastic.R`). Re-adding spatial support means writing
+#' a spatial+humans odin2 model first; this function will then grow a
+#' `npop` argument again.
+#'
+#' @param scenario Parameter set name, file path, or list of parameters.
+#' @param years Number of years to simulate (default 10).
+#' @param timestep Time step resolution: "weekly" or "daily" (default "weekly").
+#' @param n_particles Number of particles for the stochastic run.
+#' @param n_threads Number of threads for parallel processing.
+#' @param K_r Rat carrying capacity (used only when scenario does not set it).
+#' @param K_h Human carrying capacity (used only when scenario does not set it).
+#' @param I_ini Initial infected rats.
+#' @param ... Additional parameters to override on top of the scenario.
+#' @return plague_results object.
 #' @export
 run_plague_model <- function(scenario = "defaults",
                              years = 10,
                              timestep = c("weekly", "daily"),
-                             include_humans = FALSE,
-                             npop = 1,
-                             contact_matrix = NULL,
                              n_particles = 100,
                              n_threads = 1,
-                             seasonal = FALSE,
                              K_r = 2500,
                              K_h = 5000,
                              I_ini = 1,
-                             seasonal_amplitude = 1,
                              ...) {
-  
+
   # Validate arguments
   timestep <- match.arg(timestep)
   stopifnot(is.numeric(years), years > 0)
@@ -573,90 +512,32 @@ run_plague_model <- function(scenario = "defaults",
     model_params <- load_scenario(scenario, ...)
   }
 
-  # Multi-population human models not yet implemented
-  if (npop > 1 && include_humans) {
-    cli::cli_abort("Multi-population human models not yet implemented - use npop = 1 with include_humans = TRUE")
-  }
-
-  # Generate contact matrix for multi-population models
-  if (npop > 1 && is.null(contact_matrix)) {
-    # Try to infer grid dimensions automatically
-    grid_dims <- infer_grid_size(npop)
-    if (!is.null(grid_dims)) {
-      contact_matrix <- make_contact_matrix(grid_dims[1], grid_dims[2])
-      cli::cli_inform("📍 Auto-generated {grid_dims[1]}x{grid_dims[2]} grid contact matrix for {npop} populations")
-    } else {
-      cli::cli_abort("Cannot automatically create contact matrix for npop = {npop}.
-                     Please provide a contact_matrix or use a population count with nice factors (e.g., 4, 9, 16, 25, etc.)")
-    }
-  } else if (npop > 1) {
-    # Validate contact matrix dimensions
-    checkmate::assert_matrix(contact_matrix, nrows = npop, ncols = npop,
-                            .var.name = glue::glue("contact_matrix ({npop}x{npop})"))
-  } else {
-    # Single population case
-    contact_matrix <- matrix(1, 1, 1)
-  }
-
   # Prepare odin parameters from scenario
   sim_params <- as.list(model_params)
-  
-  # No parameter filtering needed - scenario files only contain model parameters
 
-  # Add simulation structure parameters
-  sim_params$npop <- npop
-  sim_params$contact <- contact_matrix
-  
-  # Add carrying capacities from function arguments
-  sim_params$K_r <- K_r
-  sim_params$K_h <- K_h
-  
-  # Handle I_ini from function argument (needs to be a vector for odin model)
-  if (length(I_ini) == 1) {
-    sim_params$I_ini <- c(I_ini, rep(0, npop - 1))  # Start infection in population 1
-  } else {
-    sim_params$I_ini <- I_ini  # User provided vector
-  }
+  # Use carrying capacities from function arguments only if not already set by scenario
+  if (is.null(sim_params$K_r)) sim_params$K_r <- K_r
+  if (is.null(sim_params$K_h)) sim_params$K_h <- K_h
 
+  # Humans model is single-population; I_ini is scalar.
+  sim_params$I_ini <- I_ini[[1]]
   sim_params$S_ini <- 1
 
-  # Distribute carrying capacity across populations
-  # K_r represents total system capacity
-  if (npop > 1) {
-    sim_params$K_r <- sim_params$K_r / npop
-  }
-
-  # Add temporal parameters
+  # Add temporal parameters — dt in days, all rates per day
   dt <- switch(timestep,
-    "weekly" = 1/52,
-    "daily" = 1/365
+    "weekly" = 7,
+    "daily" = 1
   )
   sim_params$dt <- dt
-  timesteps <- seq_len(as.integer(dt^-1 * years))
-
-  time_years <- timesteps * dt
-  if (seasonal) {
-    sim_params$season <- sin(2 * pi * time_years)
-    sim_params$seasonal_amplitude <- seasonal_amplitude
-  } else {
-    sim_params$season <- rep(0, length(timesteps))
-    sim_params$seasonal_amplitude <- 0  # No seasonal effects
-  }
+  n_days <- as.integer(365 * years)
+  timesteps <- seq_len(as.integer(n_days / dt))
 
   # Show simulation info
-  start_time <- Sys.time() # use tic/toc instead?
+  start_time <- Sys.time()
   cli::cli_progress_step("🚀 Running {n_particles} particles over {length(timesteps)} time steps")
 
-  # Run the appropriate stochastic model
-  if (include_humans) {
-    # Single-population human model (npop = 1 enforced above)
-    results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads)
-    model_type <- "stochastic_humans"
-  } else {
-    # Always use spatial model (works for npop = 1 or npop > 1)
-    results <- run_stochastic_simulation(sim_params, timesteps, n_particles, n_threads)
-    model_type <- if (npop > 1) "stochastic_spatial" else "stochastic_single"
-  }
+  results <- run_human_stochastic_model(sim_params, timesteps, n_particles, n_threads)
+  model_type <- "stochastic_humans"
 
   # Completion message
   elapsed <- round(as.numeric(Sys.time() - start_time, units = "secs"), 1)
@@ -666,11 +547,8 @@ run_plague_model <- function(scenario = "defaults",
   # Create run info
   run_info <- list(
     timestamp = Sys.time(),
-    model = "stochastic",
-    include_humans = include_humans,
-    npop = npop,
-    n_particles = n_particles,
-    seasonal = seasonal
+    model = "stochastic_humans",
+    n_particles = n_particles
   )
 
   # Return plague_results object
@@ -679,278 +557,71 @@ run_plague_model <- function(scenario = "defaults",
 
 # Model-specific runner functions ---------------------------------------------
 
+#' Stochastic humans plague model (carcass formulation)
+#'
+#' An odin2/dust2 system generator compiled at package build time from
+#' `inst/odin/plague_stochastic_humans.R`. Pass it directly to
+#' [dust2::dust_system_create()] or [dust2::dust_filter_create()].
+#'
+#' @name plague_stochastic_humans
+#' @export
+NULL
 
-#' Run human stochastic model
+#' Run human stochastic model (dust2/odin2 backend)
 #' @param params List of parameters
 #' @param timesteps Vector of timesteps
 #' @param n_particles Number of particles
 #' @param n_threads Number of threads
 #' @return Tidy tibble with results
 run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads) {
-  model <- plague_stochastic_humans$new(
-    pars = params,
-    time = 1L,
-    n_particles = n_particles,
-    n_threads = n_threads,
-    seed = sample.int(.Machine$integer.max, 1)
-  )
+  # Translate legacy `dt` -> odin2's `tau` (odin2 reserves `dt`).
+  dt_days <- params$dt %||% params$tau %||% 1
+  params$tau <- dt_days
+  params$dt <- NULL
 
-  # Run simulation
-  state <- model$simulate(timesteps)
-
-  state <- state |>
-    array(
-      dim = c(10, n_particles, length(timesteps)),
-      dimnames = list(
-        compartment = c('S', 'I', 'R', 'D', 'N', 'F', 'Sh', 'Ih', 'Rh', 'Dh'),
-        replicate = 1:n_particles,
-        time = timesteps * params$dt
-      )
-    ) |>
-    cubelyr::as.tbl_cube(met_name = 'value') |>
-    tibble::as_tibble() |>
-    dplyr::mutate(population = 1L)  # Single population only
-
-  return(state)
-}
-
-#' Create simulation timepoints
-#' @param years Number of years to simulate
-#' @param timestep Time step in years
-#' @return Vector of timepoints
-
-#' Plot plague simulation results
-#' @param output Simulation output tibble
-#' @param log_scale Logical, whether to use log scale
-#' @param plot_type One of "all", "infected", or "phase"
-#' @return ggplot object
-# plot_plague_simulation <- function(output, log_scale = FALSE,
-#                                    plot_type = "all") {
-#   if (plot_type == "all") {
-#     p <- output |>
-#       tidyr::pivot_longer(-t) |>
-#       ggplot2::ggplot(ggplot2::aes(t, value)) +
-#       ggplot2::geom_line() +
-#       ggplot2::facet_wrap(~name, scales = 'free_y') +
-#       ggplot2::labs(
-#         title = "Plague Model Simulation",
-#         x = "Time (years)",
-#         y = "Population"
-#       )
-#   } else if (plot_type == "infected") {
-#     p <- output |>
-#       ggplot2::ggplot(ggplot2::aes(t, I_r)) +
-#       ggplot2::geom_line() +
-#       ggplot2::labs(
-#         title = "Infected Rat Population",
-#         x = "Time (years)",
-#         y = "Number of Infected Rats"
-#       )
-#   } else if (plot_type == "phase") {
-#     p <- output |>
-#       ggplot2::ggplot(ggplot2::aes(S_r, I_r)) +
-#       ggplot2::geom_path() +
-#       ggplot2::labs(
-#         title = "Phase Portrait",
-#         x = "Susceptible Rats",
-#         y = "Infected Rats"
-#       )
-#   }
-#
-#   if (log_scale && plot_type != "phase") {
-#     p <- p + ggplot2::scale_y_log10()
-#   }
-#
-#   p + ggplot2::theme_minimal()
-# }
-
-#' Run sensitivity analysis
-#' @param base_params Base parameter list
-#' @param param_name Parameter to vary
-#' @param range Vector of multipliers
-#' @param seasonal Include seasonal forcing
-#' @return Tibble with sensitivity analysis results
-run_sensitivity_analysis <- function(base_params, param_name,
-                                     range = seq(0.5, 1.5, by = 0.1),
-                                     seasonal = FALSE) {
-  results <- purrr::map_dfr(range, function(mult) {
-    params <- base_params
-    params[[param_name]] <- params[[param_name]] * mult
-
-    # Use current API instead of broken run_plague_simulation
-    sim <- run_plague_model(
-      scenario = params,
-      npop = 1,  # Single population for sensitivity analysis
-      n_particles = 5,  # Few particles for speed
-      years = 10,
-      seasonal = seasonal
-    )
-    sim |>
-      dplyr::mutate(
-        multiplier = mult,
-        parameter = param_name
-      )
-  })
-
-  return(results)
-}
-
-#' Plot sensitivity analysis results
-#' @param sensitivity_results Output from run_sensitivity_analysis
-#' @param variable Variable to plot
-#' @return ggplot object
-plot_sensitivity <- function(sensitivity_results, variable = "I_r") {
-  sensitivity_results |>
-    ggplot2::ggplot(ggplot2::aes(t, .data[[variable]], group = multiplier, color = multiplier)) +
-    ggplot2::geom_line(alpha = 0.7) +
-    ggplot2::scale_color_viridis_c() +
-    ggplot2::labs(
-      title = paste("Sensitivity Analysis:", variable),
-      x = "Time (years)",
-      y = variable,
-      color = "Parameter\nMultiplier"
-    ) +
-    ggplot2::theme_minimal()
-}
-
-#' Calculate model statistics
-#' @param output Simulation output
-#' @return List of statistics
-#calculate_model_stats <- function(output) {
-#  list(
-#    peak_infected = max(output$I_r),
-#    final_susceptible = tail(output$S_r, 1),
-#    final_resistant = tail(output$R_r, 1),
-#    average_flea_index = mean(output$N),
-#    min_total_rats = min(output$S_r + output$I_r + output$R_r)
-#  )
-#}
-
-
-# Spatial utility functions
-
-#' Create contact matrix for grid-based metapopulation
-#' @param n_rows Number of rows in grid
-#' @param n_cols Number of columns in grid
-#' @return Normalized contact matrix
-make_contact_matrix <- function(n_rows = 5, n_cols = 5) {
-  n <- n_rows * n_cols
-  m <- matrix(0, n, n)
-
-  for(i in 1:n) {
-    # Get row/col position
-    row <- ceiling(i/n_cols)
-    col <- ((i-1) %% n_cols) + 1
-
-    # Add neighbors
-    if(row > 1) m[i, i-n_cols] <- 1  # up
-    if(row < n_rows) m[i, i+n_cols] <- 1  # down
-    if(col > 1) m[i, i-1] <- 1  # left
-    if(col < n_cols) m[i, i+1] <- 1  # right
+  # Restrict to parameters the humans odin2 model accepts; drop spatial-only
+  # keys like npop, contact, mu_r so dust2 doesn't reject the call.
+  model_param_names <- c("tau", "I_ini", "S_ini", "K_r", "K_h", "r_r", "r_h",
+                         "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho",
+                         "m_r", "m_h", "g_r", "g_h", "delta_R", "kappa")
+  model_params <- params[intersect(names(params), model_param_names)]
+  # I_ini may arrive as length-1 vector from run_plague_model's spatial prep;
+  # odin2 wants scalar in the single-population case.
+  if (length(model_params$I_ini) > 1) {
+    model_params$I_ini <- model_params$I_ini[[1]]
   }
 
-  # Normalize rows
-  m <- t(apply(m, 1, function(x) x/sum(x)))
-  return(m)
-}
-
-
-#' Run stochastic simulation with given parameters
-#' @param params List of parameters
-#' @param timesteps Vector of timesteps
-#' @param n_particles Number of particles (replicates)
-#' @param n_threads Number of threads for parallel processing
-#' @return Data frame with simulation results
-run_stochastic_simulation <- function(params, timesteps, n_particles = 1, n_threads = 1) {
-  stopifnot(is.list(params))
-  stopifnot(is.numeric(timesteps))
-  stopifnot(n_particles >= 1)
-  stopifnot(n_threads >= 1)
-
-  model <- plague_stochastic$new(
-    pars = params,
-    time = 1L,
+  sys <- dust2::dust_system_create(
+    plague_stochastic_humans,
+    pars = model_params,
     n_particles = n_particles,
     n_threads = n_threads,
     seed = sample.int(.Machine$integer.max, 1)
   )
+  dust2::dust_system_set_state_initial(sys)
 
-  # Run simulation
-  state <- model$simulate(timesteps)
+  y <- dust2::dust_system_simulate(sys, times = timesteps)
+  state_list <- dust2::dust_unpack_state(sys, y)
 
-  state <- state |>
-    array(
-      dim = c(params$npop, 5, n_particles, length(timesteps)),
-      dimnames = list(
-        population = 1:params$npop,
-        compartment = c('S', 'I', 'R', 'N', 'F'),
-        replicate = 1:n_particles,
-        time = timesteps * params$dt
-      )
-    ) |>
-    cubelyr::as.tbl_cube(met_name = 'value') |>
-    tibble::as_tibble()
+  # Rename odin2 compartment names to the legacy convention used by downstream
+  # plot/summary methods (S_h -> Sh, etc.)
+  name_map <- c(S = "S", I = "I", R = "R", Q = "Q",
+                S_h = "Sh", I_h = "Ih", R_h = "Rh", D_h = "Dh")
+  time_years <- timesteps * dt_days / 365
 
-  return(state)
-}
-
-# Stochastic simulation analysis functions
-
-#' Generate seasonal forcing
-#' @param timesteps Vector of timesteps
-#' @param amplitude Amplitude of seasonal forcing
-#' @return Vector of seasonal multipliers
-
-#' Plot total infected over time with uncertainty
-#' @param results Simulation results
-#' @return ggplot object
-plot_total_infected <- function(results) {
-  results |>
-    dplyr::filter(compartment == "I") |>
-    dplyr::group_by(time, replicate) |>
-    dplyr::summarize(total = sum(value), .groups = "drop") |>
-    dplyr::group_by(time) |>
-    dplyr::summarize(
-      median = median(total),
-      lower = quantile(total, 0.025),
-      upper = quantile(total, 0.975)
-    ) |>
-    ggplot2::ggplot(ggplot2::aes(x = time, y = median)) +
-    ggplot2::geom_ribbon(ggplot2::aes(ymin = lower, ymax = upper), alpha = 0.2) +
-    ggplot2::geom_line() +
-    ggplot2::scale_y_log10() +
-    ggplot2::labs(
-      x = "Time (years)",
-      y = "Total Infected Population"
-    ) +
-    ggplot2::theme_minimal()
-}
-
-
-#' Analyze outbreak characteristics
-#' @param results Simulation results
-#' @return Data frame with outbreak statistics
-analyze_outbreaks <- function(results) {
-  results |>
-    dplyr::filter(compartment == "I") |>
-    dplyr::group_by(time, replicate) |>
-    dplyr::summarize(
-      total_infected = sum(value),
-      n_patches = sum(value > 0),
-      .groups = "drop"
-    ) |>
-    dplyr::group_by(replicate) |>
-    dplyr::summarize(
-      peak_infected = max(total_infected),
-      peak_patches = max(n_patches),
-      duration = sum(total_infected > 10) * unique(diff(time)[1]),
-      .groups = "drop"
+  state <- do.call(rbind, lapply(names(name_map), function(src) {
+    mat <- state_list[[src]]  # dims: n_particles x n_times (scalar compartment)
+    tibble::tibble(
+      compartment = name_map[[src]],
+      replicate   = rep(seq_len(n_particles), times = length(timesteps)),
+      time        = rep(time_years, each = n_particles),
+      value       = as.vector(mat)
     )
+  }))
+  state$population <- 1L
+
+  state
 }
 
-validate_inputs <- function(params, times, npop, n_particles) {
-  checkmate::assert_true(is.list(params) || is.character(params))
-  checkmate::assert_numeric(times, min.len = 2)
-  checkmate::assert_int(npop, lower = 1)
-  checkmate::assert_int(n_particles, lower = 1)
-}
+
+

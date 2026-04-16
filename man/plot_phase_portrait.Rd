@@ -6,7 +6,7 @@
 \usage{
 plot_phase_portrait(
   results,
-  compartments = c("S_r", "I_r"),
+  compartments = c("S", "I"),
   population = 1,
   replicate = 1,
   ...
@@ -15,7 +15,7 @@ plot_phase_portrait(
 \arguments{
 \item{results}{plague_results object}
 
-\item{compartments}{Vector of two compartments to plot (default c("S_r", "I_r"))}
+\item{compartments}{Vector of two compartments to plot (default c("S", "I"))}
 
 \item{population}{Which population to plot (for spatial models, default 1)}
 

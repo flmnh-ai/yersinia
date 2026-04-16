@@ -1,46 +1,61 @@
 # Keeling & Gilligan (2000) scenario
 # Biological parameters from the foundational plague modeling paper
+# Adapted to carcass-based transmission formulation
+# ALL rates converted to per day.
 
 # Metadata
 name: "keeling-gilligan"
-description: "Biological parameters from Keeling & Gilligan (2000) metapopulation plague model"
+description: "Parameters from Keeling & Gilligan (2000), adapted to carcass formulation"
 source: "Keeling, M. J., & Gilligan, C. A. (2000)"
 reference: "Metapopulation dynamics of bubonic plague. Nature, 407(6806), 903-906"
 doi: "10.1038/35038564"
+time_unit: "day"
 
-# Rat population parameters
-r_r: 5.0     # Rat population growth rate (per year)
-p: 0.975     # Probability of inherited resistance
-d_r: 0.2     # Natural death rate of rats (per year)
+# Rat population parameters (converted from per year)
+r_r: 0.01370     # Rat population growth rate (per day, original: 5/year)
+p: 0.975         # Probability of inherited resistance
+d_r: 0.000548    # Natural death rate of rats (per day, original: 0.2/year)
 
-# Disease transmission parameters
-beta_r: 4.7  # Rat infection rate from fleas (per year)
-a: 0.004     # Flea search efficiency
-m_r: 20.0    # Infected rat mortality rate (per year)
-g_r: 0.02    # Probability rat survives infection
+# Disease transmission parameters (converted from per year)
+# Original K&G used explicit fleas with a=0.004, K_f=6.57, d_f=10, r_f=20
+# Carcass-equivalent parameters preserve the infection dynamics:
+#   rho = a * K_r (original: 0.004 * 2500 = 10)
+#   delta_R approximates the effective flea death rate on carcasses
+#   beta_r is rescaled for the carcass formulation
+beta_r: 0.01288    # Transmission rate from carcasses to rats (per day, original: 4.7/year)
+rho: 10.0          # Rat carcass infectivity range (= a * K_r in original)
+m_r: 0.05479       # Plague resolution rate in rats (per day, original: 20/year)
+g_r: 0.02          # Probability rat survives infection
+delta_R: 0.02740   # Carcass decay rate (per day, original: 10/year ~= d_f)
 
-# Flea population parameters
-r_f: 20.0    # Flea reproduction rate (per year)
-K_f: 6.57    # Flea carrying capacity per rat
-d_f: 10.0    # Death rate of free fleas (per year)
-
-# Human population parameters (when applicable)
-r_h: 0.045   # Human population growth rate (per year)
-d_h: 0.04    # Natural death rate of humans (per year)
-beta_h: 0.01 # Human infection rate from fleas
-m_h: 26      # Infected human recovery rate (per year)
-g_h: 0.1     # Probability human survives infection
+# Human population parameters (converted from per year)
+r_h: 0.000123    # Human population growth rate (per day, original: 0.045/year)
+d_h: 0.000110    # Natural death rate of humans (per day, original: 0.04/year)
+beta_h: 0.0000274  # Transmission rate from carcasses to humans (per day, original: 0.01/year)
+beta_I: 0.0       # Human-to-human transmission rate (not in original)
+m_h: 0.07123      # Plague resolution rate in humans (per day, original: 26/year)
+g_h: 0.1          # Probability human survives infection
 
 # Spatial parameters
-mu_r: 0.03   # Rat movement rate (per year)
-mu_f: 0.008  # Flea movement rate (per year)
-
-# Seasonal parameters
-seasonal_amplitude: 0.2  # Default seasonality (not specified in original paper)
-
+mu_r: 0.0000822  # Rat movement rate (per day, original: 0.03/year)
 
 # Notes
 notes: |
-  These are the original parameters from the seminal Keeling & Gilligan (2000)
-  Nature paper that established the mathematical framework for plague modeling.
-  The paper focused on metapopulation dynamics and spatial spread patterns.
+  These are adapted from the seminal Keeling & Gilligan (2000)
+  Nature paper. The original model used explicit flea dynamics
+  (states F and N with parameters a, K_f, d_f, r_f). These have
+  been mapped to the carcass-based formulation.
+
+  Original flea parameters (for reference):
+    a = 0.004    (flea search efficiency)
+    K_f = 6.57   (flea carrying capacity per rat)
+    r_f = 20.0   (flea reproduction rate, per year)
+    d_f = 10.0   (death rate of free fleas, per year)
+    mu_f = 0.008 (flea movement rate, per year)
+
+  Original per-year rates (for reference):
+    r_r = 5.0, d_r = 0.2, beta_r = 4.7, m_r = 20.0,
+    delta_R = 10.0, r_h = 0.045, d_h = 0.04, beta_h = 0.01,
+    m_h = 26.0, mu_r = 0.03
+
+  All rates in this file have been converted to per-day.

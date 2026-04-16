@@ -3,13 +3,13 @@
 
 #' Plot phase portrait (S vs I)
 #' @param results plague_results object
-#' @param compartments Vector of two compartments to plot (default c("S_r", "I_r"))
+#' @param compartments Vector of two compartments to plot (default c("S", "I"))
 #' @param population Which population to plot (for spatial models, default 1)
 #' @param replicate Which replicate to plot (for stochastic models, default 1)
 #' @param ... Additional ggplot2 arguments
 #' @return ggplot2 object
 #' @export
-plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"), 
+plot_phase_portrait <- function(results, compartments = c("S", "I"),
                                population = 1, replicate = 1, ...) {
   check_plague_results(results)
   
@@ -48,124 +48,10 @@ plot_phase_portrait <- function(results, compartments = c("S_r", "I_r"),
   return(p)
 }
 
-#' Plot spatial heatmap for a single time point
-#' @param results plague_results object (must be spatial)
-#' @param time_point Time point to plot
-#' @param compartment Compartment to plot (default "I")
-#' @param replicate Which replicate to plot (default 1)
-#' @param n_rows Number of rows in spatial grid (default 5)
-#' @param n_cols Number of columns in spatial grid (default 5)
-#' @return ggplot2 object
-#' @export
-plot_spatial_heatmap <- function(results, time_point, compartment = "I", 
-                                replicate = 1, n_rows = 5, n_cols = 5) {
-  check_plague_results(results)
-  
-  check_ggplot2()
-  
-  # Check if spatial
-  check_spatial_model(results)
-  
-  # Find closest time point
-  available_times <- unique(results$time)
-  closest_time <- available_times[which.min(abs(available_times - time_point))]
-  
-  # Prepare spatial data
-  spatial_data <- results |>
-    dplyr::filter(
-      time == closest_time,
-      .data$compartment == .env$compartment,
-      .data$replicate == .env$replicate
-    ) |>
-    dplyr::mutate(
-      row = ceiling(population / n_cols),
-      col = ((population - 1) %% n_cols) + 1
-    )
-  
-  # Create heatmap
-  p <- spatial_data |>
-    ggplot2::ggplot(ggplot2::aes(col, row, fill = value)) +
-    ggplot2::geom_tile() +
-    ggplot2::scale_fill_viridis_c(option = "plasma", name = compartment) +
-    ggplot2::scale_y_reverse() +  # Flip y-axis to match grid layout
-    ggplot2::coord_fixed() +
-    ggplot2::labs(
-      title = paste("Spatial Distribution:", compartment),
-      subtitle = paste("Time =", round(closest_time, 2), "- Replicate", replicate),
-      x = "Column",
-      y = "Row"
-    ) +
-    ggplot2::theme_minimal() +
-    ggplot2::theme(
-      panel.grid = ggplot2::element_blank(),
-      axis.ticks = ggplot2::element_blank()
-    )
-  
-  return(p)
-}
-
-#' Create animated spatial plot over time
-#' @param results plague_results object (must be spatial)  
-#' @param compartment Compartment to animate (default "I")
-#' @param replicate Which replicate to plot (default 1)
-#' @param n_rows Number of rows in spatial grid (default 5)
-#' @param n_cols Number of columns in spatial grid (default 5)
-#' @param time_points Vector of time points to include (NULL for all)
-#' @return gganimate object
-#' @export
-animate_spatial_spread <- function(results, compartment = "I", replicate = 1,
-                                  n_rows = 5, n_cols = 5, time_points = NULL) {
-  check_plague_results(results)
-  
-  check_ggplot2()
-  
-  check_gganimate()
-  
-  # Check if spatial
-  check_spatial_model(results)
-  
-  # Select time points
-  if (is.null(time_points)) {
-    # Use every 5th time point to keep animation manageable
-    all_times <- sort(unique(results$time))
-    time_points <- all_times[seq(1, length(all_times), by = 5)]
-  }
-  
-  # Prepare animation data
-  anim_data <- results |>
-    dplyr::filter(
-      time %in% time_points,
-      .data$compartment == .env$compartment,
-      .data$replicate == .env$replicate
-    ) |>
-    dplyr::mutate(
-      row = ceiling(population / n_cols),
-      col = ((population - 1) %% n_cols) + 1
-    )
-  
-  # Create animated plot
-  p <- anim_data |>
-    ggplot2::ggplot(ggplot2::aes(col, row, fill = value)) +
-    ggplot2::geom_tile() +
-    ggplot2::scale_fill_viridis_c(option = "plasma", name = compartment) +
-    ggplot2::scale_y_reverse() +
-    ggplot2::coord_fixed() +
-    ggplot2::labs(
-      title = paste("Spatial Spread of", compartment),
-      subtitle = "Time: {closest_state}",
-      x = "Column", 
-      y = "Row"
-    ) +
-    ggplot2::theme_minimal() +
-    ggplot2::theme(
-      panel.grid = ggplot2::element_blank(),
-      axis.ticks = ggplot2::element_blank()
-    ) +
-    gganimate::transition_states(time) +
-    gganimate::ease_aes('linear')
-  
-  return(p)
-}
+# Spatial visualization (plot_spatial_heatmap, animate_spatial_spread) moved
+# to archive/spatial_helpers.R in April 2026 alongside the retirement of the
+# spatial plague model. Resurrect from there when the spatial+humans odin2
+# model is written.
 
 #' Plot compartment dynamics with uncertainty bands
 #' @param results plague_results object
@@ -255,11 +141,11 @@ plot_dynamics <- function(results, compartments = NULL, population = 1,
 
 #' Plot parameter sensitivity results
 #' @param sensitivity_results Output from run_sensitivity_analysis
-#' @param compartment Compartment to plot (default "I_r")
+#' @param compartment Compartment to plot (default "I")
 #' @param metric Summary metric to plot ("peak", "final", "auc")
 #' @return ggplot2 object  
 #' @export
-plot_sensitivity <- function(sensitivity_results, compartment = "I_r", metric = "peak") {
+plot_sensitivity <- function(sensitivity_results, compartment = "I", metric = "peak") {
   check_ggplot2()
   
   # Calculate summary metric

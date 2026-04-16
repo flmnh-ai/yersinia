@@ -5,351 +5,225 @@
 #include "cpp11/declarations.hpp"
 #include <R_ext/Visibility.h>
 
-// plague_stochastic.cpp
-cpp11::sexp dust_plague_stochastic_gpu_info();
-extern "C" SEXP _yersinia_dust_plague_stochastic_gpu_info() {
+// plague_stochastic_humans.cpp
+SEXP dust2_system_plague_stochastic_humans_alloc(cpp11::list r_pars, cpp11::sexp r_time, cpp11::list r_time_control, cpp11::sexp r_n_particles, cpp11::sexp r_n_groups, cpp11::sexp r_seed, cpp11::sexp r_deterministic, cpp11::sexp r_n_threads);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_alloc(SEXP r_pars, SEXP r_time, SEXP r_time_control, SEXP r_n_particles, SEXP r_n_groups, SEXP r_seed, SEXP r_deterministic, SEXP r_n_threads) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_plague_stochastic_gpu_info());
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_alloc(cpp11::list r_pars, bool pars_multi, cpp11::sexp r_time, cpp11::sexp r_n_particles, int n_threads, cpp11::sexp r_seed, bool deterministic, cpp11::sexp gpu_config, cpp11::sexp ode_control);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_alloc(SEXP r_pars, SEXP pars_multi, SEXP r_time, SEXP r_n_particles, SEXP n_threads, SEXP r_seed, SEXP deterministic, SEXP gpu_config, SEXP ode_control) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_alloc(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_pars), cpp11::as_cpp<cpp11::decay_t<bool>>(pars_multi), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_particles), cpp11::as_cpp<cpp11::decay_t<int>>(n_threads), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_seed), cpp11::as_cpp<cpp11::decay_t<bool>>(deterministic), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(gpu_config), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ode_control)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-cpp11::sexp dust_cpu_plague_stochastic_capabilities();
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_capabilities() {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_capabilities());
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_run(SEXP ptr, cpp11::sexp r_time_end);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_run(SEXP ptr, SEXP r_time_end) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_run(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time_end)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_simulate(SEXP ptr, cpp11::sexp time_end);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_simulate(SEXP ptr, SEXP time_end) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_simulate(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(time_end)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_run_adjoint(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_run_adjoint(SEXP ptr) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_run_adjoint(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_set_index(SEXP ptr, cpp11::sexp r_index);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_set_index(SEXP ptr, SEXP r_index) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_set_index(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_update_state(SEXP ptr, SEXP r_pars, SEXP r_state, SEXP r_time, SEXP r_set_initial_state, SEXP index, SEXP reset_step_size);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_update_state(SEXP ptr, SEXP r_pars, SEXP r_state, SEXP r_time, SEXP r_set_initial_state, SEXP index, SEXP reset_step_size) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_update_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_pars), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_state), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_time), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_set_initial_state), cpp11::as_cpp<cpp11::decay_t<SEXP>>(index), cpp11::as_cpp<cpp11::decay_t<SEXP>>(reset_step_size)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_state(SEXP ptr, SEXP r_index);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_state(SEXP ptr, SEXP r_index) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_index)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_time(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_time(SEXP ptr) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_time(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-void dust_cpu_plague_stochastic_reorder(SEXP ptr, cpp11::sexp r_index);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_reorder(SEXP ptr, SEXP r_index) {
-  BEGIN_CPP11
-    dust_cpu_plague_stochastic_reorder(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index));
-    return R_NilValue;
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_resample(SEXP ptr, cpp11::doubles r_weights);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_resample(SEXP ptr, SEXP r_weights) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_resample(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(r_weights)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_rng_state(SEXP ptr, bool first_only, bool last_only);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_rng_state(SEXP ptr, SEXP first_only, SEXP last_only) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_rng_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<bool>>(first_only), cpp11::as_cpp<cpp11::decay_t<bool>>(last_only)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_set_rng_state(SEXP ptr, cpp11::raws rng_state);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_set_rng_state(SEXP ptr, SEXP rng_state) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_set_rng_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::raws>>(rng_state)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_set_data(SEXP ptr, cpp11::list data, bool shared);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_set_data(SEXP ptr, SEXP data, SEXP shared) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_set_data(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(data), cpp11::as_cpp<cpp11::decay_t<bool>>(shared)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_compare_data(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_compare_data(SEXP ptr) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_compare_data(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_filter(SEXP ptr, SEXP time_end, bool save_trajectories, cpp11::sexp time_snapshot, cpp11::sexp min_log_likelihood);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_filter(SEXP ptr, SEXP time_end, SEXP save_trajectories, SEXP time_snapshot, SEXP min_log_likelihood) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_filter(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<SEXP>>(time_end), cpp11::as_cpp<cpp11::decay_t<bool>>(save_trajectories), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(time_snapshot), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(min_log_likelihood)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-void dust_cpu_plague_stochastic_set_n_threads(SEXP ptr, int n_threads);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_set_n_threads(SEXP ptr, SEXP n_threads) {
-  BEGIN_CPP11
-    dust_cpu_plague_stochastic_set_n_threads(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<int>>(n_threads));
-    return R_NilValue;
-  END_CPP11
-}
-// plague_stochastic.cpp
-int dust_cpu_plague_stochastic_n_state(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_n_state(SEXP ptr) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_n_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
-  END_CPP11
-}
-// plague_stochastic.cpp
-void dust_cpu_plague_stochastic_set_stochastic_schedule(SEXP ptr, SEXP time);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_set_stochastic_schedule(SEXP ptr, SEXP time) {
-  BEGIN_CPP11
-    dust_cpu_plague_stochastic_set_stochastic_schedule(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<SEXP>>(time));
-    return R_NilValue;
-  END_CPP11
-}
-// plague_stochastic.cpp
-SEXP dust_cpu_plague_stochastic_ode_statistics(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_ode_statistics(SEXP ptr) {
-  BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_ode_statistics(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_alloc(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_pars), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_time_control), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_particles), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_groups), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_seed), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_deterministic), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_threads)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-cpp11::sexp dust_plague_stochastic_humans_gpu_info();
-extern "C" SEXP _yersinia_dust_plague_stochastic_humans_gpu_info() {
+SEXP dust2_system_plague_stochastic_humans_run_to_time(cpp11::sexp ptr, cpp11::sexp r_time);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_run_to_time(SEXP ptr, SEXP r_time) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_plague_stochastic_humans_gpu_info());
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_run_to_time(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_alloc(cpp11::list r_pars, bool pars_multi, cpp11::sexp r_time, cpp11::sexp r_n_particles, int n_threads, cpp11::sexp r_seed, bool deterministic, cpp11::sexp gpu_config, cpp11::sexp ode_control);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_alloc(SEXP r_pars, SEXP pars_multi, SEXP r_time, SEXP r_n_particles, SEXP n_threads, SEXP r_seed, SEXP deterministic, SEXP gpu_config, SEXP ode_control) {
+SEXP dust2_system_plague_stochastic_humans_state(cpp11::sexp ptr, cpp11::sexp r_index_state, cpp11::sexp r_index_particle, cpp11::sexp r_index_group, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_state(SEXP ptr, SEXP r_index_state, SEXP r_index_particle, SEXP r_index_group, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_alloc(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_pars), cpp11::as_cpp<cpp11::decay_t<bool>>(pars_multi), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_particles), cpp11::as_cpp<cpp11::decay_t<int>>(n_threads), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_seed), cpp11::as_cpp<cpp11::decay_t<bool>>(deterministic), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(gpu_config), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ode_control)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_state(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index_state), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index_particle), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index_group), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-cpp11::sexp dust_cpu_plague_stochastic_humans_capabilities();
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_capabilities() {
+SEXP dust2_system_plague_stochastic_humans_time(cpp11::sexp ptr);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_time(SEXP ptr) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_capabilities());
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_time(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_run(SEXP ptr, cpp11::sexp r_time_end);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_run(SEXP ptr, SEXP r_time_end) {
+SEXP dust2_system_plague_stochastic_humans_set_state_initial(cpp11::sexp ptr);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_set_state_initial(SEXP ptr) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_run(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time_end)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_set_state_initial(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_simulate(SEXP ptr, cpp11::sexp time_end);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_simulate(SEXP ptr, SEXP time_end) {
+SEXP dust2_system_plague_stochastic_humans_set_state(cpp11::sexp ptr, cpp11::list r_state);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_set_state(SEXP ptr, SEXP r_state) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_simulate(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(time_end)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_set_state(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_state)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_run_adjoint(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_run_adjoint(SEXP ptr) {
+SEXP dust2_system_plague_stochastic_humans_reorder(cpp11::sexp ptr, cpp11::integers r_index);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_reorder(SEXP ptr, SEXP r_index) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_run_adjoint(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_reorder(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::integers>>(r_index)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_set_index(SEXP ptr, cpp11::sexp r_index);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_set_index(SEXP ptr, SEXP r_index) {
+SEXP dust2_system_plague_stochastic_humans_rng_state(cpp11::sexp ptr);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_rng_state(SEXP ptr) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_set_index(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_rng_state(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_update_state(SEXP ptr, SEXP r_pars, SEXP r_state, SEXP r_time, SEXP r_set_initial_state, SEXP index, SEXP reset_step_size);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_update_state(SEXP ptr, SEXP r_pars, SEXP r_state, SEXP r_time, SEXP r_set_initial_state, SEXP index, SEXP reset_step_size) {
+SEXP dust2_system_plague_stochastic_humans_set_rng_state(cpp11::sexp ptr, cpp11::sexp r_rng_state);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_set_rng_state(SEXP ptr, SEXP r_rng_state) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_update_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_pars), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_state), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_time), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_set_initial_state), cpp11::as_cpp<cpp11::decay_t<SEXP>>(index), cpp11::as_cpp<cpp11::decay_t<SEXP>>(reset_step_size)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_set_rng_state(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_rng_state)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_state(SEXP ptr, SEXP r_index);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_state(SEXP ptr, SEXP r_index) {
+SEXP dust2_system_plague_stochastic_humans_set_time(cpp11::sexp ptr, cpp11::sexp r_time);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_set_time(SEXP ptr, SEXP r_time) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<SEXP>>(r_index)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_set_time(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_time(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_time(SEXP ptr) {
+SEXP dust2_system_plague_stochastic_humans_update_pars(cpp11::sexp ptr, cpp11::list pars);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_update_pars(SEXP ptr, SEXP pars) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_time(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_update_pars(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(pars)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-void dust_cpu_plague_stochastic_humans_reorder(SEXP ptr, cpp11::sexp r_index);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_reorder(SEXP ptr, SEXP r_index) {
+SEXP dust2_system_plague_stochastic_humans_simulate(cpp11::sexp ptr, cpp11::sexp r_times, cpp11::sexp r_index_state, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_simulate(SEXP ptr, SEXP r_times, SEXP r_index_state, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
   BEGIN_CPP11
-    dust_cpu_plague_stochastic_humans_reorder(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index));
-    return R_NilValue;
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_simulate(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_times), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index_state), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_resample(SEXP ptr, cpp11::doubles r_weights);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_resample(SEXP ptr, SEXP r_weights) {
+SEXP dust2_unfilter_plague_stochastic_humans_alloc(cpp11::list r_pars, cpp11::sexp r_time_start, cpp11::sexp r_time, cpp11::list r_time_control, cpp11::list r_data, cpp11::sexp r_n_particles, cpp11::sexp r_n_groups, cpp11::sexp r_n_threads);
+extern "C" SEXP _yersinia_dust2_unfilter_plague_stochastic_humans_alloc(SEXP r_pars, SEXP r_time_start, SEXP r_time, SEXP r_time_control, SEXP r_data, SEXP r_n_particles, SEXP r_n_groups, SEXP r_n_threads) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_resample(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::doubles>>(r_weights)));
+    return cpp11::as_sexp(dust2_unfilter_plague_stochastic_humans_alloc(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_pars), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time_start), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_time_control), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_data), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_particles), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_groups), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_threads)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_rng_state(SEXP ptr, bool first_only, bool last_only);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_rng_state(SEXP ptr, SEXP first_only, SEXP last_only) {
+SEXP dust2_filter_plague_stochastic_humans_alloc(cpp11::list r_pars, cpp11::sexp r_time_start, cpp11::sexp r_time, cpp11::list r_time_control, cpp11::list r_data, cpp11::sexp r_n_particles, cpp11::sexp r_n_groups, cpp11::sexp r_n_threads, cpp11::sexp r_seed);
+extern "C" SEXP _yersinia_dust2_filter_plague_stochastic_humans_alloc(SEXP r_pars, SEXP r_time_start, SEXP r_time, SEXP r_time_control, SEXP r_data, SEXP r_n_particles, SEXP r_n_groups, SEXP r_n_threads, SEXP r_seed) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_rng_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<bool>>(first_only), cpp11::as_cpp<cpp11::decay_t<bool>>(last_only)));
+    return cpp11::as_sexp(dust2_filter_plague_stochastic_humans_alloc(cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_pars), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time_start), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_time), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_time_control), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_data), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_particles), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_groups), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_n_threads), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_seed)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_set_rng_state(SEXP ptr, cpp11::raws rng_state);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_set_rng_state(SEXP ptr, SEXP rng_state) {
+SEXP dust2_system_plague_stochastic_humans_compare_data(cpp11::sexp ptr, cpp11::list r_data, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_system_plague_stochastic_humans_compare_data(SEXP ptr, SEXP r_data, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_set_rng_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::raws>>(rng_state)));
+    return cpp11::as_sexp(dust2_system_plague_stochastic_humans_compare_data(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_data), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_set_data(SEXP ptr, cpp11::list data, bool shared);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_set_data(SEXP ptr, SEXP data, SEXP shared) {
+SEXP dust2_unfilter_plague_stochastic_humans_update_pars(cpp11::sexp ptr, cpp11::list r_pars, cpp11::sexp r_index_group);
+extern "C" SEXP _yersinia_dust2_unfilter_plague_stochastic_humans_update_pars(SEXP ptr, SEXP r_pars, SEXP r_index_group) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_set_data(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(data), cpp11::as_cpp<cpp11::decay_t<bool>>(shared)));
+    return cpp11::as_sexp(dust2_unfilter_plague_stochastic_humans_update_pars(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_pars), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index_group)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_compare_data(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_compare_data(SEXP ptr) {
+SEXP dust2_unfilter_plague_stochastic_humans_run(cpp11::sexp ptr, cpp11::sexp r_initial, bool save_trajectories, cpp11::sexp save_snapshots, bool adjoint, cpp11::sexp r_index_state, cpp11::sexp r_index_group, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_unfilter_plague_stochastic_humans_run(SEXP ptr, SEXP r_initial, SEXP save_trajectories, SEXP save_snapshots, SEXP adjoint, SEXP r_index_state, SEXP r_index_group, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_compare_data(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
+    return cpp11::as_sexp(dust2_unfilter_plague_stochastic_humans_run(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_initial), cpp11::as_cpp<cpp11::decay_t<bool>>(save_trajectories), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(save_snapshots), cpp11::as_cpp<cpp11::decay_t<bool>>(adjoint), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index_state), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index_group), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_filter(SEXP ptr, SEXP time_end, bool save_trajectories, cpp11::sexp time_snapshot, cpp11::sexp min_log_likelihood);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_filter(SEXP ptr, SEXP time_end, SEXP save_trajectories, SEXP time_snapshot, SEXP min_log_likelihood) {
+SEXP dust2_unfilter_plague_stochastic_humans_last_trajectories(cpp11::sexp ptr, bool select_random_particle, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_unfilter_plague_stochastic_humans_last_trajectories(SEXP ptr, SEXP select_random_particle, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_filter(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<SEXP>>(time_end), cpp11::as_cpp<cpp11::decay_t<bool>>(save_trajectories), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(time_snapshot), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(min_log_likelihood)));
+    return cpp11::as_sexp(dust2_unfilter_plague_stochastic_humans_last_trajectories(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<bool>>(select_random_particle), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-void dust_cpu_plague_stochastic_humans_set_n_threads(SEXP ptr, int n_threads);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_set_n_threads(SEXP ptr, SEXP n_threads) {
+SEXP dust2_unfilter_plague_stochastic_humans_last_snapshots(cpp11::sexp ptr, bool select_random_particle, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_unfilter_plague_stochastic_humans_last_snapshots(SEXP ptr, SEXP select_random_particle, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
   BEGIN_CPP11
-    dust_cpu_plague_stochastic_humans_set_n_threads(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<int>>(n_threads));
-    return R_NilValue;
+    return cpp11::as_sexp(dust2_unfilter_plague_stochastic_humans_last_snapshots(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<bool>>(select_random_particle), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-int dust_cpu_plague_stochastic_humans_n_state(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_n_state(SEXP ptr) {
+SEXP dust2_unfilter_plague_stochastic_humans_last_state(cpp11::sexp ptr, bool select_random_particle, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_unfilter_plague_stochastic_humans_last_state(SEXP ptr, SEXP select_random_particle, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_n_state(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
+    return cpp11::as_sexp(dust2_unfilter_plague_stochastic_humans_last_state(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<bool>>(select_random_particle), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-void dust_cpu_plague_stochastic_humans_set_stochastic_schedule(SEXP ptr, SEXP time);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_set_stochastic_schedule(SEXP ptr, SEXP time) {
+SEXP dust2_filter_plague_stochastic_humans_update_pars(cpp11::sexp ptr, cpp11::list r_pars, cpp11::sexp r_index_group);
+extern "C" SEXP _yersinia_dust2_filter_plague_stochastic_humans_update_pars(SEXP ptr, SEXP r_pars, SEXP r_index_group) {
   BEGIN_CPP11
-    dust_cpu_plague_stochastic_humans_set_stochastic_schedule(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr), cpp11::as_cpp<cpp11::decay_t<SEXP>>(time));
-    return R_NilValue;
+    return cpp11::as_sexp(dust2_filter_plague_stochastic_humans_update_pars(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::list>>(r_pars), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_index_group)));
   END_CPP11
 }
 // plague_stochastic_humans.cpp
-SEXP dust_cpu_plague_stochastic_humans_ode_statistics(SEXP ptr);
-extern "C" SEXP _yersinia_dust_cpu_plague_stochastic_humans_ode_statistics(SEXP ptr) {
+SEXP dust2_filter_plague_stochastic_humans_run(cpp11::sexp ptr, cpp11::sexp r_initial, bool save_trajectories, cpp11::sexp save_snapshots, bool adjoint, cpp11::sexp index_state, cpp11::sexp index_group, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_filter_plague_stochastic_humans_run(SEXP ptr, SEXP r_initial, SEXP save_trajectories, SEXP save_snapshots, SEXP adjoint, SEXP index_state, SEXP index_group, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
   BEGIN_CPP11
-    return cpp11::as_sexp(dust_cpu_plague_stochastic_humans_ode_statistics(cpp11::as_cpp<cpp11::decay_t<SEXP>>(ptr)));
+    return cpp11::as_sexp(dust2_filter_plague_stochastic_humans_run(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_initial), cpp11::as_cpp<cpp11::decay_t<bool>>(save_trajectories), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(save_snapshots), cpp11::as_cpp<cpp11::decay_t<bool>>(adjoint), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(index_state), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(index_group), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
+  END_CPP11
+}
+// plague_stochastic_humans.cpp
+SEXP dust2_filter_plague_stochastic_humans_last_trajectories(cpp11::sexp ptr, bool select_random_particle, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_filter_plague_stochastic_humans_last_trajectories(SEXP ptr, SEXP select_random_particle, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(dust2_filter_plague_stochastic_humans_last_trajectories(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<bool>>(select_random_particle), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
+  END_CPP11
+}
+// plague_stochastic_humans.cpp
+SEXP dust2_filter_plague_stochastic_humans_last_snapshots(cpp11::sexp ptr, bool select_random_particle, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_filter_plague_stochastic_humans_last_snapshots(SEXP ptr, SEXP select_random_particle, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(dust2_filter_plague_stochastic_humans_last_snapshots(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<bool>>(select_random_particle), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
+  END_CPP11
+}
+// plague_stochastic_humans.cpp
+SEXP dust2_filter_plague_stochastic_humans_last_state(cpp11::sexp ptr, bool select_random_particle, bool preserve_particle_dimension, bool preserve_group_dimension);
+extern "C" SEXP _yersinia_dust2_filter_plague_stochastic_humans_last_state(SEXP ptr, SEXP select_random_particle, SEXP preserve_particle_dimension, SEXP preserve_group_dimension) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(dust2_filter_plague_stochastic_humans_last_state(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<bool>>(select_random_particle), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_particle_dimension), cpp11::as_cpp<cpp11::decay_t<bool>>(preserve_group_dimension)));
+  END_CPP11
+}
+// plague_stochastic_humans.cpp
+SEXP dust2_filter_plague_stochastic_humans_rng_state(cpp11::sexp ptr);
+extern "C" SEXP _yersinia_dust2_filter_plague_stochastic_humans_rng_state(SEXP ptr) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(dust2_filter_plague_stochastic_humans_rng_state(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr)));
+  END_CPP11
+}
+// plague_stochastic_humans.cpp
+SEXP dust2_filter_plague_stochastic_humans_set_rng_state(cpp11::sexp ptr, cpp11::sexp r_rng_state);
+extern "C" SEXP _yersinia_dust2_filter_plague_stochastic_humans_set_rng_state(SEXP ptr, SEXP r_rng_state) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(dust2_filter_plague_stochastic_humans_set_rng_state(cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(ptr), cpp11::as_cpp<cpp11::decay_t<cpp11::sexp>>(r_rng_state)));
   END_CPP11
 }
 
 extern "C" {
 static const R_CallMethodDef CallEntries[] = {
-    {"_yersinia_dust_cpu_plague_stochastic_alloc",                          (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_alloc,                          9},
-    {"_yersinia_dust_cpu_plague_stochastic_capabilities",                   (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_capabilities,                   0},
-    {"_yersinia_dust_cpu_plague_stochastic_compare_data",                   (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_compare_data,                   1},
-    {"_yersinia_dust_cpu_plague_stochastic_filter",                         (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_filter,                         5},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_alloc",                   (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_alloc,                   9},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_capabilities",            (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_capabilities,            0},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_compare_data",            (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_compare_data,            1},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_filter",                  (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_filter,                  5},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_n_state",                 (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_n_state,                 1},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_ode_statistics",          (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_ode_statistics,          1},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_reorder",                 (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_reorder,                 2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_resample",                (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_resample,                2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_rng_state",               (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_rng_state,               3},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_run",                     (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_run,                     2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_run_adjoint",             (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_run_adjoint,             1},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_set_data",                (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_set_data,                3},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_set_index",               (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_set_index,               2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_set_n_threads",           (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_set_n_threads,           2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_set_rng_state",           (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_set_rng_state,           2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_set_stochastic_schedule", (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_set_stochastic_schedule, 2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_simulate",                (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_simulate,                2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_state",                   (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_state,                   2},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_time",                    (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_time,                    1},
-    {"_yersinia_dust_cpu_plague_stochastic_humans_update_state",            (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_humans_update_state,            7},
-    {"_yersinia_dust_cpu_plague_stochastic_n_state",                        (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_n_state,                        1},
-    {"_yersinia_dust_cpu_plague_stochastic_ode_statistics",                 (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_ode_statistics,                 1},
-    {"_yersinia_dust_cpu_plague_stochastic_reorder",                        (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_reorder,                        2},
-    {"_yersinia_dust_cpu_plague_stochastic_resample",                       (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_resample,                       2},
-    {"_yersinia_dust_cpu_plague_stochastic_rng_state",                      (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_rng_state,                      3},
-    {"_yersinia_dust_cpu_plague_stochastic_run",                            (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_run,                            2},
-    {"_yersinia_dust_cpu_plague_stochastic_run_adjoint",                    (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_run_adjoint,                    1},
-    {"_yersinia_dust_cpu_plague_stochastic_set_data",                       (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_set_data,                       3},
-    {"_yersinia_dust_cpu_plague_stochastic_set_index",                      (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_set_index,                      2},
-    {"_yersinia_dust_cpu_plague_stochastic_set_n_threads",                  (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_set_n_threads,                  2},
-    {"_yersinia_dust_cpu_plague_stochastic_set_rng_state",                  (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_set_rng_state,                  2},
-    {"_yersinia_dust_cpu_plague_stochastic_set_stochastic_schedule",        (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_set_stochastic_schedule,        2},
-    {"_yersinia_dust_cpu_plague_stochastic_simulate",                       (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_simulate,                       2},
-    {"_yersinia_dust_cpu_plague_stochastic_state",                          (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_state,                          2},
-    {"_yersinia_dust_cpu_plague_stochastic_time",                           (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_time,                           1},
-    {"_yersinia_dust_cpu_plague_stochastic_update_state",                   (DL_FUNC) &_yersinia_dust_cpu_plague_stochastic_update_state,                   7},
-    {"_yersinia_dust_plague_stochastic_gpu_info",                           (DL_FUNC) &_yersinia_dust_plague_stochastic_gpu_info,                           0},
-    {"_yersinia_dust_plague_stochastic_humans_gpu_info",                    (DL_FUNC) &_yersinia_dust_plague_stochastic_humans_gpu_info,                    0},
+    {"_yersinia_dust2_filter_plague_stochastic_humans_alloc",               (DL_FUNC) &_yersinia_dust2_filter_plague_stochastic_humans_alloc,               9},
+    {"_yersinia_dust2_filter_plague_stochastic_humans_last_snapshots",      (DL_FUNC) &_yersinia_dust2_filter_plague_stochastic_humans_last_snapshots,      4},
+    {"_yersinia_dust2_filter_plague_stochastic_humans_last_state",          (DL_FUNC) &_yersinia_dust2_filter_plague_stochastic_humans_last_state,          4},
+    {"_yersinia_dust2_filter_plague_stochastic_humans_last_trajectories",   (DL_FUNC) &_yersinia_dust2_filter_plague_stochastic_humans_last_trajectories,   4},
+    {"_yersinia_dust2_filter_plague_stochastic_humans_rng_state",           (DL_FUNC) &_yersinia_dust2_filter_plague_stochastic_humans_rng_state,           1},
+    {"_yersinia_dust2_filter_plague_stochastic_humans_run",                 (DL_FUNC) &_yersinia_dust2_filter_plague_stochastic_humans_run,                 9},
+    {"_yersinia_dust2_filter_plague_stochastic_humans_set_rng_state",       (DL_FUNC) &_yersinia_dust2_filter_plague_stochastic_humans_set_rng_state,       2},
+    {"_yersinia_dust2_filter_plague_stochastic_humans_update_pars",         (DL_FUNC) &_yersinia_dust2_filter_plague_stochastic_humans_update_pars,         3},
+    {"_yersinia_dust2_system_plague_stochastic_humans_alloc",               (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_alloc,               8},
+    {"_yersinia_dust2_system_plague_stochastic_humans_compare_data",        (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_compare_data,        4},
+    {"_yersinia_dust2_system_plague_stochastic_humans_reorder",             (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_reorder,             2},
+    {"_yersinia_dust2_system_plague_stochastic_humans_rng_state",           (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_rng_state,           1},
+    {"_yersinia_dust2_system_plague_stochastic_humans_run_to_time",         (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_run_to_time,         2},
+    {"_yersinia_dust2_system_plague_stochastic_humans_set_rng_state",       (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_set_rng_state,       2},
+    {"_yersinia_dust2_system_plague_stochastic_humans_set_state",           (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_set_state,           2},
+    {"_yersinia_dust2_system_plague_stochastic_humans_set_state_initial",   (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_set_state_initial,   1},
+    {"_yersinia_dust2_system_plague_stochastic_humans_set_time",            (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_set_time,            2},
+    {"_yersinia_dust2_system_plague_stochastic_humans_simulate",            (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_simulate,            5},
+    {"_yersinia_dust2_system_plague_stochastic_humans_state",               (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_state,               6},
+    {"_yersinia_dust2_system_plague_stochastic_humans_time",                (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_time,                1},
+    {"_yersinia_dust2_system_plague_stochastic_humans_update_pars",         (DL_FUNC) &_yersinia_dust2_system_plague_stochastic_humans_update_pars,         2},
+    {"_yersinia_dust2_unfilter_plague_stochastic_humans_alloc",             (DL_FUNC) &_yersinia_dust2_unfilter_plague_stochastic_humans_alloc,             8},
+    {"_yersinia_dust2_unfilter_plague_stochastic_humans_last_snapshots",    (DL_FUNC) &_yersinia_dust2_unfilter_plague_stochastic_humans_last_snapshots,    4},
+    {"_yersinia_dust2_unfilter_plague_stochastic_humans_last_state",        (DL_FUNC) &_yersinia_dust2_unfilter_plague_stochastic_humans_last_state,        4},
+    {"_yersinia_dust2_unfilter_plague_stochastic_humans_last_trajectories", (DL_FUNC) &_yersinia_dust2_unfilter_plague_stochastic_humans_last_trajectories, 4},
+    {"_yersinia_dust2_unfilter_plague_stochastic_humans_run",               (DL_FUNC) &_yersinia_dust2_unfilter_plague_stochastic_humans_run,               9},
+    {"_yersinia_dust2_unfilter_plague_stochastic_humans_update_pars",       (DL_FUNC) &_yersinia_dust2_unfilter_plague_stochastic_humans_update_pars,       3},
     {NULL, NULL, 0}
 };
 }

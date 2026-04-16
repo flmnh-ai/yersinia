@@ -1,39 +1,33 @@
 # Default plague model scenario
-# Baseline biological/disease parameters
+# Baseline biological/disease parameters using carcass-based transmission
+# ALL rates are per day.
 
 # Metadata
 name: "defaults"
-description: "Default biological parameters for plague models"
-source: "Package defaults"
+description: "Default biological parameters for plague models (carcass formulation)"
+source: "Package defaults based on Keeling & Gilligan (2000) and Didelot et al. (2017)"
 reference: "Plague modeling package"
+time_unit: "day"
 
 # Rat population parameters
-r_r: 5.0     # Rat population growth rate (per year)
-p: 0.6     # Probability of inherited resistance
-d_r: 0.2     # Natural death rate of rats (per year)
+r_r: 0.01370     # Rat population growth rate (per day, = 5/365)
+p: 0.975         # Probability of inherited resistance
+d_r: 0.000548    # Natural death rate of rats (per day, = 0.2/365)
 
 # Disease transmission parameters
-beta_r: 4.7  # Rat infection rate from fleas (per year)
-a: 0.004     # Flea search efficiency
-m_r: 20.0    # Infected rat mortality rate (per year)
-g_r: 0.02    # Probability rat survives infection
-
-# Flea population parameters
-r_f: 20.0    # Flea reproduction rate (per year)
-K_f: 4    # Flea carrying capacity per rat
-d_f: 10.0    # Death rate of free fleas (per year)
+beta_r: 0.77     # Transmission rate from carcasses to rats (per day)
+rho: 2.63        # Rat carcass infectivity range (dimensionless)
+m_r: 0.056       # Plague resolution rate in rats (per day, ~1/18 days)
+g_r: 0.02        # Probability rat survives infection
+delta_R: 0.267   # Carcass decay rate (per day, ~3.7 day infectious period)
 
 # Human population parameters (when applicable)
-r_h: 0.045   # Human population growth rate (per year)
-d_h: 0.04    # Natural death rate of humans (per year)
-beta_h: 0.01 # Human infection rate from fleas
-m_h: 26      # Infected human recovery rate (per year)
-g_h: 0.1     # Probability human survives infection
+r_h: 0.000123    # Human population growth rate (per day, = 0.045/365)
+d_h: 0.000110    # Natural death rate of humans (per day, = 0.04/365)
+beta_h: 0.0145   # Transmission rate from carcasses to humans (per day)
+beta_I: 0.0      # Human-to-human transmission rate (per day)
+m_h: 0.125       # Plague resolution rate in humans (per day, ~1/8 days)
+g_h: 0.1         # Probability human survives infection
 
 # Spatial parameters
-mu_r: 0.03   # Rat movement rate (per year)
-mu_f: 0.008  # Flea movement rate (per year)
-
-# Seasonal parameters
-seasonal_amplitude: 0.2  # Amplitude of seasonal forcing (0 = no seasonality, 1 = strong seasonality)
-
+mu_r: 0.0000822  # Rat movement rate (per day, = 0.03/365)

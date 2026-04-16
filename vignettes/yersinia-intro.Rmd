@@ -28,14 +28,13 @@ knitr::opts_chunk$set(
 
 # Overview
 
-The `yersinia` package provides a comprehensive toolkit for modeling plague transmission dynamics using stochastic simulation. Built on the robust `odin.dust` framework, it captures realistic biological processes including demographic stochasticity, spatial spread, and complex multi-host dynamics.
+The `yersinia` package provides a comprehensive toolkit for modeling plague transmission dynamics using stochastic simulation. Built on the `odin2` / `dust2` / `monty` stack, it uses a carcass-based transmission formulation (Didelot et al. 2017) to capture realistic biological processes including demographic stochasticity and multi-host dynamics.
 
 ## Why Stochastic Models?
 
 Plague outbreaks exhibit high variability due to:
 - Small population sizes where random events matter
 - Environmental stochasticity in transmission rates
-- Spatial heterogeneity in population densities
 - Stochastic extinction and recolonization events
 
 Traditional deterministic models miss these crucial dynamics that determine real outbreak patterns.
@@ -43,14 +42,14 @@ Traditional deterministic models miss these crucial dynamics that determine real
 ## Key Features
 
 - **Stochastic simulation**: Demographic noise and realistic extinction/recolonization dynamics
-- **Spatial metapopulations**: Migration, local adaptation, and spatial spread patterns
 - **Evidence-based parameters**: Curated parameter sets from historical and contemporary research
-- **Multi-host dynamics**: Rat-flea cycles with optional human transmission
-- **Comprehensive analysis**: Built-in functions for R₀, outbreak metrics, spatial analysis, and visualization
-- **Professional plotting**: Phase portraits, spatial heatmaps, animations, and publication-ready figures
+- **Multi-host dynamics**: Carcass-based transmission with optional human dynamics
+- **Bayesian fitting**: Particle-filter pMCMC via `monty` for fitting to historical death-count time series (see `vignette("monty")`)
+- **Comprehensive analysis**: Built-in functions for R₀, outbreak metrics, force of infection, and visualization
+- **Professional plotting**: Phase portraits, comparison plots, and publication-ready figures
 
 ```{r setup}
-library(yersinia)
+#library(yersinia)
 library(dplyr)
 library(ggplot2)
 library(purrr)
@@ -66,7 +65,7 @@ set.seed(42)
 The simplest way to run a plague model is with `run_plague_model()`:
 
 ```{r basic-model}
-# Run a stochastic rat-flea model (single population)
+# Run a stochastic plague model (single population)
 results <- run_plague_model(
   years = 2,
   n_particles = 100           # Stochastic replicates for uncertainty quantification
@@ -136,9 +135,9 @@ Parameters can be modified at runtime without editing scenario files:
 # Run model with modified transmission parameters
 results_enhanced <- run_plague_model(
   scenario = "keeling-gilligan",
-  beta_r = 8.0,          # Higher rat infection rate
-  g_r = 0.05,            # Higher rat survival rate  
-  K_f = 6,               # More fleas per rat
+  beta_r = 0.05,         # Higher rat infection rate (per day)
+  g_r = 0.05,            # Higher rat survival rate
+  rho = 12.0,            # Wider carcass infectivity range
   years = 3,
   n_particles = 80
 )
@@ -155,13 +154,12 @@ cat("Enhanced transmission outbreak probability:", enhanced_stats$outbreak_proba
 
 ## Single Population: Core Dynamics
 
-Examine the fundamental rat-flea transmission cycle:
+Examine the fundamental carcass-based transmission cycle:
 
 ```{r single-population}
-# Focused rat-flea dynamics
+# Focused plague dynamics
 results_core <- run_plague_model(
   scenario = "keeling-gilligan",
-  npop = 1,
   n_particles = 60,
   years = 5
 )
@@ -185,11 +183,10 @@ plot_phase_portrait(results_core, compartments = c("S", "I"))
 Include human populations in the transmission cycle:
 
 ```{r human-model, fig.cap="Multi-host plague dynamics with humans"}
-# Model including human transmission (single population only)
+# Model including human transmission
 results_humans <- run_plague_model(
   scenario = "historical",     # Medieval parameters for dramatic effect
   include_humans = TRUE,
-  npop = 1,                   # Human models require single population
   n_particles = 60,
   years = 8
 )
@@ -212,103 +209,28 @@ cat("Human outbreak probability:", round(human_metrics$outbreak_probability, 3),
 cat("Mean peak human infections:", round(human_metrics$mean_peak, 0), "\n")
 ```
 
-## Spatial Metapopulations
+## Scenario Comparison
 
-Multi-population models with migration reveal spatial spread patterns:
+Compare dynamics across different evidence-based parameter sets:
 
-```{r spatial-model}
-# 25-population spatial model (5x5 grid with nearest-neighbor migration)
-results_spatial <- run_plague_model(
-  scenario = "defaults", 
-  K_r = 12500,             # Total capacity distributed across populations
-  npop = 25,               # Auto-configured as 5x5 grid
-  n_particles = 40,
-  years = 15,
-  seasonal = TRUE
-)
-
-# Basic spatial dynamics
-plot_dynamics(results_spatial, population = 13)  # Center population
-```
-
-### Spatial Heat Maps *(Provisional)*
-
-Visualize infection patterns across the landscape:
-
-```{r spatial-heatmaps, fig.cap="Spatial distribution of infections at different time points"}
-# Heat maps at different time points
-# Note: Spatial plotting functions are experimental and may change
-plot_spatial_heatmap(results_spatial, time_point = 3, compartment = "I")
-plot_spatial_heatmap(results_spatial, time_point = 8, compartment = "I") 
-plot_spatial_heatmap(results_spatial, time_point = 12, compartment = "I")
-```
-
-### Animated Spatial Spread *(Provisional)*
-
-Create animations showing disease spread over time:
-
-```{r spatial-animation, eval=FALSE}
-# Create animated visualization (requires gganimate)
-# Note: Animation functions are experimental and may change
-anim <- animate_spatial_spread(results_spatial, compartment = "I", 
-                              time_points = seq(0, 15, by = 0.5))
-anim
-```
-
-### Spatial Correlation Analysis
-
-Quantify spatial synchrony in infection patterns:
-
-```{r spatial-correlation}
-# Calculate spatial correlation matrix
-cor_matrix <- calculate_spatial_correlation(results_spatial, compartment = "I")
-
-# Visualize correlation structure
-cor_data <- cor_matrix |>
-  as.data.frame() |>
-  tibble::rownames_to_column("pop1") |>
-  tidyr::pivot_longer(-pop1, names_to = "pop2", values_to = "correlation") |>
-  mutate(
-    pop1_num = as.numeric(gsub("pop_", "", pop1)),
-    pop2_num = as.numeric(gsub("pop_", "", pop2))
-  )
-
-ggplot(cor_data, aes(pop1_num, pop2_num, fill = correlation)) +
-  geom_tile() +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
-                       midpoint = 0, name = "Correlation") +
-  labs(title = "Spatial Correlation in Infection Levels",
-       x = "Population", y = "Population") +
-  theme_minimal()
-```
-
-
-## Environmental Seasonality
-
-Seasonal forcing drives annual epidemic cycles:
-
-```{r seasonal-model, fig.cap="Seasonal plague dynamics showing annual cycles"}
-# Compare seasonal vs non-seasonal models
-results_constant <- run_plague_model(
+```{r scenario-comparison, fig.cap="Comparison of plague dynamics across parameter scenarios"}
+# Compare modern vs historical parameter estimates
+results_modern <- run_plague_model(
   scenario = "modern-estimates",
-  seasonal = FALSE,
   years = 12,
   n_particles = 50
 )
 
-results_seasonal <- run_plague_model(
-  scenario = "modern-estimates", 
-  seasonal = TRUE,
+results_historical_long <- run_plague_model(
+  scenario = "historical",
   years = 12,
   n_particles = 50
 )
 
 # Plot comparison using built-in function
-plot_comparison(list("Constant" = results_constant, "Seasonal" = results_seasonal), 
+plot_comparison(list("Modern" = results_modern, "Historical" = results_historical_long),
                 compartment = "I")
 ```
-
-Seasonal forcing captures the annual climate-driven cycles observed in natural plague systems, where transmission peaks during favorable environmental conditions.
 
 # Advanced Analysis Toolkit
 
@@ -319,12 +241,12 @@ Calculate R₀ to predict outbreak potential:
 ```{r r0-analysis}
 # R₀ comparison across scenarios
 r0_analysis <- tibble(
-  Scenario = c("Historical", "Modern", "High Transmission", "Poor Sanitation"),
+  Scenario = c("Historical", "Modern", "High Transmission", "Slow Decay"),
   Parameters = list(
     load_scenario("historical"),
     load_scenario("modern-estimates"),
-    load_scenario("modern-estimates", beta_r = 8.0),
-    load_scenario("modern-estimates", K_f = 8.0, K_r = 4000)
+    load_scenario("modern-estimates", beta_r = 1.5),
+    load_scenario("modern-estimates", delta_R = 0.1)
   ),
   R0 = map_dbl(Parameters, calculate_R0),
   Invasion_Risk = ifelse(R0 > 1, "High", "Low")
@@ -348,22 +270,19 @@ ggplot(r0_analysis, aes(x = reorder(Scenario, R0), y = R0, fill = Invasion_Risk)
 
 Analyze transmission pressure over time:
 
-```{r force-infection, fig.cap="Force of infection dynamics showing transmission pressure"}
-# Calculate force of infection for spatial model
-#foi_data <- calculate_force_of_infection(results_spatial)
+```{r force-infection, eval=FALSE, fig.cap="Force of infection dynamics showing transmission pressure"}
+# Reconstruct per-step force of infection from a multi-host run
+foi_data <- calculate_force_of_infection(results_humans)
 
-# Plot force of infection for central populations
-# foi_data |>
-#   filter(population %in% 12:14) |>  # Central populations
-#   tidyr::pivot_longer(c(lambda_h, lambda_r), names_to = "host", values_to = "foi") |>
-#   ggplot(aes(time, foi, color = factor(population))) +
-#   geom_line(alpha = 0.8) +
-#   facet_wrap(~host, scales = "free_y", 
-#              labeller = labeller(host = c("lambda_h" = "Humans", "lambda_r" = "Rats"))) +
-#   labs(title = "Force of Infection Over Time",
-#        x = "Time (years)", y = "Force of Infection",
-#        color = "Population") +
-#   theme_minimal()
+foi_data |>
+  tidyr::pivot_longer(c(lambda_h, lambda_r), names_to = "host", values_to = "foi") |>
+  ggplot(aes(time, foi, group = replicate)) +
+  geom_line(alpha = 0.3) +
+  facet_wrap(~host, scales = "free_y",
+             labeller = labeller(host = c("lambda_h" = "Humans", "lambda_r" = "Rats"))) +
+  labs(title = "Force of Infection Over Time",
+       x = "Time (years)", y = "Force of Infection") +
+  theme_minimal()
 ```
 
 ## Professional Outbreak Metrics
@@ -371,14 +290,14 @@ Analyze transmission pressure over time:
 Use built-in analysis functions for comprehensive outbreak characterization:
 
 ```{r outbreak-metrics}
-# Comprehensive outbreak analysis for spatial model
-outbreak_metrics <- results_spatial |>
+# Comprehensive outbreak analysis for the rats+humans model
+outbreak_metrics <- results_humans |>
   calculate_outbreak_metrics(compartment = "I", threshold = 5) |>
   summarize_outbreak_metrics()
 
 # Display key metrics
-cat("Spatial Model Outbreak Summary:\n")
-cat("================================\n")
+cat("Rats+Humans Outbreak Summary:\n")
+cat("=============================\n")
 cat("Outbreak probability:", round(outbreak_metrics$outbreak_probability[1], 3), "\n")
 cat("Mean peak infections:", round(outbreak_metrics$mean_peak[1], 1), "\n")
 cat("Mean outbreak duration:", round(outbreak_metrics$mean_duration[1], 1), "years\n")
@@ -394,19 +313,19 @@ Examine how key parameters influence outbreak dynamics:
 ```{r parameter-sensitivity, fig.cap="Parameter sensitivity analysis across key transmission parameters"}
 # Systematic sensitivity analysis
 sensitivity_params <- tidyr::expand_grid(
-  beta_r = c(2, 4, 6, 8, 10),
-  K_f = c(2, 4, 6, 8)
+  beta_r = c(0.3, 0.5, 0.77, 1.0, 1.5),
+  rho = c(1.0, 2.0, 2.63, 4.0, 6.0)
 ) |>
-  mutate(scenario_id = paste0("beta", beta_r, "_Kf", K_f))
+  mutate(scenario_id = paste0("beta", beta_r, "_rho", rho))
 
 # Run models and calculate outbreak metrics
 sensitivity_analysis <- sensitivity_params |>
   mutate(
-    results = pmap(list(beta_r, K_f), ~ run_plague_model(
-      scenario = "defaults", 
-      beta_r = ..1, 
-      K_f = ..2,
-      n_particles = 30, 
+    results = pmap(list(beta_r, rho), ~ run_plague_model(
+      scenario = "defaults",
+      beta_r = ..1,
+      rho = ..2,
+      n_particles = 30,
       years = 6
     )),
     metrics = map(results, ~ calculate_outbreak_metrics(.x, compartment = "I")),
@@ -416,13 +335,13 @@ sensitivity_analysis <- sensitivity_params |>
   )
 
 # Visualize parameter sensitivity
-ggplot(sensitivity_analysis, aes(beta_r, K_f, fill = outbreak_prob)) +
+ggplot(sensitivity_analysis, aes(beta_r, rho, fill = outbreak_prob)) +
   geom_tile() +
   geom_text(aes(label = round(outbreak_prob, 2)), color = "white", size = 3) +
   scale_fill_viridis_c(name = "Outbreak\nProbability") +
   labs(title = "Parameter Sensitivity: Outbreak Probability",
-       x = "Rat Infection Rate (beta_r)", 
-       y = "Flea Carrying Capacity (K_f)") +
+       x = "Carcass-to-Rat Transmission Rate (beta_r, per day)",
+       y = "Carcass Infectivity Range (rho)") +
   theme_minimal()
 ```
 
@@ -433,10 +352,10 @@ Compare dynamics across different model structures:
 ```{r architecture-comparison, fig.cap="Comparison of model architectures"}
 # Define different model configurations
 model_configs <- list(
-  "Single Population" = list(npop = 1, include_humans = FALSE),
-  "Spatial (No Humans)" = list(npop = 16, include_humans = FALSE, K_r = 8000),
-  "Single + Humans" = list(npop = 1, include_humans = TRUE),
-  "Historical Parameters" = list(npop = 1, scenario = "historical", include_humans = FALSE)
+  "Rats only"            = list(include_humans = FALSE),
+  "Rats + Humans"        = list(include_humans = TRUE),
+  "Historical (rats)"    = list(scenario = "historical", include_humans = FALSE),
+  "Historical (humans)"  = list(scenario = "historical", include_humans = TRUE)
 )
 
 # Run all model configurations
@@ -485,7 +404,6 @@ Model medieval plague outbreaks with period-appropriate parameters:
 results_black_death <- run_plague_model(
   scenario = "historical",
   include_humans = TRUE,
-  npop = 1,
   n_particles = 60,
   years = 6
 )
@@ -502,7 +420,7 @@ cat("Mean peak human infections:", round(human_outbreak$mean_peak, 0), "\n")
 cat("Mean epidemic duration:", round(human_outbreak$mean_duration, 1), "years\n")
 
 # Plot multi-host dynamics
-plot_dynamics(results_black_death, compartments = c("I", "Ih", "F"))
+plot_dynamics(results_black_death, compartments = c("I", "Ih", "Q"))
 ```
 
 ## Cross-Temporal Comparison
@@ -519,7 +437,6 @@ historical_scenarios <- list(
 
 historical_results <- map(historical_scenarios, ~ run_plague_model(
   scenario = .x,
-  npop = 1, 
   n_particles = 50,
   years = 5
 ))
@@ -552,10 +469,10 @@ Evaluate effectiveness of different plague control strategies:
 # Define intervention scenarios
 interventions <- list(
   "Baseline" = list(),
-  "Vector Control" = list(K_f = 2.0),           # Reduce flea populations
-  "Host Reduction" = list(K_r = 2000),          # Reduce rat populations  
-  "Enhanced Surveillance" = list(beta_r = 3.5), # Earlier detection/treatment
-  "Combined Approach" = list(K_f = 2.5, K_r = 2500, beta_r = 4.0)
+  "Carcass Removal" = list(delta_R = 1.0),      # Faster carcass cleanup
+  "Host Reduction" = list(K_r = 2000),           # Reduce rat populations
+  "Reduced Contact" = list(beta_r = 0.3),        # Lower transmission rate
+  "Combined Approach" = list(delta_R = 0.8, K_r = 2500, beta_r = 0.4)
 )
 
 # Run intervention scenarios
@@ -590,68 +507,6 @@ print(intervention_metrics[c("intervention", "outbreak_probability", "effectiven
 plot_comparison(intervention_results, compartment = "I")
 ```
 
-## Spatial Risk Assessment
-
-Assess outbreak risk across spatial landscapes:
-
-```{r spatial-risk, eval=FALSE, fig.cap="Spatial risk assessment across connected populations"}
-# Risk assessment for spatial system
-risk_spatial <- run_plague_model(
-  scenario = "modern-estimates",
-  npop = 25,
-  K_r = 15000,
-  n_particles = 100,
-  years = 10
-)
-
-# Calculate population-specific risk metrics
-population_risk <- risk_spatial |>
-  filter(compartment == "I") |>
-  group_by(population) |>
-  summarise(
-    max_infected = max(value),
-    outbreak_frequency = mean(value > 5),
-    mean_infected = mean(value),
-    .groups = "drop"
-  ) |>
-  mutate(
-    risk_category = case_when(
-      outbreak_frequency > 0.5 ~ "High Risk",
-      outbreak_frequency > 0.2 ~ "Moderate Risk", 
-      TRUE ~ "Low Risk"
-    )
-  )
-
-# Visualize spatial risk
-plot_spatial_heatmap(risk_spatial, time_point = 5, compartment = "I")
-
-# Risk summary
-table(population_risk$risk_category)
-```
-
-## Early Warning Systems
-
-Develop outbreak prediction based on force of infection:
-
-```{r early-warning, eval = FALSE}
-# Calculate force of infection for early warning
-foi_early_warning <- calculate_force_of_infection(risk_spatial)
-
-# Identify high-risk time periods
-warning_thresholds <- foi_early_warning |>
-  group_by(population) |>
-  summarise(
-    mean_foi_rats = mean(lambda_r),
-    peak_foi_rats = max(lambda_r),
-    high_risk_periods = sum(lambda_r > quantile(lambda_r, 0.9)),
-    .groups = "drop"
-  ) |>
-  arrange(desc(peak_foi_rats))
-
-cat("Populations requiring enhanced surveillance (top 5):\n")
-print(head(warning_thresholds, 5))
-```
-
 # Summary
 
 The `yersinia` package provides a comprehensive, professionally designed toolkit for plague transmission modeling that bridges theoretical epidemiology with practical public health applications.
@@ -660,15 +515,12 @@ The `yersinia` package provides a comprehensive, professionally designed toolkit
 
 ### **Modeling Framework**
 - **Stochastic simulation**: Captures demographic noise and extinction/recolonization dynamics missing from deterministic models
-- **Multi-scale architecture**: From single populations to complex spatial metapopulations with migration
-- **Multi-host dynamics**: Rat-flea-human transmission cycles with realistic biological parameters
-- **Environmental forcing**: Seasonal dynamics reflecting natural plague ecology
+- **Multi-host dynamics**: Carcass-based rat-to-human transmission with realistic biological parameters
+- **Bayesian fitting**: Particle-filter pMCMC (`monty`) fits the same odin2 model to daily death-count time series
 
-### **Professional Analysis Tools**  
-- **Core functions**: `calculate_outbreak_metrics()`, `calculate_R0()`, `calculate_force_of_infection()`
-- **Stable plotting**: `plot()` method and `plot_comparison()` for production use
-- **Advanced visualization**: Phase portraits, spatial heatmaps, and animations *(provisional features)*
-- **Spatial analysis**: Correlation matrices, spatial spread patterns, and metapopulation synchrony
+### **Professional Analysis Tools**
+- **Core functions**: `calculate_outbreak_metrics()`, `calculate_R0()`, `calculate_force_of_infection()`, `calculate_equilibrium()`
+- **Stable plotting**: `plot()` method, `plot_comparison()`, `plot_dynamics()`, `plot_phase_portrait()`, `plot_sensitivity()`
 - **Parameter exploration**: Systematic sensitivity analysis and model comparison frameworks
 
 ### **Evidence-Based Parameters**
@@ -677,8 +529,7 @@ The `yersinia` package provides a comprehensive, professionally designed toolkit
 - **Literature integration**: Direct implementation of parameters from key plague research
 
 ### **Real-World Applications**
-- **Public health planning**: Control intervention assessment and effectiveness quantification  
-- **Risk assessment**: Spatial risk mapping and early warning system development
+- **Public health planning**: Control intervention assessment and effectiveness quantification
 - **Historical modeling**: Black Death scenarios and cross-temporal epidemic comparison
 - **Policy evaluation**: Evidence-based assessment of surveillance and control strategies
 
@@ -686,7 +537,7 @@ The `yersinia` package provides a comprehensive, professionally designed toolkit
 
 Traditional deterministic models fail to capture:
 - **Small population effects** where random events drive dynamics
-- **Spatial heterogeneity** and local extinction/recolonization
+- **Stochastic extinction and recolonization** driven by demographic noise
 - **Uncertainty quantification** essential for policy decisions
 - **Realistic outbreak variability** observed in natural systems
 
@@ -698,12 +549,14 @@ The `yersinia` package addresses these limitations while maintaining computation
 - **Main modeling function**: `?run_plague_model`
 - **Parameter details**: `print()` on loaded scenarios shows metadata and sources
 - **Theoretical background**: `vignette("reference-deterministic-models")` for deterministic comparisons
+- **Bayesian fitting walkthrough**: `vignette("monty")` for pMCMC fitting to historical death-count data
+- **Demographic coupling**: `vignette("coupled-demography")` for the age-structured human + food-production + rat logistic model
 
 ## Key References
 
-1. Keeling, M. J., & Gilligan, C. A. (2000). Metapopulation dynamics of bubonic plague. *Nature*, 407(6806), 903-906.
-2. Stenseth, N. C., et al. (2008). Plague: past, present, and future. *PLoS Medicine*, 5(1), e3.  
-3. Bramanti, B., et al. (2019). Assessing the origins of the European Plagues following the Black Death. *Proceedings of the National Academy of Sciences*, 116(28), 13931-13940.
+1. Didelot, X., Whittles, L. K., & Hall, I. (2017). Model-based analysis of an outbreak of bubonic plague in Cairo in 1801. *J. R. Soc. Interface*, 14: 20170160.
+2. Keeling, M. J., & Gilligan, C. A. (2000). Metapopulation dynamics of bubonic plague. *Nature*, 407(6806), 903-906.
+3. Stenseth, N. C., et al. (2008). Plague: past, present, and future. *PLoS Medicine*, 5(1), e3.
 
 ---
 

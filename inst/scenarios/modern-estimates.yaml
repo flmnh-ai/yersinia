@@ -1,5 +1,7 @@
 # Modern plague scenario
 # Biological parameters based on contemporary data and studies
+# Using carcass-based transmission formulation
+# ALL rates per day.
 
 # Metadata
 name: "modern-estimates"
@@ -7,49 +9,41 @@ description: "Biological parameters based on recent empirical studies"
 source: "Multiple contemporary sources"
 reference: "Compiled from recent plague ecology and epidemiology literature"
 last_updated: "2024"
+time_unit: "day"
 
 # Rat population parameters
-r_r: 4.5     # Slightly lower growth rate (urbanization effects)
-p: 0.96      # Slightly lower resistance probability
-d_r: 0.25    # Higher death rate (urban stressors)
+r_r: 0.01233     # Rat population growth rate (per day, = 4.5/365)
+p: 0.96          # Slightly lower resistance probability
+d_r: 0.000685    # Natural death rate of rats (per day, = 0.25/365)
 
 # Disease transmission parameters
-beta_r: 5.0  # Higher transmission rate (denser populations)
-a: 0.005     # Improved flea search efficiency estimate
-m_r: 18.0    # Faster disease progression (modern strains)
-g_r: 0.03    # Slightly higher survival probability (heterogeneity)
-
-# Flea population parameters
-r_f: 22.0    # Higher reproduction rate (warmer urban environments)
-K_f: 7.0     # Higher carrying capacity (urban food sources)
-d_f: 12.0    # Higher death rate (urban challenges)
+beta_r: 0.9      # Transmission rate from carcasses to rats (per day)
+rho: 3.0         # Rat carcass infectivity range
+m_r: 0.06        # Plague resolution rate in rats (per day, ~17 days)
+g_r: 0.03        # Slightly higher survival probability (heterogeneity)
+delta_R: 0.3     # Carcass decay rate (per day, ~3.3 day infectious period)
 
 # Human population parameters
-r_h: 0.05    # Higher growth rate (demographic transition)
-d_h: 0.035   # Lower mortality (modern medicine)
-beta_h: 0.012 # Slightly higher infection rate (closer contact)
-m_h: 24      # Faster recovery (medical care)
-g_h: 0.15    # Much higher survival probability (antibiotics)
+r_h: 0.000137    # Human population growth rate (per day, = 0.05/365)
+d_h: 0.0000959   # Natural death rate of humans (per day, = 0.035/365)
+beta_h: 0.017    # Slightly higher infection rate (closer contact, per day)
+beta_I: 0.01     # Low human-to-human transmission (per day)
+m_h: 0.15        # Faster recovery (per day, ~7 days with medical care)
+g_h: 0.15        # Much higher survival probability (antibiotics)
 
 # Spatial parameters
-mu_r: 0.05   # Higher movement rates (transportation networks)
-mu_f: 0.012  # Higher flea movement (human transport)
-
-# Seasonal parameters
-seasonal_amplitude: 0.25  # Moderate seasonality (climate change effects)
-
+mu_r: 0.000137   # Higher movement rates (per day, = 0.05/365)
 
 # Notes
 notes: |
   These parameters reflect updates based on:
   - Urban ecology studies of rat populations
-  - Modern flea biology research
+  - Modern flea survival studies informing carcass decay rates
   - Contemporary plague outbreak data
-  - Climate change effects on vector ecology
   - Improved medical outcomes for human cases
 
   Key differences from historical parameters:
   - Higher population densities (urban growth)
   - Faster movement rates (transportation)
   - Better human survival (antibiotics)
-  - Stronger seasonal effects (climate variability)
+  - All rates are per day.

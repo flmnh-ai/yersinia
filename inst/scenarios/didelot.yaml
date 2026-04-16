@@ -1,0 +1,49 @@
+# Didelot et al. (2017) scenario
+# Posterior mean estimates from Bayesian analysis of Cairo 1801 plague outbreak
+# ALL rates per day.
+
+# Metadata
+name: "didelot"
+description: "Posterior mean estimates from pMCMC analysis of Cairo 1801 outbreak"
+source: "Didelot, X., Whittles, L. K., & Hall, I. (2017)"
+reference: "Model-based analysis of an outbreak of bubonic plague in Cairo in 1801. J. R. Soc. Interface 14: 20170160"
+doi: "10.1098/rsif.2017.0160"
+time_unit: "day"
+
+# Rat population parameters (not in original paper, added for compatibility)
+r_r: 0.01370       # Rat population growth rate (per day, = 5/365)
+p: 0.975            # Probability of inherited resistance
+d_r: 0.000548       # Natural death rate of rats (per day, = 0.2/365)
+
+# Disease transmission parameters (daily rates, from posterior means)
+beta_r: 0.77        # Transmission rate from carcasses to rats (per day)
+rho: 2.63           # Rat carcass infectivity range (dimensionless)
+m_r: 0.056          # Plague death rate of rats (per day, = 1/18)
+g_r: 0.0            # Probability rat survives infection (0 in Didelot - all infected rats die)
+delta_R: 0.267      # Carcass decay rate (per day, ~3.7 day infectious period)
+
+# Human population parameters (daily rates)
+r_h: 0.0            # Human growth rate (0 on outbreak timescale)
+d_h: 0.0000898      # Non-plague human death rate (per day, ~30.5 year life expectancy)
+beta_h: 0.0145      # Transmission rate from carcasses to humans (per day)
+beta_I: 0.0215      # Human-to-human transmission rate (per day)
+m_h: 0.125          # Plague resolution rate in humans (per day, = 1/8)
+g_h: 0.1            # Probability human survives plague
+
+# Spatial parameters
+mu_r: 0.0000822     # Rat movement rate (per day, = 0.03/365, not in original)
+
+# Notes
+notes: |
+  Parameters from Bayesian inference on Cairo 1801 outbreak data.
+  Key findings:
+  - R0 for rats estimated at ~2.85 [1.82;3.95]
+  - Rat carcasses infectious for ~3.7 days [1.2;8.6]
+  - Human-to-human transmission accounts for ~18% of cases
+    but R0_human ~0.17, far below epidemic threshold
+  - Initial proportion of infected rats p0 = 0.028 [0.005;0.071]
+  - Model designed for short outbreak timescales (~150 days)
+
+  Rat demographic parameters (r_r, p, d_r) are NOT from this paper
+  and are included only for compatibility with the spatial model.
+  Set r_r=0 to disable rat demographics for pure Didelot behavior.

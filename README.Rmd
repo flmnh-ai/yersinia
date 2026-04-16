@@ -24,7 +24,7 @@ knitr::opts_chunk$set(
 
 > **Stochastic plague transmission modeling for epidemiological research and public health applications**
 
-The `yersinia` package provides a comprehensive toolkit for modeling plague transmission dynamics using realistic stochastic simulation. Built on the robust `odin.dust` framework, it captures the complex biological processes that drive plague outbreaks, including demographic stochasticity, spatial spread, and multi-host transmission cycles.
+The `yersinia` package provides a comprehensive toolkit for modeling plague transmission dynamics using realistic stochastic simulation. Built on the `odin.dust` framework, it uses a carcass-based transmission formulation (Didelot et al. 2017) to capture demographic stochasticity, spatial spread, and multi-host dynamics.
 
 ## Why Stochastic Models?
 
@@ -39,7 +39,7 @@ Traditional deterministic plague models fail to capture:
 - 🎲 **Stochastic simulation** with demographic noise and realistic population dynamics
 - 🗺️ **Spatial metapopulations** with migration and local adaptation
 - 📚 **Evidence-based parameters** from historical and contemporary plague research  
-- 🏥 **Multi-host dynamics** including rat-flea-human transmission cycles
+- 🏥 **Multi-host dynamics** with carcass-based rat-to-human transmission
 - 📊 **Professional analysis** tools for R₀, outbreak metrics, and spatial patterns
 - 📈 **Publication-ready plotting** with uncertainty quantification
 
@@ -132,17 +132,17 @@ plot_dynamics(black_death, compartments = c("Ih", "Rh"))
 
 | Model | Description | Use Case |
 |-------|-------------|----------|
-| **Single Population** | Basic rat-flea dynamics | Parameter exploration, R₀ analysis |
+| **Single Population** | Basic carcass-based dynamics | Parameter exploration, R₀ analysis |
 | **Spatial** | Multi-population with migration | Landscape epidemiology, spatial spread |
-| **Multi-host** | Rat-flea-human transmission | Epidemiological studies, intervention planning |
-| **Seasonal** | Environmental forcing | Climate effects, annual cycles |
+| **Multi-host** | Carcass-based rat-to-human transmission | Epidemiological studies, intervention planning |
 
 ## Parameter Sets
 
 | Scenario | Source | Description | R₀ |
 |----------|--------|-------------|-----|
 | `"defaults"` | Package defaults | Baseline parameters | `r round(calculate_R0(load_scenario("defaults")), 2)` |
-| `"keeling-gilligan"` | Keeling & Gilligan (2000) | Foundational metapopulation model | `r round(calculate_R0(load_scenario("keeling-gilligan")), 2)` |
+| `"didelot"` | Didelot et al. (2017) | Cairo 1801 posterior estimates | `r round(calculate_R0(load_scenario("didelot")), 2)` |
+| `"keeling-gilligan"` | Keeling & Gilligan (2000) | Adapted to carcass formulation | `r round(calculate_R0(load_scenario("keeling-gilligan")), 2)` |
 | `"modern-estimates"` | Contemporary research | Current parameter estimates | `r round(calculate_R0(load_scenario("modern-estimates")), 2)` |
 | `"historical"` | Medieval records | Black Death era parameters | `r round(calculate_R0(load_scenario("historical")), 2)` |
 
@@ -163,7 +163,8 @@ citation("yersinia")
 
 ## Related Work
 
-- **Keeling & Gilligan (2000)**: Foundational plague metapopulation model ([Nature](https://doi.org/10.1038/35038564))
+- **Didelot et al. (2017)**: Carcass-based plague transmission model ([J. R. Soc. Interface](https://doi.org/10.1098/rsif.2017.0160))
+- **Keeling & Gilligan (2000)**: Foundational plague metapopulation model ([Nature](https://doi.org/10.1038/35038073))
 - **odin.dust framework**: Stochastic compartmental modeling ([CRAN](https://cran.r-project.org/package=odin.dust))
 
 ---

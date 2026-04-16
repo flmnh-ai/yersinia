@@ -93,16 +93,27 @@ calculate_R0 <- function(params, model_type = "rats_only", K_r = 2500, K_h = 500
   
   switch(model_type,
     "rats_only" = {
-      # R0 for rat-flea cycle
-      # Transmission rate * flea searching success * rat density / (death + recovery)
-      p$beta_r * K_r_val * (1 - exp(-p$a * K_r_val)) / (p$d_r + p$m_r)
+      # R0 for carcass-based rat-plague cycle (next-generation for I-Q system).
+      # At disease-free equilibrium S = T_r = K_r, so the per-carcass new-infection
+      # rate simplifies: lambda_r * S = beta_r * Q * (1 - exp(-rho*T_r/K_r)) = beta_r * Q * (1 - exp(-rho)).
+      #
+      # Per newly infected rat, expected carcasses produced = (1 - g_r) * m_r / m_r = (1 - g_r).
+      # Per carcass, expected new infections = beta_r * (1 - exp(-rho)) / delta_R.
+      # Cycle R0 = (1 - g_r) * beta_r * (1 - exp(-rho)) / delta_R.
+      #
+      # Note: m_r cancels out (appears in both carcass-production rate and I lifetime).
+      # Earlier versions of this code erroneously kept m_r in the denominator, which
+      # inflated R0 by ~1/m_r (factor of ~18 for Didelot's m_r = 0.056/day).
+      p$beta_r * (1 - p$g_r) * (1 - exp(-p$rho)) / p$delta_R
     },
     "with_humans" = {
-      # Calculate both rat and human R0
-      R0_rats <- p$beta_r * K_r_val * (1 - exp(-p$a * K_r_val)) / (p$d_r + p$m_r)
-      
-      R0_humans <- p$beta_h * p$K_f / (p$d_h + p$m_h)
-      
+      # Rat R0 via carcass transmission (see "rats_only" branch for derivation)
+      R0_rats <- p$beta_r * (1 - p$g_r) * (1 - exp(-p$rho)) / p$delta_R
+
+      # Human R0 from human-to-human transmission only
+      beta_I <- p$beta_I %||% 0
+      R0_humans <- beta_I / p$m_h
+
       list(rats = R0_rats, humans = R0_humans, combined = max(R0_rats, R0_humans))
     },
     cli::cli_abort("Unknown model_type: {model_type}")
@@ -132,36 +143,34 @@ calculate_equilibrium <- function(params, model_type = "rats_only") {
     R0_rats <- R0
   }
   
+  K_r_val <- p$K_r %||% 2500
+
   if (R0_rats <= 1) {
     # Disease-free equilibrium
     return(list(
-      S_r = p$K_r,
+      S_r = K_r_val,
       I_r = 0,
       R_r = 0,
-      N = p$K_f,
-      F = 0,
+      Q = 0,
       R0 = R0_rats,
       equilibrium_type = "disease_free"
     ))
   } else {
     # Endemic equilibrium (approximate)
-    # This is a simplified calculation - full equilibrium would require solving the system
-    with(p, {
-      # Approximate endemic values
-      I_r_endemic <- K_r * (R0_rats - 1) / R0_rats * 0.1  # rough approximation
-      S_r_endemic <- K_r / R0_rats
-      R_r_endemic <- K_r - S_r_endemic - I_r_endemic
-      
-      list(
-        S_r = S_r_endemic,
-        I_r = I_r_endemic, 
-        R_r = max(0, R_r_endemic),
-        N = K_f,  # approximate
-        F = I_r_endemic * K_f * 0.1,  # rough approximation
-        R0 = R0_rats,
-        equilibrium_type = "endemic"
-      )
-    })
+    # Simplified - full equilibrium requires solving the nonlinear system
+    S_r_endemic <- K_r_val / R0_rats
+    I_r_endemic <- K_r_val * (R0_rats - 1) / R0_rats * 0.1
+    R_r_endemic <- K_r_val - S_r_endemic - I_r_endemic
+    Q_endemic <- (1 - p$g_r) * p$m_r * I_r_endemic / p$delta_R
+
+    list(
+      S_r = S_r_endemic,
+      I_r = I_r_endemic,
+      R_r = max(0, R_r_endemic),
+      Q = Q_endemic,
+      R0 = R0_rats,
+      equilibrium_type = "endemic"
+    )
   }
 }
 
@@ -172,50 +181,29 @@ calculate_equilibrium <- function(params, model_type = "rats_only") {
 calculate_force_of_infection <- function(results) {
   check_plague_results(results, "outbreak analysis")
   
-  # Extract relevant compartments
+  # Extract relevant compartments for carcass-based force of infection
+  # Get params for rho and K_r
+  p <- attr(results, "params")
+  rho <- p$rho %||% 2.63
+  K_r_val <- p$K_r %||% 2500
+
   force_data <- results |>
-    dplyr::filter(.data$compartment %in% c("F", "S_r", "I_r", "R_r")) |>
+    dplyr::filter(.data$compartment %in% c("Q", "S", "I", "R")) |>
     tidyr::pivot_wider(names_from = compartment, values_from = value, values_fill = 0) |>
     dplyr::mutate(
-      T_r = S_r + I_r + R_r,
-      # Force of infection in humans (lambda_h)
-      lambda_h = F * exp(-4e-3 * T_r),  # Using default 'a' parameter
-      # Force of infection in rats  
-      lambda_r = ifelse(T_r > 0, F * (1 - exp(-4e-3 * T_r)) / T_r, 0)
+      T_r = S + I + R,
+      # Force of infection in rats from carcasses
+      lambda_r = ifelse(T_r > 0, (p$beta_r %||% 0.77) * Q * (1 - exp(-rho * T_r / K_r_val)) / T_r, 0),
+      # Force of infection in humans from carcasses (fleas that don't find rats)
+      lambda_h = (p$beta_h %||% 0.0145) * Q * exp(-rho * T_r / K_r_val) / K_r_val
     ) |>
     dplyr::select(time, population, replicate, lambda_h, lambda_r)
   
   return(force_data)
 }
 
-#' Calculate spatial correlation in infection levels
-#' @param results plague_results object (must be spatial)
-#' @param compartment Compartment to analyze (default "I")
-#' @param method Correlation method ("pearson", "spearman")
-#' @return Correlation matrix
-#' @export
-calculate_spatial_correlation <- function(results, compartment = "I", method = "pearson") {
-  check_plague_results(results, "outbreak analysis")
-  
-  # Check if spatial
-  check_spatial_model(results, "spatial correlation analysis")
-  
-  # Prepare data for correlation analysis
-  spatial_data <- results |>
-    dplyr::filter(.data$compartment == .env$compartment) |>
-    dplyr::select(time, population, replicate, value) |>
-    # Average across replicates if multiple
-    dplyr::group_by(time, population) |>
-    dplyr::summarise(mean_value = mean(value), .groups = "drop") |>
-    tidyr::pivot_wider(names_from = population, values_from = mean_value, names_prefix = "pop_")
-  
-  # Calculate correlation matrix
-  cor_matrix <- spatial_data |>
-    dplyr::select(-time) |>
-    cor(method = method, use = "complete.obs")
-  
-  return(cor_matrix)
-}
+# calculate_spatial_correlation moved to archive/spatial_helpers.R in April
+# 2026 alongside the retirement of the spatial plague model.
 
 #' Print method for outbreak metrics
 #' @param x plague_outbreak_metrics object

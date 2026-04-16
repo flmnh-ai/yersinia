@@ -6,24 +6,27 @@ Authors@R: c(
            comment = c(ORCID = "0000-0002-2225-5827")),
     person("Nich", "Martin", , "n.martin@ufl.edu", role = "aut",
            comment = c(ORCID = "0000-0001-9539-250X")))
-Description: A comprehensive toolkit for plague transmission modeling using 
-    deterministic and stochastic differential equation models. Provides 
-    implementations of rat-flea-human plague dynamics with spatial structure,
-    seasonal forcing, and parameter management for epidemiological research.
+Description: A toolkit for plague transmission modeling using stochastic
+    compartmental models. Implements carcass-based transmission dynamics
+    (Didelot et al. 2017) with spatial structure and multi-host dynamics
+    for epidemiological research.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 URL: https://github.com/flmnh-ai/yersinia, https://flmnh-ai.github.io/yersinia/
 BugReports: https://github.com/flmnh-ai/yersinia/issues
-Remotes: 
-    mrc-ide/odin.dust,
-    mrc-ide/dust
-Depends: 
+LinkingTo: cpp11, dust2, monty
+Remotes:
+    mrc-ide/odin2,
+    mrc-ide/dust2,
+    mrc-ide/monty
+Depends:
     R (>= 4.1.0)
 Imports:
-    odin.dust,
-    dust,
+    odin2,
+    dust2,
+    monty,
     dplyr,
     tidyr,
     tibble,
@@ -34,13 +37,13 @@ Imports:
     checkmate,
     glue,
     cli
-Suggests: 
+Suggests:
     testthat,
     ggplot2,
     knitr,
-    rmarkdown
+    rmarkdown,
+    posterior,
+    bayesplot
 Config/testthat/edition: 3
-SystemRequirements: C++17
-LinkingTo: cpp11, dust
 VignetteBuilder: knitr
 LazyData: true
