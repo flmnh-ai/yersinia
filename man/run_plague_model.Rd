@@ -13,6 +13,7 @@ run_plague_model(
   K_r = 2500,
   K_h = 5000,
   I_ini = 1,
+  obs_period = 1L,
   ...
 )
 }
@@ -32,6 +33,12 @@ run_plague_model(
 \item{K_h}{Human carrying capacity (used only when scenario does not set it).}
 
 \item{I_ini}{Initial infected rats.}
+
+\item{obs_period}{Integer length (in days) of the observation window over
+which \code{D_h} and \code{D_r} accumulate before resetting. Default \code{1L} keeps
+the per-day count used by daily-data fits. Set to \code{7L} to make the
+simulated death series weekly (matching e.g. London 1563). Requires
+\code{timestep = "daily"}.}
 
 \item{...}{Additional parameters to override on top of the scenario.}
 }

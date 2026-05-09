@@ -14,19 +14,30 @@ time_unit: "day"
 # Rat population parameters (converted from per year)
 r_r: 0.01370     # Rat population growth rate (per day, original: 5/year)
 p: 0.975         # Probability of inherited resistance
+iota: 0.75       # Fecundity multiplier for resistant rats (always fixed, not fitted)
 d_r: 0.000548    # Natural death rate of rats (per day, original: 0.2/year)
 
-# Disease transmission parameters (converted from per year)
-# Original K&G used explicit fleas with a=0.004, K_f=6.57, d_f=10, r_f=20
-# Carcass-equivalent parameters preserve the infection dynamics:
-#   rho = a * K_r (original: 0.004 * 2500 = 10)
-#   delta_R approximates the effective flea death rate on carcasses
-#   beta_r is rescaled for the carcass formulation
-beta_r: 0.01288    # Transmission rate from carcasses to rats (per day, original: 4.7/year)
-rho: 10.0          # Rat carcass infectivity range (= a * K_r in original)
+# Disease transmission parameters
+#
+# Derivation: K&G's R₀ for the rat-flea-carcass loop at the disease-free
+# equilibrium (eq. on p. 2226) is
+#     R₀_KG = β_R × K_F × (1 - exp(-a · K_R)) / d_F = 4.7 × 6.57 × ~1 / 10 ≈ 3.09.
+# Our carcass formulation (CLAUDE.md) gives
+#     R₀_carcass = β_r × (1 - g_r) × (1 - exp(-ρ)) / δ_R.
+# Setting ρ = a · K_R = 10 and δ_R = d_F (per-day) makes the (1-exp(-ρ))
+# and 1/δ_R factors line up; then preserving R₀ requires
+#     β_r = β_R × K_F / (1 - g_r) = 4.7 × 6.57 / 0.98 ≈ 31.51 per year
+# which gives β_r ≈ 0.0863 per day and R₀ ≈ 3.09 in the carcass formulation.
+#
+# (Earlier YAML versions had β_r = 0.01288 = 4.7/365, the unmapped per-day
+# β_R; that gave R₀ ≈ 0.46 — sub-threshold and unable to produce the K&G
+# Fig. 5 endemic dynamics. Fixed 2026-05-06.)
+beta_r: 0.0863     # Transmission rate from carcasses to rats (per day)
+                   # = β_R × K_F / (1 - g_r) / 365
+rho: 10.0          # Rat carcass infectivity range (= a × K_R = 0.004 × 2500)
 m_r: 0.05479       # Plague resolution rate in rats (per day, original: 20/year)
 g_r: 0.02          # Probability rat survives infection
-delta_R: 0.02740   # Carcass decay rate (per day, original: 10/year ~= d_f)
+delta_R: 0.02740   # Carcass decay rate (per day, original: d_F = 10/year)
 
 # Human population parameters (converted from per year)
 r_h: 0.000123    # Human population growth rate (per day, original: 0.045/year)

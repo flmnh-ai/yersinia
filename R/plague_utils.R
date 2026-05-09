@@ -14,6 +14,32 @@ check_ggplot2 <- function(context = "plotting") {
   }
 }
 
+# Validate the obs_period parameter that controls the D_h / D_r reset window.
+# Called by both run_plague_model and plague_fit_setup so that user-facing
+# error messages are uniform and the model only ever sees a value the manual
+# reset (`time %% obs_period == 0`) handles cleanly.
+validate_obs_period <- function(obs_period, tau, data_time = NULL) {
+  checkmate::assert_integerish(obs_period, lower = 1, len = 1, any.missing = FALSE,
+                               .var.name = "obs_period")
+  if (tau != 1 && obs_period > 1) {
+    cli::cli_abort(
+      "obs_period > 1 requires tau = 1 (got tau = {tau}, obs_period = {obs_period}). \\
+       Coarse observation windows on a coarse simulation step have no extra \\
+       resolution to give -- run daily and aggregate via obs_period instead."
+    )
+  }
+  if (!is.null(data_time)) {
+    bad <- data_time[data_time %% obs_period != 0]
+    if (length(bad) > 0) {
+      cli::cli_abort(
+        "All data `time` values must be multiples of obs_period ({obs_period}). \\
+         Offending value{?s}: {.val {head(bad, 5)}}{ifelse(length(bad) > 5, ' ...', '')}"
+      )
+    }
+  }
+  invisible(obs_period)
+}
+
 # check_spatial_model() and check_gganimate() moved to
 # archive/spatial_helpers.R in April 2026 alongside the retirement of the
 # spatial plague model.
@@ -53,6 +79,8 @@ load_scenario <- function(scenario = "defaults", ...) {
     cli::cli_abort("g_r (rat survival probability) must be between 0 and 1")
   if (!is.null(params$g_h) && (params$g_h < 0 || params$g_h > 1))
     cli::cli_abort("g_h (human survival probability) must be between 0 and 1")
+  if (!is.null(params$p_obs) && (params$p_obs < 0 || params$p_obs > 1))
+    cli::cli_abort("p_obs (observation probability) must be between 0 and 1")
 
   # Add metadata
   attr(params, "scenario") <- if(is.character(scenario)) scenario else "custom"
@@ -122,12 +150,13 @@ print.scenario_parameters <- function(x, ...) {
 
   # Group parameters by biological meaning
   cat("🐀 Rat Population Parameters:\n")
-  rat_params <- c("K_r", "r_r", "d_r", "p")
+  rat_params <- c("K_r", "r_r", "d_r", "p", "iota")
   rat_descriptions <- list(
     K_r = "Rat carrying capacity",
     r_r = "Rat population growth rate (per day)",
     d_r = "Natural death rate of rats (per day)",
-    p = "Probability of inherited resistance"
+    p = "Probability of inherited resistance",
+    iota = "Fecundity multiplier for resistant rats"
   )
 
   for (param in rat_params) {
@@ -488,6 +517,11 @@ plot.plague_results <- function(x, compartments = NULL) {
 #' @param K_r Rat carrying capacity (used only when scenario does not set it).
 #' @param K_h Human carrying capacity (used only when scenario does not set it).
 #' @param I_ini Initial infected rats.
+#' @param obs_period Integer length (in days) of the observation window over
+#'   which `D_h` and `D_r` accumulate before resetting. Default `1L` keeps
+#'   the per-day count used by daily-data fits. Set to `7L` to make the
+#'   simulated death series weekly (matching e.g. London 1563). Requires
+#'   `timestep = "daily"`.
 #' @param ... Additional parameters to override on top of the scenario.
 #' @return plague_results object.
 #' @export
@@ -499,11 +533,14 @@ run_plague_model <- function(scenario = "defaults",
                              K_r = 2500,
                              K_h = 5000,
                              I_ini = 1,
+                             obs_period = 1L,
                              ...) {
 
   # Validate arguments
   timestep <- match.arg(timestep)
   stopifnot(is.numeric(years), years > 0)
+  tau_days <- if (timestep == "weekly") 7 else 1
+  validate_obs_period(obs_period, tau = tau_days)
 
   # Load and validate scenario parameters
   if (inherits(scenario, "scenario_parameters")) {
@@ -521,14 +558,12 @@ run_plague_model <- function(scenario = "defaults",
 
   # Humans model is single-population; I_ini is scalar.
   sim_params$I_ini <- I_ini[[1]]
-  sim_params$S_ini <- 1
+  if (is.null(sim_params$R_ini)) sim_params$R_ini <- 0
 
   # Add temporal parameters — dt in days, all rates per day
-  dt <- switch(timestep,
-    "weekly" = 7,
-    "daily" = 1
-  )
+  dt <- tau_days
   sim_params$dt <- dt
+  sim_params$obs_period <- obs_period
   n_days <- as.integer(365 * years)
   timesteps <- seq_len(as.integer(n_days / dt))
 
@@ -567,6 +602,245 @@ run_plague_model <- function(scenario = "defaults",
 #' @export
 NULL
 
+#' Stochastic metapopulation plague model (rat dispersal between patches)
+#'
+#' An odin2/dust2 system generator compiled at package build time from
+#' `inst/odin/plague_stochastic_metapop.R`. Same Didelot carcass-based
+#' transmission core as [plague_stochastic_humans], with rat S/I/R compartments
+#' arrayed over `npop` patches and a row-stochastic `contact_r[npop, npop]`
+#' matrix routing migrants. Carcasses Q are sessile; humans live per-patch
+#' and do not migrate (v1). Pass directly to [dust2::dust_system_create()].
+#'
+#' @name plague_stochastic_metapop
+#' @export
+NULL
+
+#' Validate a rat contact matrix
+#'
+#' Checks that `contact_r` is square, has dimensions matching `npop`, has
+#' zero on the diagonal (an emigrant by definition leaves its origin patch),
+#' has non-negative entries, and is row-stochastic (`rowSums == 1`). Throws
+#' an informative error otherwise; returns `contact_r` invisibly on success.
+#'
+#' @param contact_r Numeric matrix.
+#' @param npop Expected number of patches.
+#' @param tol Tolerance for row-sum check (default `1e-8`).
+#' @return `contact_r` invisibly.
+#' @keywords internal
+validate_contact_matrix <- function(contact_r, npop, tol = 1e-8) {
+  checkmate::assert_matrix(contact_r, mode = "numeric", any.missing = FALSE,
+                           .var.name = "contact_r")
+  if (nrow(contact_r) != npop || ncol(contact_r) != npop) {
+    cli::cli_abort(
+      "contact_r must be {npop} x {npop} (got {nrow(contact_r)} x {ncol(contact_r)})"
+    )
+  }
+  if (any(contact_r < 0)) {
+    cli::cli_abort("contact_r entries must be non-negative")
+  }
+  diag_vals <- diag(contact_r)
+  bad_diag <- which(diag_vals != 0)
+  if (length(bad_diag) > 0) {
+    cli::cli_abort(
+      "contact_r must have zero diagonal (an emigrant leaves its origin patch). \\
+       Non-zero diagonal at {length(bad_diag)} patch(es): {.val {bad_diag}}."
+    )
+  }
+  row_sums <- rowSums(contact_r)
+  bad_rows <- which(abs(row_sums - 1) > tol)
+  if (length(bad_rows) > 0) {
+    cli::cli_abort(
+      "contact_r must be row-stochastic (rowSums == 1). Off rows: \\
+       {.val {head(bad_rows, 5)}} with rowSums {.val {head(round(row_sums[bad_rows], 4), 5)}}."
+    )
+  }
+  invisible(contact_r)
+}
+
+#' Run plague metapopulation model
+#'
+#' Forward-simulates the rat-metapopulation plague model
+#' (`inst/odin/plague_stochastic_metapop.R`). Same Didelot carcass-based
+#' transmission core as [run_plague_model()], with rats dispersing between
+#' patches at rate `mu_r` according to the row-stochastic destination matrix
+#' `contact_r`. Susceptible, infected, and recovered rats migrate at the
+#' same rate; carcasses Q are sessile; humans live per-patch and do not
+#' migrate.
+#'
+#' Per-patch parameters (`K_r`, `K_h`, `I_ini`, `R_ini`, `I_h_ini`, `R_h_ini`)
+#' must be length-`npop` numeric vectors. All transmission and demographic
+#' rates are scalars shared across patches (treat them as biological
+#' constants, not place-specific). For per-patch `beta_r[i]` etc., edit
+#' `inst/odin/plague_stochastic_metapop.R` directly.
+#'
+#' @param scenario Parameter set name, file path, or list of parameters.
+#' @param npop Integer number of patches.
+#' @param contact_r Row-stochastic `npop x npop` destination matrix
+#'   (`contact_r[i, j]` = probability that a rat leaving patch `i` arrives in
+#'   patch `j`). Must have zero diagonal.
+#' @param mu_r Rat migration rate per day. Same value applies to S, I, R rats.
+#' @param K_r Length-`npop` vector of rat carrying capacities per patch.
+#' @param K_h Length-`npop` vector of human carrying capacities per patch.
+#' @param I_ini Length-`npop` vector of initial infected rats per patch.
+#' @param R_ini Length-`npop` vector of initial heritably-resistant rats
+#'   per patch (default all zero).
+#' @param I_h_ini Length-`npop` vector of initial infected humans per patch
+#'   (default all zero).
+#' @param R_h_ini Length-`npop` vector of initial recovered humans per patch
+#'   (default all zero).
+#' @param years Number of years to simulate (default 1).
+#' @param timestep "weekly" or "daily" (default "daily" -- migration is
+#'   typically a daily-cadence process).
+#' @param n_particles Number of particles for the stochastic run.
+#' @param n_threads Number of threads for parallel processing.
+#' @param obs_period Integer length (in days) of the observation window for
+#'   `D_h` / `D_r` (default 1L; requires `timestep = "daily"` if > 1).
+#' @param seasonal Optional length-`n_days` per-day multiplier on carcass
+#'   decay (defaults to no seasonality).
+#' @param ... Additional scalar parameter overrides (`beta_r`, `rho`, ...).
+#' @return `plague_results` tibble with `population` column running 1..npop.
+#' @export
+run_plague_metapop_model <- function(scenario = "defaults",
+                                     npop,
+                                     contact_r,
+                                     mu_r,
+                                     K_r,
+                                     K_h,
+                                     I_ini,
+                                     R_ini = NULL,
+                                     I_h_ini = NULL,
+                                     R_h_ini = NULL,
+                                     years = 1,
+                                     timestep = c("daily", "weekly"),
+                                     n_particles = 100,
+                                     n_threads = 1,
+                                     obs_period = 1L,
+                                     seasonal = NULL,
+                                     ...) {
+
+  timestep <- match.arg(timestep)
+  stopifnot(is.numeric(years), years > 0)
+  checkmate::assert_integerish(npop, lower = 2, len = 1, any.missing = FALSE,
+                               .var.name = "npop")
+  npop <- as.integer(npop)
+  tau_days <- if (timestep == "weekly") 7 else 1
+  validate_obs_period(obs_period, tau = tau_days)
+  validate_contact_matrix(contact_r, npop)
+  checkmate::assert_number(mu_r, lower = 0, .var.name = "mu_r")
+
+  assert_patch_vec <- function(x, name) {
+    checkmate::assert_numeric(x, len = npop, lower = 0, any.missing = FALSE,
+                              .var.name = name)
+  }
+  assert_patch_vec(K_r, "K_r")
+  assert_patch_vec(K_h, "K_h")
+  assert_patch_vec(I_ini, "I_ini")
+  if (is.null(R_ini)) R_ini <- rep(0, npop) else assert_patch_vec(R_ini, "R_ini")
+  if (is.null(I_h_ini)) I_h_ini <- rep(0, npop) else assert_patch_vec(I_h_ini, "I_h_ini")
+  if (is.null(R_h_ini)) R_h_ini <- rep(0, npop) else assert_patch_vec(R_h_ini, "R_h_ini")
+
+  # Pull scalar rates from the scenario, then override with any ... args
+  if (inherits(scenario, "scenario_parameters")) {
+    scn <- as.list(scenario)
+  } else {
+    scn <- as.list(load_scenario(scenario, ...))
+  }
+  # Drop scenario fields that are per-patch in the metapop or are scalars
+  # we're explicitly setting here.
+  scn[c("K_r", "K_h", "I_ini", "R_ini", "I_h_ini", "R_h_ini",
+        "kappa", "p_obs", "lambda_baseline")] <- NULL
+  # Ditch any leftover legacy-named keys the metapop model doesn't accept.
+  scalar_pars <- c("tau", "r_r", "r_h", "p", "d_r", "d_h",
+                   "beta_r", "beta_h", "beta_I", "rho",
+                   "m_r", "m_h", "g_r", "g_h", "delta_R", "iota")
+  scn <- scn[intersect(names(scn), scalar_pars)]
+
+  n_days <- as.integer(365 * years)
+  timesteps <- seq_len(as.integer(n_days / tau_days))
+  if (is.null(seasonal)) {
+    seasonal <- rep(1, max(timesteps))
+  } else if (length(seasonal) < max(timesteps)) {
+    cli::cli_abort("seasonal must have length >= {max(timesteps)} (got {length(seasonal)})")
+  }
+
+  model_pars <- c(
+    list(
+      npop = npop,
+      tau = tau_days,
+      mu_r = mu_r,
+      contact_r = contact_r,
+      K_r = K_r, K_h = K_h,
+      I_ini = I_ini, R_ini = R_ini,
+      I_h_ini = I_h_ini, R_h_ini = R_h_ini,
+      obs_period = as.integer(obs_period),
+      seasonal = seasonal
+    ),
+    scn
+  )
+
+  start_time <- Sys.time()
+  cli::cli_progress_step("🚀 Running {n_particles} particles \\
+                          over {length(timesteps)} steps x {npop} patches")
+
+  sys <- dust2::dust_system_create(
+    plague_stochastic_metapop,
+    pars = model_pars,
+    n_particles = n_particles,
+    n_threads = n_threads,
+    seed = sample.int(.Machine$integer.max, 1)
+  )
+  dust2::dust_system_set_state_initial(sys)
+  y <- dust2::dust_system_simulate(sys, times = timesteps)
+  state_list <- dust2::dust_unpack_state(sys, y)
+
+  # Pack arrayed compartments into long tibble. Each compartment array is
+  # [npop, n_particles, n_times] (or [npop, n_times] when n_particles == 1).
+  name_map <- c(S = "S", I = "I", R = "R", Q = "Q", D_r = "Dr",
+                S_h = "Sh", I_h = "Ih", R_h = "Rh", D_h = "Dh")
+  time_years <- timesteps * tau_days / 365
+  n_t <- length(timesteps)
+
+  state <- do.call(rbind, lapply(names(name_map), function(src) {
+    mat <- state_list[[src]]
+    if (length(dim(mat)) == 2) {
+      # n_particles == 1, dims [npop, n_times]
+      vals <- as.vector(t(mat))  # row-major: [time, patch] -> patch fastest
+      tibble::tibble(
+        compartment = name_map[[src]],
+        replicate   = 1L,
+        time        = rep(time_years, each = npop),
+        population  = rep(seq_len(npop), times = n_t),
+        value       = as.vector(mat)
+      )
+    } else {
+      # dims [npop, n_particles, n_times]
+      tibble::tibble(
+        compartment = name_map[[src]],
+        replicate   = rep(rep(seq_len(n_particles), each = npop), times = n_t),
+        time        = rep(time_years, each = npop * n_particles),
+        population  = rep(seq_len(npop), times = n_particles * n_t),
+        value       = as.vector(mat)
+      )
+    }
+  }))
+
+  elapsed <- round(as.numeric(Sys.time() - start_time, units = "secs"), 1)
+  cli::cli_progress_done()
+  cli::cli_inform("✅ Metapop simulation completed in {elapsed}s")
+
+  # Use the original scenario object for downstream metadata
+  scenario_obj <- if (inherits(scenario, "scenario_parameters")) {
+    scenario
+  } else {
+    load_scenario(scenario, ...)
+  }
+  run_info <- list(timestamp = Sys.time(),
+                   model = "stochastic_metapop",
+                   npop = npop,
+                   n_particles = n_particles)
+  new_plague_results(state, "stochastic_metapop", scenario_obj, run_info)
+}
+
 #' Run human stochastic model (dust2/odin2 backend)
 #' @param params List of parameters
 #' @param timesteps Vector of timesteps
@@ -581,14 +855,22 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
 
   # Restrict to parameters the humans odin2 model accepts; drop spatial-only
   # keys like npop, contact, mu_r so dust2 doesn't reject the call.
-  model_param_names <- c("tau", "I_ini", "S_ini", "K_r", "K_h", "r_r", "r_h",
+  model_param_names <- c("tau", "I_ini", "R_ini", "K_r", "K_h", "r_r", "r_h",
                          "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho",
-                         "m_r", "m_h", "g_r", "g_h", "delta_R", "kappa")
+                         "m_r", "m_h", "g_r", "g_h", "delta_R", "kappa", "p_obs",
+                         "iota", "seasonal", "I_h_ini", "R_h_ini",
+                         "lambda_baseline", "obs_period")
   model_params <- params[intersect(names(params), model_param_names)]
   # I_ini may arrive as length-1 vector from run_plague_model's spatial prep;
   # odin2 wants scalar in the single-population case.
   if (length(model_params$I_ini) > 1) {
     model_params$I_ini <- model_params$I_ini[[1]]
+  }
+  # Default seasonal forcing to 1 (no seasonality) when not supplied. The odin
+  # model indexes seasonal[time + 1] for time = 0..max(timesteps)-1, so length
+  # must be at least max(timesteps).
+  if (is.null(model_params$seasonal)) {
+    model_params$seasonal <- rep(1, max(timesteps))
   }
 
   sys <- dust2::dust_system_create(
@@ -622,6 +904,5 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
 
   state
 }
-
 
 

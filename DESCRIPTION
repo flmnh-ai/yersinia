@@ -36,14 +36,19 @@ Imports:
     cubelyr,
     checkmate,
     glue,
-    cli
+    cli,
+    Matrix
 Suggests:
     testthat,
     ggplot2,
     knitr,
     rmarkdown,
     posterior,
-    bayesplot
+    bayesplot,
+    sf,
+    igraph,
+    patchwork,
+    scales
 Config/testthat/edition: 3
 VignetteBuilder: knitr
 LazyData: true

@@ -12,6 +12,7 @@ plague_fit_setup(
   n_threads = 2,
   prior = NULL,
   vcv = NULL,
+  obs_period = 1L,
   smoke_test = TRUE
 )
 }
@@ -31,6 +32,13 @@ plague_fit_setup(
 \item{prior}{monty model; default \code{\link[=plague_fit_prior]{plague_fit_prior()}}.}
 
 \item{vcv}{Sampler VCV; default \code{\link[=plague_fit_vcv]{plague_fit_vcv()}}.}
+
+\item{obs_period}{Integer length (in days) of the observation window over
+which \code{D_h} accumulates between data points. Default \code{1L} for daily
+data. Set to e.g. \code{7L} when fitting weekly counts (London 1563); the
+model's \code{D_h} accumulator then resets every 7 days so each comparison
+is between a weekly count and a 7-day sum of simulated plague deaths.
+All \code{data$time} values must be multiples of \code{obs_period}.}
 
 \item{smoke_test}{If \code{TRUE} (default), call \code{dust_likelihood_run()} once
 to validate filter + fixed params + data before returning.}

@@ -107,3 +107,51 @@ dust2_filter_plague_stochastic_humans_rng_state <- function(ptr) {
 dust2_filter_plague_stochastic_humans_set_rng_state <- function(ptr, r_rng_state) {
   .Call(`_yersinia_dust2_filter_plague_stochastic_humans_set_rng_state`, ptr, r_rng_state)
 }
+
+dust2_system_plague_stochastic_metapop_alloc <- function(r_pars, r_time, r_time_control, r_n_particles, r_n_groups, r_seed, r_deterministic, r_n_threads) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_alloc`, r_pars, r_time, r_time_control, r_n_particles, r_n_groups, r_seed, r_deterministic, r_n_threads)
+}
+
+dust2_system_plague_stochastic_metapop_run_to_time <- function(ptr, r_time) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_run_to_time`, ptr, r_time)
+}
+
+dust2_system_plague_stochastic_metapop_state <- function(ptr, r_index_state, r_index_particle, r_index_group, preserve_particle_dimension, preserve_group_dimension) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_state`, ptr, r_index_state, r_index_particle, r_index_group, preserve_particle_dimension, preserve_group_dimension)
+}
+
+dust2_system_plague_stochastic_metapop_time <- function(ptr) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_time`, ptr)
+}
+
+dust2_system_plague_stochastic_metapop_set_state_initial <- function(ptr) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_set_state_initial`, ptr)
+}
+
+dust2_system_plague_stochastic_metapop_set_state <- function(ptr, r_state) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_set_state`, ptr, r_state)
+}
+
+dust2_system_plague_stochastic_metapop_reorder <- function(ptr, r_index) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_reorder`, ptr, r_index)
+}
+
+dust2_system_plague_stochastic_metapop_rng_state <- function(ptr) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_rng_state`, ptr)
+}
+
+dust2_system_plague_stochastic_metapop_set_rng_state <- function(ptr, r_rng_state) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_set_rng_state`, ptr, r_rng_state)
+}
+
+dust2_system_plague_stochastic_metapop_set_time <- function(ptr, r_time) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_set_time`, ptr, r_time)
+}
+
+dust2_system_plague_stochastic_metapop_update_pars <- function(ptr, pars) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_update_pars`, ptr, pars)
+}
+
+dust2_system_plague_stochastic_metapop_simulate <- function(ptr, r_times, r_index_state, preserve_particle_dimension, preserve_group_dimension) {
+  .Call(`_yersinia_dust2_system_plague_stochastic_metapop_simulate`, ptr, r_times, r_index_state, preserve_particle_dimension, preserve_group_dimension)
+}

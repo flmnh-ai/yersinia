@@ -6,13 +6,30 @@ plague_stochastic_humans <- structure(
   package = "yersinia",
   path = NULL,
   parameters = data.frame(
-    name = c("tau", "I_ini", "S_ini", "K_r", "K_h", "r_r", "r_h", "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho", "m_r", "m_h", "g_r", "g_h", "delta_R", "kappa"),
-    type = c("real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type"),
-    constant = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
-    required = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
-    rank = c(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L)),
+    name = c("tau", "I_ini", "R_ini", "K_r", "K_h", "r_r", "r_h", "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho", "m_r", "m_h", "g_r", "g_h", "delta_R", "kappa", "p_obs", "iota", "I_h_ini", "R_h_ini", "lambda_baseline", "obs_period", "seasonal"),
+    type = c("real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type"),
+    constant = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
+    required = c(FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE),
+    rank = c(0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 1L)),
   properties = list(
     time_type = "discrete",
     has_compare = TRUE,
+    has_adjoint = FALSE),
+  default_dt = 1)
+plague_stochastic_metapop <- structure(
+  function() get("plague_stochastic_metapop"),
+  class = "dust_system_generator",
+  name = "plague_stochastic_metapop",
+  package = "yersinia",
+  path = NULL,
+  parameters = data.frame(
+    name = c("npop", "tau", "mu_r", "contact_r", "K_r", "K_h", "I_ini", "R_ini", "I_h_ini", "R_h_ini", "r_r", "r_h", "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho", "m_r", "m_h", "g_r", "g_h", "delta_R", "iota", "obs_period", "seasonal"),
+    type = c("int", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type"),
+    constant = c(TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
+    required = c(FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE),
+    rank = c(0L, 0L, 0L, 2L, 1L, 1L, 1L, 1L, 1L, 1L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 1L)),
+  properties = list(
+    time_type = "discrete",
+    has_compare = FALSE,
     has_adjoint = FALSE),
   default_dt = 1)

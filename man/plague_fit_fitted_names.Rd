@@ -15,3 +15,12 @@ If you change this set, you also need to provide a matching \code{prior} and
 \code{vcv} — the defaults returned by \code{\link[=plague_fit_prior]{plague_fit_prior()}} and \code{\link[=plague_fit_vcv]{plague_fit_vcv()}}
 are built for exactly this ordering.
 }
+\details{
+The model also supports \code{p_obs} (observation/ascertainment probability,
+defaults to 1 = perfect reporting) which is deliberately NOT fitted by
+default. To opt in, pass e.g.
+\code{fitted_names = c(plague_fit_fitted_names(), "p_obs")} to
+\code{\link[=plague_fit_setup]{plague_fit_setup()}} with a matching prior
+(\code{p_obs ~ Uniform(0, 1)} follows the 2009-flu example in the odin-monty
+book) and an extended VCV.
+}

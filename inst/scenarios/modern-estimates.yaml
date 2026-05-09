@@ -14,6 +14,7 @@ time_unit: "day"
 # Rat population parameters
 r_r: 0.01233     # Rat population growth rate (per day, = 4.5/365)
 p: 0.96          # Slightly lower resistance probability
+iota: 0.75       # Fecundity multiplier for resistant rats (always fixed, not fitted)
 d_r: 0.000685    # Natural death rate of rats (per day, = 0.25/365)
 
 # Disease transmission parameters

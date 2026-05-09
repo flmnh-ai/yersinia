@@ -10,25 +10,31 @@ reference: "Model-based analysis of an outbreak of bubonic plague in Cairo in 18
 doi: "10.1098/rsif.2017.0160"
 time_unit: "day"
 
-# Rat population parameters (not in original paper, added for compatibility)
-r_r: 0.01370       # Rat population growth rate (per day, = 5/365)
+# Rat population parameters. Didelot excluded rat births and natural deaths
+# on the short outbreak timescale; leave these at zero for Cairo-equivalent
+# behavior and override them only when explicitly adding rat demography.
+K_r: 250000         # Rat carrying capacity (Didelot Table 1: K_R = 250,000)
+r_r: 0.0           # Rat population growth rate (per day)
 p: 0.975            # Probability of inherited resistance
-d_r: 0.000548       # Natural death rate of rats (per day, = 0.2/365)
+iota: 1.0           # Fecundity multiplier for resistant rats (inert here: r_r = 0)
+d_r: 0.0            # Natural death rate of rats (per day)
 
 # Disease transmission parameters (daily rates, from posterior means)
 beta_r: 0.77        # Transmission rate from carcasses to rats (per day)
 rho: 2.63           # Rat carcass infectivity range (dimensionless)
-m_r: 0.056          # Plague death rate of rats (per day, = 1/18)
+m_r: 0.0556         # Plague death rate of rats (per day, = 1/18; Didelot Table 1 fixed)
 g_r: 0.0            # Probability rat survives infection (0 in Didelot - all infected rats die)
 delta_R: 0.267      # Carcass decay rate (per day, ~3.7 day infectious period)
 
 # Human population parameters (daily rates)
-r_h: 0.0            # Human growth rate (0 on outbreak timescale)
+K_h: 250000         # Initial human population (Didelot Table 1: N_H = 250,000)
+r_h: 0.0000898      # Human birth rate (per day), set equal to d_h as in Didelot
 d_h: 0.0000898      # Non-plague human death rate (per day, ~30.5 year life expectancy)
 beta_h: 0.0145      # Transmission rate from carcasses to humans (per day)
 beta_I: 0.0215      # Human-to-human transmission rate (per day)
-m_h: 0.125          # Plague resolution rate in humans (per day, = 1/8)
+m_h: 0.0556         # Plague resolution rate in humans (per day, = 1/18; Didelot Table 1 fixed)
 g_h: 0.1            # Probability human survives plague
+p_obs: 0.8          # Didelot assumed 80% of human deaths were reported
 
 # Spatial parameters
 mu_r: 0.0000822     # Rat movement rate (per day, = 0.03/365, not in original)
@@ -44,6 +50,7 @@ notes: |
   - Initial proportion of infected rats p0 = 0.028 [0.005;0.071]
   - Model designed for short outbreak timescales (~150 days)
 
-  Rat demographic parameters (r_r, p, d_r) are NOT from this paper
-  and are included only for compatibility with the spatial model.
-  Set r_r=0 to disable rat demographics for pure Didelot behavior.
+  Rat demographic parameters r_r and d_r are zero because Didelot excluded
+  rat births and natural deaths from the Cairo outbreak model. Parameter p is
+  retained only for compatibility with the package's optional resistant-rat
+  state and has no effect when no resistant rats are initialized.
