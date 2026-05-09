@@ -1,0 +1,445 @@
+---
+title: "Plague on a Rat Network: Metapopulation Dynamics"
+subtitle: "How dispersal, network structure, and patch size shape outbreak spread"
+author: "Nick Gauthier"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    fig-width: 8
+    fig-height: 5
+editor: visual
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.path = "figures/metapop-",
+  cache = TRUE,
+  fig.retina = 2
+)
+```
+
+## Why a metapopulation model?
+
+The single-population plague model (`run_plague_model()`) treats one settlement as a closed, well-mixed system: rats infect rats, rats infect humans, the outbreak peaks and burns out. That works for fitting a single death series. But real plague did not stay put. It travelled — across river corridors, along trade routes, between port cities and inland villages — riding on **rat dispersal**.
+
+The metapopulation model (`run_plague_metapop_model()`) adds spatial structure: `npop` patches, each running the Didelot carcass-based dynamics locally, **coupled by a row-stochastic contact matrix** `contact_r` and a per-day rat migration rate `mu_r`. Susceptible, infected, and resistant rats migrate at the same rate; carcasses are sessile (rats die where they are); humans live per-patch and don't move (in v1).
+
+This vignette runs six experiments. The first four explore how spatial structure shapes a single outbreak; the last two replicate two iconic analyses from Keeling & Gilligan (2000), the foundational metapopulation paper for plague:
+
+1.  The **contact matrix** itself — building chain, star, and complete-graph topologies
+2.  **Topology shapes the wave** — same `mu_r`, same seed patch, different networks
+3.  **Migration rate sweep** — when does the disease propagate vs go extinct?
+4.  **Asymmetric patches** — a large port city plus small villages
+5.  **Single-patch persistence** (after K&G 2000, Fig. 4) — how stochastic extinction depends on initial composition and local-dynamic timescale
+6.  **A century on a 5×5 grid** (after K&G 2000, Fig. 5) — the rescue effect: locally short-lived, globally persistent
+
+```{r libraries}
+library(yersinia)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(purrr)
+
+theme_set(theme_minimal(base_size = 11))
+set.seed(2026)
+```
+
+## 1. Building a contact matrix
+
+`contact_r[i, j]` is the probability that a rat leaving patch `i` arrives in patch `j`. The matrix must be:
+
+-   **Square** with dimensions `npop × npop`
+-   **Zero on the diagonal** (an emigrant by definition leaves its origin)
+-   **Row-stochastic** (each row sums to 1)
+-   **Non-negative**
+
+`validate_contact_matrix()` checks all four; the wrapper calls it for you.
+
+Here are three canonical topologies for a 5-patch system:
+
+```{r topologies}
+make_chain <- function(n) {
+  m <- matrix(0, n, n)
+  for (i in 1:n) {
+    if (i > 1) m[i, i - 1] <- 1
+    if (i < n) m[i, i + 1] <- 1
+  }
+  m / rowSums(m)
+}
+
+make_star <- function(n, hub = 1) {
+  m <- matrix(0, n, n)
+  m[hub, -hub] <- 1   # hub sends equally to all spokes
+  m[-hub, hub] <- 1   # spokes send only to hub
+  m / rowSums(m)
+}
+
+make_complete <- function(n) {
+  m <- matrix(1, n, n) - diag(n)
+  m / rowSums(m)
+}
+
+chain    <- make_chain(5)
+star     <- make_star(5, hub = 3)  # patch 3 is the hub
+complete <- make_complete(5)
+
+# Quick visualization
+plot_network <- function(mat, title) {
+  long <- expand_grid(from = 1:nrow(mat), to = 1:ncol(mat)) |>
+    mutate(weight = as.vector(t(mat)))
+  ggplot(long, aes(to, from, fill = weight)) +
+    geom_tile(color = "white") +
+    scale_fill_viridis_c(limits = c(0, 1), option = "magma") +
+    scale_y_reverse(breaks = 1:nrow(mat)) +
+    scale_x_continuous(breaks = 1:ncol(mat), position = "top") +
+    coord_fixed() +
+    labs(title = title, x = "to patch", y = "from patch", fill = "p")
+}
+```
+
+```{r topology-grid, fig.width = 9, fig.height = 3.2, fig.cap = "Three contact-matrix topologies for npop = 5. Rows are origins, columns are destinations; cell shading is the row-stochastic dispersal probability."}
+library(patchwork)
+plot_network(chain, "chain (1↔2↔3↔4↔5)") +
+  plot_network(star, "star (hub = patch 3)") +
+  plot_network(complete, "complete graph")
+```
+
+## 2. Topology shapes the wave
+
+Run the same biological scenario (`defaults` rates, no rat demography, plague seeded with 10 infected rats in patch 1) on each topology. Same `mu_r = 0.02` per day for every comparison. What changes is only the network.
+
+```{r topology-experiment}
+run_topology <- function(label, contact_mat, mu_r = 0.02,
+                         years = 1, n_particles = 60) {
+  res <- run_plague_metapop_model(
+    scenario = "defaults",
+    npop = nrow(contact_mat),
+    contact_r = contact_mat,
+    mu_r = mu_r,
+    K_r = rep(2500, nrow(contact_mat)),
+    K_h = rep(5000, nrow(contact_mat)),
+    I_ini = c(10, rep(0, nrow(contact_mat) - 1)),  # seed patch 1 only
+    years = years,
+    n_particles = n_particles,
+    r_r = 0, d_r = 0, r_h = 0, d_h = 0  # turn off demography
+  )
+  res |> mutate(topology = label)
+}
+
+topology_runs <- bind_rows(
+  run_topology("chain",    chain),
+  run_topology("star",     star),
+  run_topology("complete", complete)
+)
+```
+
+The cleanest visualization of a spatial wave is the median trajectory of cumulative human deaths per patch:
+
+```{r topology-wave, fig.width = 9, fig.height = 6, fig.cap = "Median cumulative human deaths per patch under three migration topologies, plague seeded only in patch 1. The chain produces a clear traveling wave (delay scales with distance from the seed); the star synchronizes via the hub (patch 3); the complete graph spreads to every patch nearly simultaneously."}
+topology_runs |>
+  filter(compartment == "Dh") |>
+  group_by(topology, time, population) |>
+  summarise(deaths_med = median(value), .groups = "drop") |>
+  group_by(topology, population) |>
+  arrange(time) |>
+  mutate(cumulative_deaths = cumsum(deaths_med)) |>
+  ungroup() |>
+  ggplot(aes(time * 365, cumulative_deaths, color = factor(population))) +
+  geom_line(linewidth = 0.8) +
+  facet_wrap(~ topology, ncol = 1) +
+  scale_color_viridis_d(option = "plasma", end = 0.9) +
+  labs(x = "days", y = "cumulative human deaths (median)",
+       color = "patch",
+       title = "Same migration rate, different network → different spread pattern")
+```
+
+In the **chain**, patch 5 lags patch 1 by months — the wave has to hop sequentially. In the **star**, the hub (patch 3) ignites first among the non-seed patches because every other patch's emigrants flow through it. In the **complete graph**, every patch is one step from the seed and outbreaks fire nearly together.
+
+## 3. How migration rate controls spread
+
+Network structure matters, but so does the *rate*. Too low, and migration is slower than the local outbreak's burnout window — the wave stalls or goes extinct. Too high, and patches synchronize into one giant outbreak. Let's sweep `mu_r` in the chain topology to see the regime change.
+
+```{r migration-sweep, fig.width = 9, fig.height = 5, fig.cap = "Per-patch attack rate (cumulative human deaths over the year) versus migration rate `mu_r`, on a 5-patch chain seeded at patch 1. At `mu_r = 0` only patch 1 outbreaks. As `mu_r` rises, the wave reaches successively distant patches; at high `mu_r` all patches are heavily affected."}
+mu_grid <- c(0, 0.001, 0.005, 0.02, 0.05, 0.1)
+
+sweep_results <- map_dfr(mu_grid, function(mu) {
+  run_topology(label = sprintf("mu_r = %.3f", mu),
+               contact_mat = chain, mu_r = mu) |>
+    mutate(mu_r = mu)
+})
+
+sweep_results |>
+  filter(compartment == "Dh") |>
+  group_by(mu_r, population, replicate) |>
+  summarise(total_deaths = sum(value), .groups = "drop") |>
+  group_by(mu_r, population) |>
+  summarise(median_deaths = median(total_deaths),
+            q25 = quantile(total_deaths, 0.25),
+            q75 = quantile(total_deaths, 0.75),
+            .groups = "drop") |>
+  ggplot(aes(factor(population), median_deaths,
+             ymin = q25, ymax = q75,
+             fill = factor(population))) +
+  geom_col() +
+  geom_errorbar(width = 0.25, alpha = 0.6) +
+  facet_wrap(~ paste0("mu_r = ", sprintf("%.3f", mu_r)), nrow = 1) +
+  scale_fill_viridis_d(option = "plasma", end = 0.9, guide = "none") +
+  labs(x = "patch (1 = seed)",
+       y = "year-1 cumulative human deaths (median, IQR)",
+       title = "Migration rate sets how far the wave reaches")
+```
+
+A few things worth noting:
+
+-   At `mu_r = 0` (decoupled), only patch 1 sees an outbreak. The other patches' `D_h` stays exactly zero — `D_h` tracks true plague deaths, not the misclassification baseline that enters the likelihood.
+-   At `mu_r = 0.001`, plague reaches every patch, but patch 5 has wide IQR and a low median — many particles see only a partial outbreak there. This is the **stochastic skip** regime: the migration rate is barely fast enough relative to the local outbreak's burnout window for the wave to reach the far end of the chain.
+-   At `mu_r ≥ 0.005`, every patch is reliably affected.
+-   At `mu_r = 0.1`, an interesting **export effect** appears: patch 1's attack rate is *lower* than patches 2 and 3. With migration that fast, infected rats leave patch 1 before the local outbreak fully consumes its rat population — patch 1 effectively "exports" some of its outbreak to neighbouring patches. The metapop is approaching the well-mixed limit where the network behaves like one big patch.
+
+## 4. Asymmetric patches: a port and four villages
+
+Real plague networks were rarely symmetric. A port city or major market typically had ten times the rat carrying capacity of a surrounding village, and was the entry point for plague (via shipping, grain trade) before it dispersed inland.
+
+We model this as one large patch (`K_r = 8000`) connected by migration to four smaller villages (`K_r = 1000` each). The port is patch 1; villages are patches 2–5. The contact matrix is a star with the port as hub:
+
+```{r asym-network}
+n <- 5
+asym_contact <- make_star(n, hub = 1)
+
+# Plague entry via the port
+asym_K_r <- c(8000, rep(1000, 4))
+asym_K_h <- c(15000, rep(2500, 4))
+
+asym_run <- run_plague_metapop_model(
+  scenario = "defaults",
+  npop = n,
+  contact_r = asym_contact,
+  mu_r = 0.01,
+  K_r = asym_K_r,
+  K_h = asym_K_h,
+  I_ini = c(20, rep(0, 4)),  # seed at the port
+  years = 1.5,
+  n_particles = 80,
+  r_r = 0, d_r = 0, r_h = 0, d_h = 0
+)
+```
+
+```{r asym-trajectories, fig.width = 9, fig.height = 5, fig.cap = "Daily human deaths at the port and four villages. The port outbreak peaks first and largest (proportional to its larger human population); each village's outbreak is delayed and smaller, but the order in which they ignite is essentially random (they're symmetric peers connected only via the port)."}
+patch_labels <- c("port (K_r=8000)",
+                  paste0("village ", 1:4, " (K_r=1000)"))
+
+asym_run |>
+  filter(compartment == "Dh") |>
+  group_by(time, population) |>
+  summarise(median_deaths = median(value),
+            q05 = quantile(value, 0.05),
+            q95 = quantile(value, 0.95),
+            .groups = "drop") |>
+  mutate(patch = factor(patch_labels[population], levels = patch_labels)) |>
+  ggplot(aes(time * 365, median_deaths)) +
+  geom_ribbon(aes(ymin = q05, ymax = q95, fill = patch), alpha = 0.25) +
+  geom_line(aes(color = patch), linewidth = 0.7) +
+  facet_wrap(~ patch, scales = "free_y", nrow = 2) +
+  guides(color = "none", fill = "none") +
+  labs(x = "days", y = "daily human deaths (median, 5-95%)",
+       title = "Port-and-villages: outbreaks ignite asymmetrically")
+```
+
+The port-village asymmetry has a structural consequence visible in the death counts: although every village receives the *same* migration probability from the port, the **timing** of each village's ignition varies particle-to-particle because the introduction event is stochastic — a few infected rats arriving early can light up one village before another. This is the classic "stochastic skip" pattern documented in historical Black Death spread.
+
+To see this clearly, compare the day when each village's cumulative human death count first crosses 3 — a low threshold so that even villages whose outbreak fizzles still register an arrival time, but high enough to filter out single-death noise:
+
+```{r asym-ignition, fig.width = 7, fig.height = 4, fig.cap = "Distribution across particles of the day when each village's cumulative human deaths first cross 3. Villages have the same connection probability to the port, but the realised arrival time is broadly distributed across particles — and a few percent of particles never ignite a village outbreak at all (NA, dropped from the plot)."}
+asym_run |>
+  filter(compartment == "Dh", population > 1) |>
+  group_by(replicate, population) |>
+  arrange(time) |>
+  mutate(cumulative = cumsum(value)) |>
+  summarise(arrival = {
+    hits <- which(cumulative >= 3)
+    if (length(hits) == 0) NA_real_ else time[min(hits)] * 365
+  }, .groups = "drop") |>
+  filter(!is.na(arrival)) |>
+  mutate(village = paste0("village ", population - 1)) |>
+  ggplot(aes(arrival, village)) +
+  geom_jitter(height = 0.2, alpha = 0.4, color = "firebrick") +
+  geom_boxplot(alpha = 0, outlier.shape = NA, color = "black") +
+  labs(x = "day of cumulative deaths ≥ 3", y = NULL,
+       title = "Stochastic ignition: same migration probability,\ndifferent realised arrival times")
+```
+
+## 5. Single-patch persistence (after K&G 2000, Fig. 4)
+
+[Keeling & Gilligan (2000)](https://doi.org/10.1098/rspb.2000.1272) is the foundational metapopulation analysis of plague. Two of their findings translate directly to our model. The first concerns *single-patch persistence*: in a closed rat population, plague is short-lived. The probability of the disease still circulating two years after introduction depends on (i) the initial proportion of susceptibles and (ii) how slowly the rat–carcass loop turns over. Their Figure 4(a) plots this as families of curves, one per value of the flea searching efficiency `a`.
+
+Our carcass-based formulation does not have an explicit `a`, but the **ratio of slow rates to fast rates** plays the same role. Slower transmission (`beta_r`) and slower carcass decay (`delta_R`) together stretch the local outbreak's lifetime — analogous to K&G's slower flea dynamics. Holding R₀ approximately constant, we sweep a scale factor that multiplies both rates:
+
+```{r kg-fig4-setup}
+defaults <- load_scenario("defaults")
+# Run a single-patch experiment for given (beta_r, delta_R) and S_frac.
+# 1 infected rat seed; the remaining K_r split between susceptibles and
+# heritably-resistant rats per the initial S fraction. P(persistence > t yr)
+# is the share of particles with I + Q > 0 at year t.
+single_patch_persistence <- function(scale, S_frac,
+                                     K_r = 2500, n_particles = 200,
+                                     years = 5) {
+  res <- run_plague_model(
+    scenario = "defaults", K_r = K_r, K_h = 2 * K_r, I_ini = 1,
+    R_ini = K_r * (1 - S_frac),
+    years = years, timestep = "weekly", n_particles = n_particles,
+    beta_r = defaults$beta_r * scale,
+    delta_R = defaults$delta_R * scale
+  )
+  t_unique <- sort(unique(res$time))
+  pickt <- function(target) t_unique[which.min(abs(t_unique - target))]
+  alive_at <- function(t) {
+    res |>
+      filter(time == pickt(t), compartment %in% c("I", "Q")) |>
+      group_by(replicate) |>
+      summarise(alive = sum(value) > 0, .groups = "drop") |>
+      pull(alive) |> mean()
+  }
+  tibble(scale = scale, S_frac = S_frac,
+         p2 = alive_at(2), p5 = alive_at(years - 0.01))
+}
+
+scales <- c(0.05, 0.10, 0.20, 0.40)   # rate-scaling factors (slow → fast)
+sfracs <- seq(0.1, 0.95, by = 0.05)
+```
+
+```{r kg-fig4-run}
+kg_fig4 <- expand_grid(scale = scales, S_frac = sfracs) |>
+  pmap_dfr(\(scale, S_frac) single_patch_persistence(scale, S_frac))
+```
+
+```{r kg-fig4-plot, fig.width = 9, fig.height = 4.5, fig.cap = "K&G (2000) Fig. 4(a) analog. Probability that plague is still circulating in a single rat patch at year 2 (solid) and year 5 (dashed) as a function of the initial fraction of susceptible rats. Each curve corresponds to a different rate-scale: smaller `scale` means slower transmission and slower carcass decay (analogous to K&G's lower flea searching efficiency `a`), so local outbreaks last longer. Only an intermediate range of initial susceptibility supports multi-year persistence; with too few susceptibles the disease never invades, and with too many it burns through and exhausts the rat population."}
+kg_fig4_long <- kg_fig4 |>
+  pivot_longer(c(p2, p5), names_to = "horizon", values_to = "p") |>
+  mutate(horizon = recode(horizon, p2 = "P(persistence > 2 yr)",
+                          p5 = "P(persistence > 5 yr)"))
+ggplot(kg_fig4_long,
+       aes(S_frac, p, color = factor(scale), linetype = horizon)) +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 1.2) +
+  scale_color_viridis_d(option = "plasma", end = 0.85,
+                        name = "rate scale\n(beta_r, delta_R\nrelative to defaults)") +
+  scale_linetype_manual(values = c("solid", "32"), name = NULL) +
+  labs(x = "initial fraction susceptible (S / K_r)",
+       y = "probability of persistence",
+       title = "Single-patch persistence is short, narrow, and rate-sensitive")
+```
+
+The K&G finding shows up clearly: *closed* rat populations are bad reservoirs for plague. Even at the most favourable rate-scale and initial composition, P(persistence \> 5 yr) maxes out around 40%. The long-term endemic behaviour seen in the historical record (London 1590–1650, Bijapur 1935–43) cannot come from a single isolated population — it must come from the *spatial* coupling of many short-lived local outbreaks. That is the second K&G finding we will replicate.
+
+## 6. A century on a 5×5 grid (after K&G 2000, Fig. 5)
+
+K&G's Fig. 5 shows 100 years of plague dynamics on a 5×5 nearest-neighbour-coupled grid of rat patches. Globally, the disease never goes extinct: when a patch's local outbreak burns out, neighbouring patches reseed it years later via rare rat dispersal. This is the **rescue effect** — a metapopulation can sustain a disease that no individual patch could.
+
+```{r kg-fig5-grid-helper}
+# Nearest-neighbour 2D grid: each patch sends emigrants uniformly to its
+# 2-4 neighbours (corners have 2, edges 3, interior 4).
+make_grid <- function(n_row, n_col) {
+  npop <- n_row * n_col
+  m <- matrix(0, npop, npop)
+  patch_at <- function(r, c) (r - 1) * n_col + c
+  for (r in 1:n_row) for (c in 1:n_col) {
+    i <- patch_at(r, c)
+    if (r > 1)     m[i, patch_at(r - 1, c)] <- 1
+    if (r < n_row) m[i, patch_at(r + 1, c)] <- 1
+    if (c > 1)     m[i, patch_at(r, c - 1)] <- 1
+    if (c < n_col) m[i, patch_at(r, c + 1)] <- 1
+  }
+  m / rowSums(m)
+}
+grid_5x5 <- make_grid(5, 5)
+```
+
+To get the long-term qualitative behaviour K&G found, we tune the model into a "slow-stochastic" regime: smaller patches (`K_r = 1500` rats), low rat dispersal (`mu_r = 1e-4` per day, \~1 expected migration per rat-decade), and slightly slower transmission (`beta_r = 0.30`). With moderate inheritance of resistance (`p = 0.5`), the post-outbreak population mixes susceptible and resistant offspring in a way that allows reflares — a deliberate departure from the package's `defaults` (which has nearly-pure heritable resistance, `p = 0.975`, suitable for short Didelot-style fits but too "absorbing" for century-scale endemic dynamics).
+
+```{r kg-fig5-run}
+set.seed(42)
+kg_fig5 <- run_plague_metapop_model(
+  scenario = "defaults",
+  npop = 25,
+  contact_r = grid_5x5,
+  mu_r = 1e-4,                       # rare dispersal: ~3-4 migrations/rat-lifetime
+  K_r = rep(1500, 25),
+  K_h = rep(3000, 25),
+  I_ini = ifelse(seq_len(25) %in% c(7, 13, 19), 5, 0),  # seed 3 patches
+  years = 100,
+  n_particles = 1,                   # single realisation, like K&G Fig. 5
+  timestep = "weekly",
+  beta_r = 0.30, p = 0.5
+)
+```
+
+The hallmark K&G plot is three-panel: (a) global infected rats over time, (b) global force of infection on humans, (c) per-patch infected rats arranged on the 5×5 grid.
+
+```{r kg-fig5-plot, fig.width = 9, fig.height = 9, fig.cap = "K&G (2000) Fig. 5 analog. (top) Global infected rats summed over all 25 patches, log scale: plague never extinguishes globally over a century. (middle) Total daily human plague deaths summed across patches: human cases are sporadic and bursty, riding the rat dynamics. (bottom) Per-patch infected rats arranged on the 5×5 grid: some patches sustain rolling low-level outbreaks while others fall quiet for years before reigniting. The qualitative picture matches K&G's central finding — locally short-lived, globally persistent."}
+patches_long <- kg_fig5 |>
+  filter(compartment %in% c("I", "Dh"))
+
+global_I <- patches_long |>
+  filter(compartment == "I") |>
+  group_by(time) |>
+  summarise(global_I = sum(value), .groups = "drop")
+
+global_Dh <- patches_long |>
+  filter(compartment == "Dh") |>
+  group_by(time) |>
+  summarise(global_Dh = sum(value), .groups = "drop")
+
+p_global_I <- ggplot(global_I, aes(time, global_I)) +
+  geom_line(color = "firebrick", linewidth = 0.4) +
+  scale_y_log10(labels = scales::label_log()) +
+  labs(x = NULL, y = "global infected rats", title = "(a) Global rat cases")
+
+p_global_D <- ggplot(global_Dh, aes(time, global_Dh)) +
+  geom_line(color = "steelblue", linewidth = 0.4) +
+  labs(x = NULL, y = "weekly human deaths", title = "(b) Global human deaths") +
+  scale_y_continuous(limits = c(0, NA))
+
+per_patch_I <- patches_long |>
+  filter(compartment == "I") |>
+  mutate(row = (population - 1) %/% 5 + 1,
+         col = (population - 1) %%  5 + 1,
+         patch_label = sprintf("(%d, %d)", row, col))
+
+p_grid <- ggplot(per_patch_I, aes(time, value)) +
+  geom_line(linewidth = 0.25, color = "firebrick") +
+  facet_wrap(~ population, ncol = 5,
+             labeller = as_labeller(function(x) {
+               i <- as.integer(x); sprintf("patch %d (%d,%d)", i,
+                                           (i - 1) %/% 5 + 1,
+                                           (i - 1) %%  5 + 1)
+             })) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(x = "year", y = "infected rats", title = "(c) Per-patch rat cases")
+
+(p_global_I / p_global_D / p_grid) +
+  plot_layout(heights = c(1, 1, 4))
+```
+
+A few features of the simulated grid worth noting:
+
+-   **The global trace never zeroes out.** That is the K&G point: even though every single patch goes through periods of zero infection, the metapop as a whole carries the disease across the century via the rescue effect.
+-   **Human deaths track rat cases asynchronously.** The (b) panel is bursty — human cases show up wherever a local rat outbreak crests. Even at long-run steady state, plague is a low-incidence disease for humans.
+-   **Some patches do most of the persistence work.** The 5×5 panel shows that interior patches (with four neighbours) are more reliably endemic than corner patches (with only two), a structural prediction of nearest-neighbour metapops.
+
+### Caveats
+
+This is a *qualitative* replication. The package's `defaults` scenario has carcass-formulation R₀ ≈ 2.6, comparable to K&G's R₀ ≈ 3, but the timescale of dynamics is faster (the `defaults` are tuned for short Didelot-style outbreak fits, not century-scale endemic dynamics). To produce K&G-like long-run persistence we slowed transmission (`beta_r * 0.40 = 0.30`) and reduced resistance inheritance (`p = 0.5`). A clean parameterisation that maps K&G's per-year flea-mediated rates to the per-day carcass formulation while preserving R₀ at the disease-free equilibrium would be a useful next exercise — the parameter mismatch is documented in `inst/scenarios/keeling-gilligan.yaml` notes.
+
+## What's next
+
+The model in v1 has rat-only migration and a constant `mu_r`. Two extensions that this architecture is built to accept:
+
+-   **Human migration** (`mu_h`, `contact_h`). Structurally a copy of the rat block applied to `S_h`/`I_h`/`R_h`. Useful for representing commuters or pilgrim flows; small effect on outbreak timing in most historical settings (humans are sedentary on outbreak timescales) but matters if you want to model **flight behaviour** — people fleeing infected cities. That last case requires `mu_h` to depend on local state (e.g. recent `D_h`), which is the more interesting research question.
+
+-   **Per-patch transmission rates.** Currently `beta_r`, `delta_R`, `rho`, etc. are scalars shared across patches. Making them arrays (`beta_r[npop]`) lets you encode known city-specific drivers — climate (modulating `delta_R` differently per city), housing density (modulating contact), or sanitation. One-line change in the odin file plus matching wrapper updates.
+
+For Bayesian fitting to multi-city joint death series, see `vignette("monty-barcelona-hierarchical")` — the metapop generator is compatible with `dust2::dust_filter_create()` once a vectorized `data()` block is added.
