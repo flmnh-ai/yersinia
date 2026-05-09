@@ -1,0 +1,513 @@
+---
+title: "Monty (seasonal forcing)"
+format: html
+editor: visual
+---
+
+Plague fit with temperature-driven seasonal forcing on carcass decay (`delta_R`). Daily plague mortality comes from the Krauer et al. (2021) dataset; daily temperature comes from a modern ERA5 climatology extracted at the outbreak location. The two are combined into a `seasonal` vector that the odin model multiplies into `delta_R` at each step (`delta_R_eff <- delta_R * seasonal[time + 1]`).
+
+## Setup
+
+```{r}
+install.packages(
+  c("monty", "dust2", "odin2"),
+  repos = c("https://mrc-ide.r-universe.dev", "https://cloud.r-project.org"))
+
+remotes::install_github('flmnh-ai/yersinia')
+```
+
+```{r}
+library(monty)
+library(odin2)
+library(dust2)
+
+library(yersinia)
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(stars)
+
+library(posterior)
+library(bayesplot)
+```
+
+## Outbreak selection
+
+Pick an outbreak by `place` + `id`. Available daily plague-specific series (from the Krauer dataset) include Eyam (41), Barcelona (15–24), Cairo (32), Alexandria (2), Algiers (9–11), Debrecen (38), Malta (82), Vetlyanka (123). All-cause series (Givry 49, Florence 42, Cairo 31, etc.) are also daily but mismatch the plague-deaths likelihood.
+
+Paths default to the local `black-death` project; override if your data lives elsewhere.
+
+```{r}
+OUTBREAK_PLACE <- 'Givry'#"Cairo" #"Barcelona"
+OUTBREAK_ID    <- 49 #32
+
+MORTALITY_CSV <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/data-raw/plague-season-v3_2/input/rawdata.csv"
+ERA_RDS       <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/era_preprocessed.RDS"
+
+# Modern reference window for the ERA5 monthly climatology (treated as a
+# stationary proxy for the outbreak-era climate at the same location).
+CLIM_REFERENCE_END <- ymd("1990-01-01")
+
+# Seasonal forcing on / off. When FALSE, the seasonal vector that gets
+# wired into `scen$seasonal` below is overridden to all-1s (no forcing),
+# but the temperature/multiplier prep still runs so the diagnostics
+# remain visible. Flip to TRUE once the underlying fit (priors, particle
+# variance, posterior shape) is verified without seasonal as a confounder.
+USE_SEASONAL = TRUE
+```
+
+## Helpers
+
+`monthly_to_daily_range()` interpolates a 12-month climatology to a daily series across an arbitrary date window (with a one-year pad on each side so the spline isn't biased at the edges). `delta_R_multiplier()` turns a daily temperature into a multiplier on `delta_R`: 1 at the reference temperature, larger when temperatures are far from optimal (faster carcass-infectivity decay because fleas survive less time on the carcass). Both come straight from the black-death project's `data_analysis.Rmd`.
+
+```{r}
+monthly_to_daily_range <- function(monthly, start_date, end_date) {
+  stopifnot(length(monthly) == 12)
+  start_date <- ymd(start_date)
+  end_date   <- ymd(end_date)
+  stopifnot(end_date >= start_date)
+
+  start_year <- year(start_date)
+  end_year   <- year(end_date)
+
+  # Pad one full year on each side so the spline has wrap context
+  # at both ends of the requested range (avoids edge artifacts).
+  years <- (start_year - 1):(end_year + 1)
+
+  mids   <- numeric(0)
+  vals   <- numeric(0)
+  offset <- 0
+
+  for (yr in years) {
+    feb  <- 28L + leap_year(yr)
+    days <- c(31, feb, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    mids <- c(mids, cumsum(days) - days / 2 + offset)
+    vals <- c(vals, monthly)
+    offset <- offset + sum(days)
+  }
+
+  daily <- spline(mids, vals, xout = 1:offset)$y
+
+  series_start <- ymd(paste0(start_year - 1, "-01-01"))
+  i1 <- as.integer(start_date - series_start) + 1
+  i2 <- as.integer(end_date   - series_start) + 1
+  daily[i1:i2]
+}
+
+delta_R_multiplier <- function(temperature,
+                               T_min = 5,
+                               T_max = 37,
+                               q     = 1.5,
+                               T_ref = 17.8,
+                               cap   = 1000) {
+  if (T_ref <= T_min || T_ref >= T_max) {
+    stop("T_ref must lie strictly between T_min and T_max.")
+  }
+  L_ref <- (T_ref - T_min) * (T_max - T_ref)^q
+  in_range <- temperature > T_min & temperature < T_max
+  L_T  <- ifelse(in_range,
+                 (temperature - T_min) * (T_max - temperature)^q,
+                 NA_real_)
+  mult <- L_ref / L_T
+  pmin(ifelse(is.na(mult), cap, mult), cap)
+}
+```
+
+Quick visual on the temperature → multiplier shape.
+
+```{r}
+tibble(temp = seq(0, 40, by = 0.5)) |>
+  mutate(mult = delta_R_multiplier(temp)) |>
+  ggplot(aes(temp, mult)) +
+  geom_line() +
+  geom_hline(yintercept = 1, linetype = 2) +
+  labs(x = "Temperature (°C)", y = "delta_R multiplier",
+       title = "Carcass-decay multiplier vs. temperature",
+       subtitle = "= 1 at T_ref, larger at extremes") +
+  theme_bw()
+```
+
+## Mortality data
+
+Load the Krauer raw dataset, filter to the chosen outbreak, parse dates, and build the `(time, deaths)` frame the particle filter expects. `time` is days since the first observation, 1-indexed (the dust2 system runs from `time = 0`, so the first observation lands one step in).
+
+```{r}
+mortality_raw <- read_csv(MORTALITY_CSV, show_col_types = FALSE)
+
+outbreak_raw <- mortality_raw |>
+  filter(place == OUTBREAK_PLACE, id == OUTBREAK_ID) |>
+  mutate(dateorig = if_else(str_length(dateorig) < 10,
+                            paste0(dateorig, "-01"), dateorig),
+         date     = ymd(dateorig)) |>
+  arrange(date)
+
+stopifnot(nrow(outbreak_raw) > 0,
+          unique(outbreak_raw$interval) == "daily")
+
+#library(readxl)
+#outbreak_raw2 <- read_excel('~/Downloads/rsif20170160supp2.xlsx') |>
+ # mutate(date = ymd(Date),
+#         n = Total) |>
+#  filter(date >= ymd('1801-01-01'))
+
+dat <- outbreak_raw |>
+  mutate(time = as.integer(date - min(date)) + 1L) |>
+  select(time, deaths = n)
+
+## CRS deliberately left unset to match the ERA stars object, which carries
+## no CRS metadata; setting one here would make `st_extract()` refuse the
+## extraction. Coordinates are numerically lon/lat in degrees.
+outbreak_lonlat <- outbreak_raw |>
+  slice(1) |>
+  select(lon, lat) |>
+  st_as_sf(coords = c("lon", "lat"))
+
+outbreak_dates <- range(outbreak_raw$date)
+
+cat(sprintf("Outbreak: %s (id %d)\n", OUTBREAK_PLACE, OUTBREAK_ID))
+cat(sprintf("Type: %s, complete: %s\n",
+            outbreak_raw$type[1], outbreak_raw$complete[1]))
+cat(sprintf("Span: %s to %s (%d days, %d obs)\n",
+            outbreak_dates[1], outbreak_dates[2],
+            as.integer(diff(outbreak_dates)) + 1L, nrow(dat)))
+
+ggplot(dat, aes(time, deaths)) +
+  geom_point() +
+  labs(title = sprintf("%s outbreak (id %d)", OUTBREAK_PLACE, OUTBREAK_ID),
+       x = "Day", y = "Deaths") +
+  theme_bw()
+```
+
+## Temperature climatology
+
+Pull ERA5 monthly 2m temperature at the outbreak location, restrict to the modern reference window, and collapse to a 12-month climatology.
+
+```{r}
+era <- readRDS(ERA_RDS)
+
+clim_monthly <- era |>
+  st_extract(outbreak_lonlat) |>
+  as_tibble() |>
+  select(-geometry) |>
+  filter(time < CLIM_REFERENCE_END) |>
+  mutate(month = month(time, label = TRUE)) |>
+  group_by(month) |>
+  summarize(t2m = mean(t2m), .groups = "drop") |>
+  arrange(month)
+
+clim_monthly
+
+ggplot(clim_monthly, aes(month, t2m)) +
+  geom_col() +
+  labs(title = sprintf("Monthly climatology at %s", OUTBREAK_PLACE),
+       x = "Month", y = "t2m (°C)") +
+  theme_bw()
+```
+
+## Seasonal multiplier
+
+Interpolate the climatology to daily values across the outbreak window, then convert to a `delta_R` multiplier. The result is a vector of length `max(dat$time)` — exactly what the odin model expects for `seasonal[time + 1]`.
+
+```{r}
+daily_temp <- monthly_to_daily_range(clim_monthly$t2m,
+                                     outbreak_dates[1],
+                                     outbreak_dates[2])
+
+stopifnot(length(daily_temp) == max(dat$time))
+
+seasonal <- delta_R_multiplier(daily_temp)
+
+# Override to no-forcing when USE_SEASONAL is FALSE. The temperature
+# diagnostic plot below still shows the would-be multiplier, so you can
+# eyeball it before flipping the switch.
+if (!USE_SEASONAL) seasonal <- rep(1, max(dat$time))
+
+tibble(time = seq_along(seasonal),
+       date = outbreak_dates[1] + days(time - 1),
+       temp = daily_temp,
+       seasonal = seasonal) |>
+  pivot_longer(c(temp, seasonal)) |>
+  ggplot(aes(date, value)) +
+  geom_line() +
+  facet_wrap(~name, ncol = 1, scales = "free_y") +
+  labs(title = "Daily temperature and seasonal multiplier",
+       x = NULL, y = NULL) +
+  theme_bw()
+```
+
+## Cairo / Didelot configuration
+
+Match Didelot et al. (2017) as closely as possible — same fitted set, same fixed values, Cairo-scale population — and let the seasonal forcing be the *only* structural addition. Priors are informative: wider than tight, but each comfortably covers the 95% CI of Didelot's posterior so the data has room to disagree.
+
+`didelot.yaml` already carries Didelot's Table 1 fixed values (K_r = K_h = 250,000, m_r = m_h = 1/18, g_h = 0.1, p_obs = 0.8) and the posterior means as starting values. Two adjustments here:
+
+-   Override K_r/K_h to the chosen outbreak's listed population (relevant when fitting a non-1801 Cairo outbreak — e.g. id 32 = 1835, pop ≈ 263,700).
+-   `delta_R` and `beta_I` are now fitted (they're fitted in Didelot too) — `plague_fit_fixed_pars()` strips them out of the scenario automatically once they're in `fitted_names`.
+
+```{r}
+plague <- yersinia::plague_stochastic_humans
+
+## I_h_ini lets the human compartment start mid-outbreak (essential for
+## Cairo id 32, where day 1 already has ~25 deaths and the model can't
+## physically explain that from t = 0 with I_h = 0). Whether to *fit*
+## it or pin it at I_H_INI_FIXED is controlled by the FIT_I_H_INI flag
+## at the top of the notebook.
+## p_obs and lambda_baseline are partially confounded — both rescale how
+## simulated D_h compares to observed deaths (mu = p_obs * D_h + lambda).
+## Pinning p_obs at Didelot's 0.8 (didelot.yaml) lets lambda_baseline carry
+## the misclassification signal without competing with p_obs along the
+## "low p_obs / high beta_h" ridge.
+##
+## R_h_ini is pinned at 0 because Cairo 1835 only burns through ~14% of the
+## population (33.5k deaths / 263k, accounting for g_h = 0.1) — the
+## susceptible pool barely depletes either way, so the data carries no
+## information about residual immunity. Fitting R_h_ini just adds a flat
+## ridge that keeps the chain wandering across multiple modes.
+cairo_fitted_names <- c("beta_h", "beta_r", "rho", "delta_R",
+                        "beta_I", "I_ini", "kappa", "I_h_ini",
+                        "lambda_baseline")
+
+scen <- load_scenario("didelot")
+scen$K_r <- 1300#unique(outbreak_raw$population)
+scen$K_h <- 1300#unique(outbreak_raw$population)
+scen$seasonal <- seasonal
+scen$R_h_ini <- 0
+
+fitted_names <- cairo_fitted_names
+fixed_pars <- plague_fit_fixed_pars(scenario = scen,
+                                    fitted_names = fitted_names)
+str(fixed_pars[c("K_r", "K_h", "m_r", "m_h", "g_h", "seasonal")])
+```
+
+Cairo-specific prior. Each bound was chosen to comfortably cover Didelot's posterior 95% CI; numbers in the comments are his posterior means and CIs for reference.
+
+```{r}
+## Prior + VCV swap I_h_ini in or out depending on the flag at the top.
+## I_ini in absolute counts. Bounds sized for Cairo (K_r ≈ 264k) — covers
+## Didelot's posterior fraction range (0.005–0.07 of K_r ≈ 1300–18000).
+## Compute and report `p_0_rat = I_ini / K_r` post-hoc when comparing to
+## Didelot. If you switch to a different outbreak/city, scale these bounds.
+cairo_prior <- monty::monty_dsl({
+    beta_h  ~ Uniform(0.001, 0.5)
+    beta_r  ~ Uniform(0.1,   3.0)
+    rho     ~ Uniform(0.3,   6.0)
+    delta_R ~ Uniform(0.05,  1.5)
+    beta_I  ~ Uniform(0.0,   0.08)
+    I_ini   ~ Uniform(20, 30000)
+    kappa   ~ Gamma(shape = 2, rate = 0.05)
+    I_h_ini ~ Uniform(0,    5000)
+    lambda_baseline ~ Uniform(0, 50)
+  })
+
+
+cairo_vcv_diag <- c(
+  beta_h  = 0.01^2,
+  beta_r  = 0.2^2,
+  rho     = 0.5^2,
+  delta_R = 0.1^2,
+  beta_I  = 0.005^2,
+  I_ini   = 1500^2,
+  kappa   = 5^2,
+  I_h_ini = 200^2,
+  lambda_baseline = 5^2
+)
+
+cairo_vcv <- diag(cairo_vcv_diag)
+```
+
+## Dust
+
+Sanity-run the model at the fixed parameters to confirm the seasonal vector is wired correctly.
+
+```{r}
+sys <- dust_system_create(plague, pars = fixed_pars, n_particles = 100)
+dust_system_set_state_initial(sys)
+
+t <- seq(0, max(dat$time))
+y <- dust_system_simulate(sys, t)
+deaths_sim <- dust_unpack_state(sys, y)$D_h
+
+matplot(t, t(deaths_sim), type = "l", lty = 1, col = "#00000033",
+        xlab = "Time", ylab = "Deaths")
+```
+
+## Monty — deterministic pilot
+
+A deterministic version of the model (`dust_unfilter_create`) computes the likelihood from the *expected* trajectory at each parameter set — no particle-filter resampling, no stochastic likelihood noise, and roughly 100× cheaper per evaluation than the stochastic filter. That makes a long, adaptive-sampler pilot affordable, which is what we need: the adaptive sampler self-tunes the proposal VCV toward the empirical posterior covariance, navigating ridges that the diagonal random walk gets stuck on.
+
+The deterministic posterior shape is approximately the stochastic one but typically narrower (no extra noise inflating the variance). We compensate by inflating the tuned VCV when handing it off to the stochastic production chain.
+
+```{r}
+packer <- monty_packer(fitted_names, fixed = fixed_pars)
+
+unfilter <- dust_unfilter_create(plague, time_start = 0, data = dat)
+likelihood_det <- dust_likelihood_monty(unfilter, packer)
+
+prior <- cairo_prior
+posterior_det <- likelihood_det + prior
+
+sampler_det <- monty_sampler_adaptive(initial_vcv = cairo_vcv)
+```
+
+Initial values and chain count: same hand-fit center used for the stochastic pilot, with small log-normal jitter across chains so R-hat is meaningful.
+
+```{r}
+n_chains <- 4
+
+init_full <- c(beta_h  = 0.04, beta_r  = 2.0,  rho     = 2.5,
+               delta_R = 0.3,  beta_I  = 0.04, I_ini   = 5000,
+               kappa   = 10,   I_h_ini = 400,
+               lambda_baseline = 5)
+
+init_center <- init_full[fitted_names]
+
+set.seed(1)
+init_chains <- replicate(n_chains, init_center * exp(rnorm(length(init_center), 0, 0.05)))
+
+runner <- monty_runner_callr(n_workers = n_chains)
+samples_pilot <- monty_sample(posterior_det, sampler_det, 40000,
+                              initial = init_chains,
+                              runner = runner, n_chains = n_chains,
+                              burnin = 10000)
+```
+
+### Pilot diagnostics
+
+```{r}
+samples_pilot_df <- as_draws_df(samples_pilot)
+summarise_draws(samples_pilot_df)
+
+matplot(samples_pilot$density, type = "l", lty = 1,
+        xlab = "Sample", ylab = "Log posterior probability density")
+```
+
+```{r}
+#mcmc_pairs(samples_pilot_df)
+mcmc_trace(samples_pilot_df)
+mcmc_hist(samples_pilot_df)
+```
+
+### Pilot fit check
+
+Forward-simulate from a thinned set of pilot draws and overlay on the data. Quick sanity check before committing to the stochastic production run: if the fan doesn't envelope the observations here, the pilot has settled in the wrong region and pushing on to production won't help.
+
+```{r}
+n_pp     <- 100
+draws_pp <- samples_pilot_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_pilot_df) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+t_grid <- seq(0, max(dat$time))
+deaths_pilot <- vapply(seq_len(nrow(draws_pp)), function(i) {
+  pars <- modifyList(fixed_pars,
+                     as.list(draws_pp[i, fitted_names, drop = FALSE]))
+  sys <- dust_system_create(plague, pars = pars, n_particles = 1)
+  dust_system_set_state_initial(sys)
+  yy <- dust_system_simulate(sys, t_grid)
+  D_h <- drop(dust_unpack_state(sys, yy)$D_h)
+  pars$p_obs * D_h + pars$lambda_baseline    # match likelihood mean
+}, numeric(length(t_grid)))
+
+matplot(t_grid, deaths_pilot, type = "l", lty = 1, col = "#22008822",
+        xlab = "Days", ylab = "Deaths",
+        main = "Forward sim from deterministic pilot")
+points(dat$time, dat$deaths, pch = 19, col = "black")
+```
+
+### Tuned VCV from adaptive pilot
+
+The adaptive sampler stores its per-chain empirical covariance in `samples_pilot$details$vcv` (shape `[n_pars, n_pars, n_chains]`). Average across chains for a stable estimate, then inflate to give the stochastic production chain enough cushion to absorb filter noise.
+
+```{r}
+det_vcv  <- apply(samples_pilot$details$vcv, c(1, 2), mean)
+dimnames(det_vcv) <- list(fitted_names, fitted_names)
+
+d        <- length(fitted_names)
+inflate  <- 0.7                                # tune empirically
+prod_vcv <- inflate * (2.38^2 / d) * det_vcv
+```
+
+## Monty — production (stochastic)
+
+Short stochastic run with the tuned VCV and trajectory saving on (so the filter-conditioned reconstruction below has data). Burn-in is small because chains start from the pilot's last samples and the proposal already matches the posterior shape.
+
+```{r}
+filter <- plague_fit_filter(dat, n_particles = 200, n_threads = 2)
+likelihood_final <- dust_likelihood_monty(filter, packer,
+                                          save_trajectories = TRUE)
+posterior_final <- likelihood_final + prior
+
+sampler_final <- monty_sampler_random_walk(prod_vcv)
+
+## Start production from the pilot's last samples — chains have already
+## found the bulk, so this skips warmup entirely.
+init_final <- t(as.matrix(samples_pilot_df[
+  samples_pilot_df$.iteration == max(samples_pilot_df$.iteration),
+  fitted_names]))
+
+samples <- monty_sample(posterior_final, sampler_final, 5000,
+                        initial = init_final,
+                        runner = runner, n_chains = n_chains, burnin = 500)
+
+accept_rate <- function(s) {
+  d <- s$density
+  apply(d, 2, function(x) mean(diff(x) != 0))
+}
+
+accept_rate(samples)
+
+draws <- as_draws_array(samples)
+summarise_draws(draws)
+mcmc_trace(draws)
+mcmc_hist(draws)
+#mcmc_rank_hist(draws)
+#mcmc_pairs(draws)
+#mcmc_acf(draws)
+```
+
+## Posterior predictive: forward simulation
+
+The honest fit check. Draw a thinned set of posterior parameters, run the stochastic model *forward* with no filter conditioning, and overlay the data. If the seasonal model is structurally adequate, the fan should envelope the observations without straining; if the dynamics are wrong (peak in the wrong month, wrong amplitude, wrong tail), it will show here.
+
+```{r}
+samples_df <- as_draws_df(samples)
+
+n_pp <- 200  # number of posterior draws to forward-simulate
+draws_pp <- samples_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_df) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+t_grid <- seq(0, max(dat$time))
+
+# Match the likelihood mean: mu = p_obs * D_h + lambda_baseline.
+# p_obs comes from fixed_pars (pinned at 0.8); lambda_baseline from each
+# posterior draw.
+deaths_fwd <- vapply(seq_len(nrow(draws_pp)), function(i) {
+  pars <- modifyList(fixed_pars,
+                     as.list(draws_pp[i, fitted_names, drop = FALSE]))
+  sys <- dust_system_create(plague, pars = pars, n_particles = 1)
+  dust_system_set_state_initial(sys)
+  yy <- dust_system_simulate(sys, t_grid)
+  D_h <- drop(dust_unpack_state(sys, yy)$D_h)
+  pars$p_obs * D_h + pars$lambda_baseline
+}, numeric(length(t_grid)))
+matplot(t_grid, deaths_fwd, type = "l", lty = 1, col = "#882200",
+        xlab = "Days", ylab = "Deaths",
+        main = "Forward simulation from posterior draws")
+points(dat$time, dat$deaths, pch = 19, col = "black")
+```
+
+## Filter-conditioned reconstruction
+
+The latent-state view: trajectories that survived sequential particle-filter resampling against the data, so they hug the observations by construction. Useful for understanding what the model "thought" the unobserved compartments (e.g. rat carcasses Q, infected humans I_h) were doing during the outbreak — but *not* a fair fit check, since the filter conditions on the data step-by-step regardless of model adequacy.
+
+```{r}
+dust_likelihood_run(filter, fixed_pars)   # any valid pars work — this initialises the unpacker
+
+y <- dust_unpack_state(filter, samples$observations$trajectories)
+deaths_filt <- array(y$D_h, c(nrow(dat), prod(dim(y$D_h)[-1])))
+matplot(dat$time, deaths_filt, type = "l", lty = 1, col = "#00008822",
+        xlab = "Days", ylab = "Deaths",
+        main = "Filter-conditioned trajectories")
+points(dat$time, dat$deaths, pch = 19, col = "red")
+```

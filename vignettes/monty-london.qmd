@@ -1,0 +1,624 @@
+---
+title: "Monty (London 1639–1647, weekly)"
+format: html
+editor: visual
+---
+
+Plague fit with temperature-driven seasonal forcing on carcass decay (`delta_R`), to a long-term **weekly** mortality series. Daily plague mortality is not available for this outbreak — Morris's transcription of the London Bills of Mortality (Krauer id 77) gives 418 weekly counts from 1639-12-19 to 1647-12-14. The model still runs at a daily timestep (`tau = 1`) so the temperature forcing keeps its daily resolution; the observation cadence is handled by `obs_period = 7`, which makes the model's `D_h` accumulator sum seven daily steps before each comparison. See `?yersinia::plague_fit_setup` for the parameter and the project CLAUDE.md "Observation cadence" section for the mechanism.
+
+## Setup
+
+```{r}
+install.packages(
+  c("monty", "dust2", "odin2"),
+  repos = c("https://mrc-ide.r-universe.dev", "https://cloud.r-project.org"))
+
+remotes::install_github('flmnh-ai/yersinia')
+```
+
+```{r}
+library(monty)
+library(odin2)
+library(dust2)
+
+#library(yersinia)
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(stars)
+
+library(posterior)
+library(bayesplot)
+```
+
+## Outbreak selection
+
+London 1639-1647 (Krauer id 77). 418 weekly Bills-of-Mortality counts, plague-specific, "complete" in Krauer's classification. The dataset has one 5-day gap (otherwise weekly throughout); we snap to a uniform 7-day grid via `time = 7L * seq_along(date)` since the model's `obs_period = 7` validation requires all `time` values to be multiples of 7. The 5-day vs 7-day discrepancy is one extra simulated day's dynamics within an 8-year run — negligible.
+
+```{r}
+OUTBREAK_PLACE <- "London"
+OUTBREAK_ID    <- 77
+
+MORTALITY_CSV <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/data-raw/plague-season-v3_2/input/rawdata.csv"
+ERA_RDS       <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/era_preprocessed.RDS"
+
+# Modern reference window for the ERA5 monthly climatology (treated as a
+# stationary proxy for the outbreak-era climate at the same location).
+CLIM_REFERENCE_END <- ymd("1990-01-01")
+
+# Seasonal forcing on / off. When FALSE, the seasonal vector that gets
+# wired into `scen$seasonal` below is overridden to all-1s (no forcing),
+# but the temperature/multiplier prep still runs so the diagnostics
+# remain visible. Flip to TRUE once the underlying fit (priors, particle
+# variance, posterior shape) is verified without seasonal as a confounder.
+USE_SEASONAL <- TRUE
+
+# Observation cadence in days. London Bills of Mortality were recorded
+# weekly, so this is 7. Validated against `dat$time` below.
+OBS_PERIOD <- 7L
+```
+
+## Helpers
+
+`monthly_to_daily_range()` interpolates a 12-month climatology to a daily series across an arbitrary date window (with a one-year pad on each side so the spline isn't biased at the edges). `delta_R_multiplier()` turns a daily temperature into a multiplier on `delta_R`: 1 at the reference temperature, larger when temperatures are far from optimal (faster carcass-infectivity decay because fleas survive less time on the carcass). Both come straight from the black-death project's `data_analysis.Rmd`.
+
+```{r}
+monthly_to_daily_range <- function(monthly, start_date, end_date) {
+  stopifnot(length(monthly) == 12)
+  start_date <- ymd(start_date)
+  end_date   <- ymd(end_date)
+  stopifnot(end_date >= start_date)
+
+  start_year <- year(start_date)
+  end_year   <- year(end_date)
+
+  # Pad one full year on each side so the spline has wrap context
+  # at both ends of the requested range (avoids edge artifacts).
+  years <- (start_year - 1):(end_year + 1)
+
+  mids   <- numeric(0)
+  vals   <- numeric(0)
+  offset <- 0
+
+  for (yr in years) {
+    feb  <- 28L + leap_year(yr)
+    days <- c(31, feb, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+    mids <- c(mids, cumsum(days) - days / 2 + offset)
+    vals <- c(vals, monthly)
+    offset <- offset + sum(days)
+  }
+
+  daily <- spline(mids, vals, xout = 1:offset)$y
+
+  series_start <- ymd(paste0(start_year - 1, "-01-01"))
+  i1 <- as.integer(start_date - series_start) + 1
+  i2 <- as.integer(end_date   - series_start) + 1
+  daily[i1:i2]
+}
+
+delta_R_multiplier <- function(temperature,
+                               T_min = 5,
+                               T_max = 37,
+                               q     = 1.5,
+                               T_ref = 17.8,
+                               cap   = 1000) {
+  if (T_ref <= T_min || T_ref >= T_max) {
+    stop("T_ref must lie strictly between T_min and T_max.")
+  }
+  L_ref <- (T_ref - T_min) * (T_max - T_ref)^q
+  in_range <- temperature > T_min & temperature < T_max
+  L_T  <- ifelse(in_range,
+                 (temperature - T_min) * (T_max - temperature)^q,
+                 NA_real_)
+  mult <- L_ref / L_T
+  pmin(ifelse(is.na(mult), cap, mult), cap)
+}
+```
+
+Quick visual on the temperature → multiplier shape.
+
+```{r}
+tibble(temp = seq(0, 40, by = 0.5)) |>
+  mutate(mult = delta_R_multiplier(temp)) |>
+  ggplot(aes(temp, mult)) +
+  geom_line() +
+  geom_hline(yintercept = 1, linetype = 2) +
+  labs(x = "Temperature (°C)", y = "delta_R multiplier",
+       title = "Carcass-decay multiplier vs. temperature",
+       subtitle = "= 1 at T_ref, larger at extremes") +
+  theme_bw()
+```
+
+## Mortality data
+
+Load the Krauer raw dataset, filter to id 77, and build the `(time, deaths)` frame the particle filter expects. `time` is in **days** (the model's native unit) at multiples of 7 (one week per observation). `obs_period = 7` makes the model's `D_h` accumulator sum the seven daily steps preceding each observation, so each comparison is between a weekly count and a 7-day sum of simulated plague deaths.
+
+```{r}
+mortality_raw <- read_csv(MORTALITY_CSV, show_col_types = FALSE)
+
+outbreak_raw <- mortality_raw |>
+  filter(place == OUTBREAK_PLACE, id == OUTBREAK_ID) |>
+  mutate(date = ymd(dateorig)) |>
+  arrange(date)
+
+stopifnot(nrow(outbreak_raw) > 0,
+          unique(outbreak_raw$interval) == "weekly")
+
+dat <- outbreak_raw |>
+  mutate(time = 7L * seq_along(date)) |>
+  select(time, deaths = n)
+
+## CRS deliberately left unset to match the ERA stars object, which carries
+## no CRS metadata; setting one here would make `st_extract()` refuse the
+## extraction. Coordinates are numerically lon/lat in degrees.
+outbreak_lonlat <- outbreak_raw |>
+  slice(1) |>
+  select(lon, lat) |>
+  st_as_sf(coords = c("lon", "lat"))
+
+outbreak_dates <- range(outbreak_raw$date)
+
+cat(sprintf("Outbreak: %s (id %d)\n", OUTBREAK_PLACE, OUTBREAK_ID))
+cat(sprintf("Type: %s, complete: %s\n",
+            outbreak_raw$type[1], outbreak_raw$complete[1]))
+cat(sprintf("Span: %s to %s (%d obs over %d model days)\n",
+            outbreak_dates[1], outbreak_dates[2],
+            nrow(dat), max(dat$time)))
+cat(sprintf("Total deaths: %d, peak weekly: %d, median weekly: %g\n",
+            sum(dat$deaths), max(dat$deaths), median(dat$deaths)))
+
+# The Krauer date is the END of each reporting week, which by our
+# convention is the model time at the end of an `obs_period`-length
+# accumulator window. So time = 7 ↔ first observation date,
+# time = 14 ↔ first + 7 days, and so on.
+ggplot(dat |> mutate(date = outbreak_dates[1] + days(time - OBS_PERIOD)),
+       aes(date, deaths)) +
+  geom_line() +
+  scale_y_log10() +
+  labs(title = sprintf("%s outbreak (id %d, weekly)", OUTBREAK_PLACE, OUTBREAK_ID),
+       x = NULL, y = "Weekly plague deaths (log scale)") +
+  theme_bw()
+```
+
+## Temperature climatology
+
+Pull ERA5 monthly 2m temperature at the outbreak location, restrict to the modern reference window, and collapse to a 12-month climatology.
+
+```{r}
+era <- readRDS(ERA_RDS)
+
+clim_monthly <- era |>
+  st_extract(outbreak_lonlat) |>
+  as_tibble() |>
+  select(-geometry) |>
+  filter(time < CLIM_REFERENCE_END) |>
+  mutate(month = month(time, label = TRUE)) |>
+  group_by(month) |>
+  summarize(t2m = mean(t2m), .groups = "drop") |>
+  arrange(month)
+
+clim_monthly
+
+ggplot(clim_monthly, aes(month, t2m)) +
+  geom_col() +
+  labs(title = sprintf("Monthly climatology at %s", OUTBREAK_PLACE),
+       x = "Month", y = "t2m (°C)") +
+  theme_bw()
+```
+
+## Seasonal multiplier
+
+Interpolate the climatology to daily values across the model's full timeline (1 day per model step, length `max(dat$time)`), then convert to a `delta_R` multiplier. The model uses `seasonal[time + 1]` for `time = 0, …, max(dat$time) - 1`, so the vector length must equal `max(dat$time)`.
+
+The model's "day 1" is taken as 6 days before the first observation date — that puts the first observation (at `time = 7`) at the end of the first model week, matching the Bills-of-Mortality convention that each entry is dated at the close of the reporting week.
+
+```{r}
+seasonal_start <- min(outbreak_raw$date) - days(6L)
+seasonal_end   <- seasonal_start + days(max(dat$time) - 1L)
+
+daily_temp <- monthly_to_daily_range(clim_monthly$t2m,
+                                     seasonal_start, seasonal_end)
+
+stopifnot(length(daily_temp) == max(dat$time))
+
+seasonal <- delta_R_multiplier(daily_temp)
+
+# Override to no-forcing when USE_SEASONAL is FALSE. The temperature
+# diagnostic plot below still shows the would-be multiplier, so you can
+# eyeball it before flipping the switch.
+if (!USE_SEASONAL) seasonal <- rep(1, max(dat$time))
+
+tibble(time = seq_along(seasonal),
+       date = seasonal_start + days(time - 1),
+       temp = daily_temp,
+       seasonal = seasonal) |>
+  pivot_longer(c(temp, seasonal)) |>
+  ggplot(aes(date, value)) +
+  geom_line() +
+  facet_wrap(~name, ncol = 1, scales = "free_y") +
+  labs(title = "Daily temperature and seasonal multiplier",
+       x = NULL, y = NULL) +
+  theme_bw()
+```
+
+## Configuration
+
+Hybrid setup: Didelot's transmission scales (`β_r ≈ 0.77`, `β_h ≈ 0.0145`, `ρ ≈ 2.63`, `δ_R ≈ 0.27`) but **Keeling & Gilligan's rat demography** (`r_r > 0`, `d_r > 0`, `g_r > 0`, plus heritable resistance via `p`, `iota`). The didelot baseline alone produces a single epidemic wave that depletes the rat population and stops; the London 1639–1647 series shows roughly five distinct epidemic peaks across eight years, which structurally requires the rat population to recover between waves and resistant rats to be replenished via inheritance. Priors and starting values are rescaled for London's larger population (Krauer reports \~341,000 for this outbreak, roughly 4× Cairo 1801). `obs_period = 7L` is wired into `fixed_pars` so the model's `D_h` accumulator aligns with the weekly cadence, and the likelihood mu (`p_obs * D_h + lambda_baseline * obs_period`) interprets `lambda_baseline` as a per-day baseline that gets scaled to match the weekly window automatically.
+
+```{r}
+plague <- yersinia::plague_stochastic_humans
+
+london_population <- unique(outbreak_raw$population)
+stopifnot(length(london_population) == 1L)
+
+## Fitted set: Cairo's nine, plus the rat-demography knobs needed to make
+## the Keeling & Gilligan heritable-resistance mechanism actually do
+## something across 8 years of recurrent epidemics:
+##
+##   - R_ini  -- initial heritably-resistant rats (absolute count). The
+##               2026-05 reparameterisation: S, I, R partition K_r as
+##               S = K_r - I_ini - R_ini, R = R_ini. Default 0 reproduces
+##               Didelot's all-susceptible start; non-zero seeds the R
+##               compartment so multi-wave dynamics can crank.
+##   - r_r    -- rat birth rate. Without this, resistant rats can't
+##               propagate the trait through births and the R pool just
+##               sits there inertly.
+##   - d_r    -- natural rat death rate. Pairs with r_r at near-balance;
+##               jointly they set the rat-population turnover rate.
+##   - g_r    -- probability a rat survives plague infection. Small
+##               (~0.02 in K&G) but the only mechanism by which the R
+##               pool grows during outbreaks (alongside heritable
+##               births).
+##
+## We start from didelot's transmission scales (β_r, β_h, ρ etc.) but
+## override the demography parameters with K&G-style values via `scen`
+## below, then expose r_r, d_r, g_r, R_ini to the sampler. iota and p are
+## kept fixed at K&G values because they're biologically constrained
+## (resistant fecundity penalty and inheritance probability) and adding
+## them to the sampler usually just produces flat ridges.
+london_fitted_names <- c("beta_h", "beta_r", "rho", "delta_R",
+                         "beta_I", "I_ini", "kappa", "I_h_ini",
+                         "lambda_baseline",
+                         "R_ini", "r_r", "d_r", "g_r")
+
+scen <- load_scenario("didelot")
+scen$K_r <- london_population
+scen$K_h <- london_population
+scen$seasonal <- seasonal
+scen$R_h_ini <- 0
+scen$obs_period <- OBS_PERIOD
+
+## Switch on rat demography (didelot baseline pins all of these at zero).
+## Values follow Keeling & Gilligan (2000), per-day-converted, as the
+## didelot scenario does for transmission. r_r, d_r, g_r are the chain's
+## starting points; the sampler will move them. p and iota stay fixed
+## here.
+scen$p     <- 0.975
+scen$iota  <- 0.75
+scen$g_r   <- 0.02
+scen$r_r   <- 0.01370
+scen$d_r   <- 0.000548
+
+fitted_names <- london_fitted_names
+fixed_pars <- plague_fit_fixed_pars(scenario = scen,
+                                    fitted_names = fitted_names)
+
+# Belt-and-braces: plague_fit_fixed_pars filters via plague_model_param_names()
+# which now includes obs_period, but assert anyway so a mis-named scenario key
+# can't silently fall through.
+stopifnot(identical(fixed_pars$obs_period, OBS_PERIOD),
+          length(fixed_pars$seasonal) == max(dat$time))
+
+# Validate cadence: all data times must be multiples of obs_period and
+# tau must be 1. (R-side check; the dust2 model itself trusts this.)
+yersinia:::validate_obs_period(OBS_PERIOD,
+                               tau = fixed_pars$tau %||% 1,
+                               data_time = dat$time)
+
+str(fixed_pars[c("K_r", "K_h", "m_r", "m_h", "g_h", "p", "iota", "obs_period")])
+```
+
+London-scale prior. Transmission bounds tightened 2026-05 after a wide-prior pilot found three distinct modes at \~equivalent log-posterior, each pinning different parameters at their boundaries. The original wide bounds admitted a "model gives up, absorbs misfit as overdispersion + huge baseline" attractor at every corner; bounds below are anchored to physically/biologically defensible ranges so the chain can't escape into degenerate territory.
+
+```{r}
+london_prior <- monty::monty_dsl({
+  beta_h  ~ Uniform(0.001, 0.1)        # was (0.001, 0.5); upper end ≈ 2.5x Didelot CI
+  beta_r  ~ Uniform(0.1,   3.0)
+  rho     ~ Uniform(0.3,   6.0)
+  delta_R ~ Uniform(0.05,  1.5)
+  beta_I  ~ Uniform(0.0,   0.05)       # was (0, 0.08); 0.05 is already very high
+  ## Initial infected rats. Tightened from (50, 50000) -> (10, 5000)
+  ## because the upper of 50000 = 15% of K_r already infected at t = 0
+  ## is an endemic outbreak in progress, not a seeding event. The
+  ## previous wide bound let the chain pick I_ini ~ 33000, which forces
+  ## an enormous initial spike that overshoots the data's quiet start.
+  I_ini   ~ Uniform(10, 5000)
+  ## NegBinomial overdispersion (size). Tightened from Gamma(2, 0.05)
+  ## (mean 40, sd ~28, unbounded lower tail down to ~0) which let kappa
+  ## drift to ~0.2 — at that value the variance is mu + 5*mu^2, so the
+  ## chain could overshoot the data by hundreds and still be "consistent"
+  ## within the negative-binomial tail. The tighter Gamma(10, 0.5)
+  ## (mean 20, sd ~6.3) keeps kappa above ~5, forcing the model to
+  ## actually fit the trajectory mean rather than drown misfit in
+  ## overdispersion.
+  kappa   ~ Gamma(shape = 10, rate = 0.5)
+  I_h_ini ~ Uniform(0,     5000)
+  ## Per-day non-plague baseline. Tightened (0, 5) -> (0, 1). At
+  ## obs_period = 7 the baseline contribution is ~7 deaths/wk, which
+  ## is a generous misclassification rate for a city where total all-
+  ## cause mortality is ~196/wk. The previous (0, 5) upper bound
+  ## pinned at 5 because the chain still wanted to lift the trajectory
+  ## floor; combined with tighter kappa and I_ini that escape route
+  ## should close.
+  lambda_baseline ~ Uniform(0, 1)
+  ## Initial heritably-resistant rats (absolute count). 0 reproduces
+  ## Didelot's all-susceptible start; upper bound leaves room for
+  ## K_r - I_ini - R_ini > 0 with London-scale K_r.
+  R_ini ~ Uniform(0, 100000)
+  ## Rat birth rate per day. K&G's value is 0.01370 (~5/year). Tightened
+  ## from (0.002, 0.05); the upper of 0.05 = 18 generations/year is
+  ## physiologically impossible.
+  r_r ~ Uniform(0.005, 0.025)
+  ## Rat natural death rate per day. K&G's value is 0.000548 (~0.2/year).
+  ## Bounds give ~5x either side; pairs with r_r in setting turnover.
+  d_r ~ Uniform(0.0001, 0.003)
+  ## Rat plague survival probability. K&G's value is 0.02. Tightened
+  ## from (0.001, 0.2); the 0.2 ceiling let one chain pin g_r at 0.18,
+  ## which is biologically extreme (only 18% rat survival).
+  g_r ~ Uniform(0.001, 0.1)
+})
+
+## VCV step sizes rescaled where prior bounds tightened: I_ini step
+## 5000^2 -> 500^2 (was 100% of prior range, now 10%); lambda_baseline
+## 5^2 -> 0.1^2 (was 100% of new (0,1) range, now 10%). Untouched
+## entries stay because their priors didn't change.
+london_vcv_diag <- c(
+  beta_h  = 0.01^2,
+  beta_r  = 0.2^2,
+  rho     = 0.5^2,
+  delta_R = 0.1^2,
+  beta_I  = 0.005^2,
+  I_ini   = 500^2,
+  kappa   = 5^2,
+  I_h_ini = 200^2,
+  lambda_baseline = 0.1^2,
+  R_ini   = 5000^2,
+  r_r     = 0.005^2,
+  d_r     = 0.0005^2,
+  g_r     = 0.01^2
+)
+
+london_vcv <- diag(london_vcv_diag)
+```
+
+## Dust
+
+Sanity-run the model at the fixed parameters to confirm the seasonal vector and `obs_period` are wired correctly. With `obs_period = 7`, `D_h` should be near zero on non-week-end days and grow into a weekly peak at each `time = 7k`.
+
+```{r}
+sys <- dust_system_create(plague, pars = fixed_pars, n_particles = 100)
+dust_system_set_state_initial(sys)
+
+t <- seq(0, max(dat$time))
+y <- dust_system_simulate(sys, t)
+deaths_sim <- dust_unpack_state(sys, y)$D_h
+
+matplot(t, t(deaths_sim), type = "l", lty = 1, col = "#00000033",
+        xlab = "Time (days)", ylab = "D_h (deaths over current 7-day window)")
+points(dat$time, dat$deaths, pch = 19, cex = 0.4, col = "red")
+```
+
+## Monty — deterministic pilot
+
+A deterministic version of the model (`dust_unfilter_create`) computes the likelihood from the *expected* trajectory at each parameter set — no particle-filter resampling, no stochastic likelihood noise, and roughly 100× cheaper per evaluation than the stochastic filter. With 8 years of daily simulation per evaluation that cost difference matters: 50,000 × 4-chain pilots run in seconds on the deterministic version, in minutes-to-hours on the stochastic filter.
+
+The deterministic posterior shape is approximately the stochastic one but typically narrower (no extra noise inflating the variance). We compensate by inflating the tuned VCV when handing it off to the stochastic production chain.
+
+```{r}
+packer <- monty_packer(fitted_names, fixed = fixed_pars)
+
+unfilter <- dust_unfilter_create(plague, time_start = 0, data = dat)
+likelihood_det <- dust_likelihood_monty(unfilter, packer)
+
+prior <- london_prior
+posterior_det <- likelihood_det + prior
+
+sampler_det <- monty_sampler_adaptive(initial_vcv = london_vcv)
+```
+
+Initial values: scaled-up Cairo hand-fit center, with small log-normal jitter across chains so R-hat is meaningful.
+
+```{r}
+n_chains <- 4
+
+## Starting values pulled inside the tightened priors. I_ini drops from
+## 10000 -> 500 (a realistic seeding scale, well below the 5000 cap).
+## lambda_baseline drops 1 -> 0.5 (mid of new (0,1) range). kappa moves
+## 10 -> 20 (mean of new Gamma(10, 0.5) prior). Jitter sd kept at 0.02.
+init_full <- c(beta_h  = 0.04, beta_r  = 2.0,  rho     = 2.5,
+               delta_R = 0.3,  beta_I  = 0.02, I_ini   = 500,
+               kappa   = 20,   I_h_ini = 400,
+               lambda_baseline = 0.5,
+               R_ini   = 10000,    # ~3% initial heritable resistance
+               r_r     = 0.01370,  # K&G default
+               d_r     = 0.000548, # K&G default
+               g_r     = 0.02)     # K&G default
+
+init_center <- init_full[fitted_names]
+
+set.seed(1)
+init_chains <- replicate(n_chains, init_center * exp(rnorm(length(init_center), 0, 0.02)))
+
+runner <- monty_runner_callr(n_workers = n_chains)
+samples_pilot <- monty_sample(posterior_det, sampler_det, 40000,
+                              initial = init_chains,
+                              runner = runner, n_chains = n_chains,
+                              burnin = 17000)
+```
+
+### Pilot diagnostics
+
+```{r}
+samples_pilot_df <- as_draws_df(samples_pilot)
+summarise_draws(samples_pilot_df)
+
+matplot(samples_pilot$density, type = "l", lty = 1,
+        xlab = "Sample", ylab = "Log posterior probability density")
+```
+
+Auto-discard chains whose mean log-posterior is more than `kept_lp_drop` nats below the best chain. With multiple modes, the adaptive sampler can lock a chain into a clearly-worse basin (an early-2026 London pilot had one chain stuck \~120 nats below the others) — keeping it in the empirical VCV would just inject useless variance that the stochastic production chain then has to navigate around.
+
+```{r}
+kept_lp_drop <- 20
+chain_lp <- colMeans(samples_pilot$density)
+keep_chain <- chain_lp >= max(chain_lp) - kept_lp_drop
+cat(sprintf("Chain mean log-posterior: %s\n",
+            paste(sprintf("[%d] %.1f%s", seq_along(chain_lp), chain_lp,
+                          ifelse(keep_chain, "", " (DROPPED)")),
+                  collapse = ", ")))
+
+samples_pilot_df_kept <- samples_pilot_df |>
+  dplyr::filter(.data$.chain %in% which(keep_chain))
+```
+
+```{r}
+#mcmc_pairs(samples_pilot_df_kept)
+mcmc_trace(samples_pilot_df)
+mcmc_hist(samples_pilot_df)
+```
+
+### Pilot fit check
+
+Forward-simulate from a thinned set of pilot draws and overlay on the data. The likelihood mean is `mu = p_obs * D_h + lambda_baseline * obs_period`, so the plotted line is exactly that — no extra scaling.
+
+```{r}
+n_pp     <- 100
+draws_pp <- samples_pilot_df_kept |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_pilot_df_kept) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+# Subset to observation times (multiples of 7); within-week values are
+# partial-window accumulators, not directly comparable to data points.
+deaths_pilot <- vapply(seq_len(nrow(draws_pp)), function(i) {
+  pars <- modifyList(fixed_pars,
+                     as.list(draws_pp[i, fitted_names, drop = FALSE]))
+  sys <- dust_system_create(plague, pars = pars, n_particles = 1)
+  dust_system_set_state_initial(sys)
+  yy <- dust_system_simulate(sys, dat$time)
+  D_h <- drop(dust_unpack_state(sys, yy)$D_h)
+  pars$p_obs * D_h + pars$lambda_baseline * pars$obs_period
+}, numeric(nrow(dat)))
+
+matplot(dat$time, deaths_pilot, type = "l", lty = 1, col = "#22008822",
+        xlab = "Days", ylab = "Weekly deaths (mu)",
+        main = "Forward sim from deterministic pilot (London 1639–1647)")
+points(dat$time, dat$deaths, pch = 19, cex = 0.4, col = "black")
+```
+
+### Tuned VCV from adaptive pilot
+
+The adaptive sampler stores its per-chain empirical covariance in `samples_pilot$details$vcv` (shape `[n_pars, n_pars, n_chains]`). Average across chains for a stable estimate, then inflate to give the stochastic production chain enough cushion to absorb filter noise.
+
+```{r}
+# Average only the kept chains' VCVs — including a stuck chain pollutes
+# the empirical covariance with that chain's static drift around its
+# wrong basin.
+det_vcv  <- apply(samples_pilot$details$vcv[, , keep_chain, drop = FALSE], c(1, 2), mean)
+dimnames(det_vcv) <- list(fitted_names, fitted_names)
+
+d        <- length(fitted_names)
+inflate  <- 0.7                                # tune empirically
+prod_vcv <- inflate * (2.38^2 / d) * det_vcv
+```
+
+## Monty — production (stochastic)
+
+Short stochastic run with the tuned VCV and trajectory saving on. Burn-in is small because chains start from the pilot's last samples and the proposal already matches the posterior shape. Particle count is 500 — plenty for the post-fix filter (sd \~3–5 at hand-fit values), and the 8-year × daily = 2926-step trajectory is the expensive bit, not the particle dimension.
+
+```{r}
+filter <- plague_fit_filter(dat, n_particles = 500, n_threads = 2)
+likelihood_final <- dust_likelihood_monty(filter, packer,
+                                          save_trajectories = TRUE)
+posterior_final <- likelihood_final + prior
+
+sampler_final <- monty_sampler_random_walk(prod_vcv)
+
+## Start production from the *kept* chains' last samples; if some chains
+## were dropped, recycle by drawing the remaining slots from random late
+## samples of the kept ones so n_chains worth of init points are
+## available. This avoids re-seeding production from a bad basin that
+## the pilot already discarded.
+last_iter <- max(samples_pilot_df_kept$.iteration)
+final_pool <- samples_pilot_df_kept |>
+  dplyr::filter(.data$.iteration == last_iter)
+if (nrow(final_pool) < n_chains) {
+  pool_late <- samples_pilot_df_kept |>
+    dplyr::filter(.data$.iteration > last_iter - 200)
+  set.seed(2)
+  filler <- pool_late[sample(nrow(pool_late), n_chains - nrow(final_pool)), ]
+  final_pool <- dplyr::bind_rows(final_pool, filler)
+}
+init_final <- t(as.matrix(final_pool[, fitted_names]))
+
+samples <- monty_sample(posterior_final, sampler_final, 5000,
+                        initial = init_final,
+                        runner = runner, n_chains = n_chains, burnin = 500)
+
+accept_rate <- function(s) {
+  d <- s$density
+  apply(d, 2, function(x) mean(diff(x) != 0))
+}
+
+accept_rate(samples)
+
+draws <- as_draws_array(samples)
+summarise_draws(draws)
+mcmc_trace(draws)
+mcmc_hist(draws)
+#mcmc_rank_hist(draws)
+#mcmc_pairs(draws)
+#mcmc_acf(draws)
+```
+
+## Posterior predictive: forward simulation
+
+The honest fit check. Draw a thinned set of posterior parameters, run the stochastic model *forward* with no filter conditioning, and overlay the data. If the seasonal model is structurally adequate for an 8-year run, the fan should envelope the observations across all eight epidemic years; if the dynamics are wrong (peaks in the wrong month, wrong amplitude, wrong inter-epidemic period), it will show here. This is the dataset where seasonality should matter most: across eight years, any phase error in the temperature → carcass-decay coupling compounds.
+
+```{r}
+samples_df <- as_draws_df(samples)
+
+n_pp <- 200  # number of posterior draws to forward-simulate
+draws_pp <- samples_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_df) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+deaths_fwd <- vapply(seq_len(nrow(draws_pp)), function(i) {
+  pars <- modifyList(fixed_pars,
+                     as.list(draws_pp[i, fitted_names, drop = FALSE]))
+  sys <- dust_system_create(plague, pars = pars, n_particles = 1)
+  dust_system_set_state_initial(sys)
+  yy <- dust_system_simulate(sys, dat$time)
+  D_h <- drop(dust_unpack_state(sys, yy)$D_h)
+  pars$p_obs * D_h + pars$lambda_baseline * pars$obs_period
+}, numeric(nrow(dat)))
+
+matplot(dat$time, deaths_fwd, type = "l", lty = 1, col = "#88220022",
+        xlab = "Days", ylab = "Weekly deaths (mu)",
+        main = "Forward simulation from posterior draws")
+points(dat$time, dat$deaths, pch = 19, cex = 0.4, col = "black")
+```
+
+## Filter-conditioned reconstruction
+
+The latent-state view: trajectories that survived sequential particle-filter resampling against the data, so they hug the observations by construction. Useful for understanding what the model "thought" the unobserved compartments (e.g. rat carcasses Q, infected humans I_h) were doing during each of the 8 epidemic years — but *not* a fair fit check, since the filter conditions on the data step-by-step regardless of model adequacy.
+
+```{r}
+dust_likelihood_run(filter, fixed_pars)   # any valid pars work — this initialises the unpacker
+
+y <- dust_unpack_state(filter, samples$observations$trajectories)
+deaths_filt <- array(y$D_h, c(nrow(dat), prod(dim(y$D_h)[-1])))
+matplot(dat$time, deaths_filt, type = "l", lty = 1, col = "#00008822",
+        xlab = "Days", ylab = "Weekly D_h",
+        main = "Filter-conditioned trajectories")
+points(dat$time, dat$deaths, pch = 19, cex = 0.4, col = "red")
+```

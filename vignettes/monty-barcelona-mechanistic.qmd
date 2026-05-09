@@ -1,0 +1,564 @@
+---
+title: "Monty (Barcelona joint fit, 4 outbreaks — mechanistic Brière temperature forcing)"
+format: html
+editor: visual
+---
+
+**Sibling of `monty-barcelona-hierarchical.qmd` (Approach A with the phenomenological `alpha` switch).** Same data, same model, same R0 reparameterization, same K_h/K_r pinning. The difference: **temperature forcing on `delta_R` is computed from a Brière function whose shape parameters are themselves fitted**, rather than from the literature-calibrated `delta_R_multiplier()` raised to a fitted exponent `alpha`.
+
+The `alpha` parameterization in the sibling notebook is phenomenological — it estimates "net seasonal R0 modulation magnitude" but doesn't tell us *what shape* the temperature response has. If you want to claim "we estimate the cold cliff for plague transmission at X°C," you need a parametric form whose parameters carry that meaning. Brière is that form:
+
+```         
+L(T)        = (T - T_min) * (T_max - T)^q     for T_min < T < T_max
+multiplier  = L(T_ref) / L(T)                  ≥ 1, minimum at T_ref
+delta_R_eff = delta_R * multiplier(T)
+```
+
+**Fitted parameters (3 new globals, replacing alpha):**
+
+-   `T_min` — cold cliff (Y. pestis biofilm failure, X. cheopis cold tolerance)
+-   `T_max` — warm cliff (X. cheopis thermal death, biofilm dissolution)
+-   `q_briere` — warm-side asymmetry exponent
+-   `T_ref` is **pinned at 17.8°C** (Krauer 2021's observed epidemic peak); fitting it would shift the meaning of `delta_R` baseline and complicate R0 interpretation.
+
+**Identifiability for Barcelona:** observed temperatures span \~7.4°C (Jan) to \~22.5°C (Aug). `T_min` is well-positioned to be informed by the cold winter months in Barcelona_24 and Barcelona_17 (Jan/Mar starts). `T_max` and `q_briere` are weakly identified for Barcelona alone — they govern hot-side dynamics that don't strongly engage at 22.5°C summer peaks. Expect the posterior to be near-prior on these two; they'll start to identify when paleoclimate inference includes hotter cities (Cairo, Alexandria).
+
+**Towards paleoclimate inference:** this notebook is the same machinery that will work with real temperature reconstructions. Replace `clim_monthly` (ERA5 modern climatology) with a per-outbreak temperature reconstruction (downscaled paleoclimate output) and the rest of the wiring stays identical. The fitted Brière parameters then become claims about plague's actual temperature biology, conditioned on the reconstructed climate of the actual outbreak years.
+
+## Setup
+
+```{r}
+library(monty)
+library(odin2)
+library(dust2)
+
+#library(yersinia)
+library(tidyverse)
+library(lubridate)
+
+library(posterior)
+library(bayesplot)
+
+library(sf)
+library(stars)
+```
+
+## Outbreak selection + paths
+
+Same four Barcelona outbreaks, same data sources.
+
+```{r}
+OUTBREAK_IDS <- c(15, 17, 20, 24)
+
+MORTALITY_CSV <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/data-raw/plague-season-v3_2/input/rawdata.csv"
+ERA_RDS       <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/era_preprocessed.RDS"
+CLIM_REFERENCE_END <- ymd("1990-01-01")
+```
+
+## Data
+
+```{r}
+mortality_raw <- read_csv(MORTALITY_CSV, show_col_types = FALSE)
+
+barcelona_raw <- mortality_raw |>
+  filter(place == "Barcelona", id %in% OUTBREAK_IDS) |>
+  mutate(date = ymd(if_else(str_length(dateorig) < 10,
+                            paste0(dateorig, "-01"), dateorig))) |>
+  group_by(id) |>
+  arrange(date, .by_group = TRUE) |>
+  mutate(time = as.integer(date - min(date)) + 1L,
+         group = factor(sprintf("Barcelona_%d", id),
+                        levels = sprintf("Barcelona_%d", OUTBREAK_IDS))) |>
+  ungroup() |>
+  select(group, id, year = startyear, time, date, deaths = n, population, lon, lat)
+
+T_max <- max(barcelona_raw$time)
+
+dat <- barcelona_raw |>
+  select(group, time, deaths) |>
+  complete(group, time = 1:T_max) |>
+  arrange(group, time) |>
+  mutate(group = as.character(group))
+
+stopifnot(length(unique(table(dat$group))) == 1L,
+          all(table(dat$group) == T_max))
+
+cat(sprintf("T_max = %d days; %d groups; %d total rows (NA padded = %d)\n",
+            T_max, nlevels(dat$group), nrow(dat), sum(is.na(dat$deaths))))
+
+group_meta <- barcelona_raw |>
+  group_by(group) |>
+  summarise(id = first(id), year = first(year),
+            duration = max(time), n_obs = sum(!is.na(deaths)),
+            pop = first(population),
+            total_deaths = sum(deaths, na.rm = TRUE),
+            peak_deaths  = max(deaths, na.rm = TRUE),
+            .groups = "drop")
+group_meta
+```
+
+## Per-group temperature vectors
+
+The mechanistic version keeps **raw temperature** per outbreak (not a precomputed multiplier — the multiplier is now recomputed per posterior draw from the fitted Brière parameters).
+
+```{r}
+monthly_to_daily_range <- function(monthly, start_date, end_date) {
+  stopifnot(length(monthly) == 12)
+  start_date <- ymd(start_date); end_date <- ymd(end_date)
+  start_year <- year(start_date); end_year <- year(end_date)
+  years <- (start_year - 1):(end_year + 1)
+  mids <- numeric(0); vals <- numeric(0); offset <- 0
+  for (yr in years) {
+    yr_start <- ymd(sprintf("%d-01-01", yr))
+    yr_end   <- ymd(sprintf("%d-12-31", yr))
+    n_days   <- as.integer(yr_end - yr_start) + 1L
+    month_starts <- ymd(sprintf("%d-%02d-01", yr, 1:12))
+    month_ends   <- c(month_starts[-1] - days(1), yr_end)
+    month_mids   <- as.integer(month_starts + (month_ends - month_starts) / 2 - yr_start) + offset
+    mids <- c(mids, month_mids)
+    vals <- c(vals, monthly)
+    offset <- offset + n_days
+  }
+  fn <- splinefun(mids, vals, method = "periodic")
+  full_start <- ymd(sprintf("%d-01-01", years[1]))
+  i_start <- as.integer(start_date - full_start) + 1L
+  i_end   <- as.integer(end_date   - full_start) + 1L
+  fn(i_start:i_end)
+}
+```
+
+```{r}
+groups <- levels(barcelona_raw$group)
+
+barcelona_lonlat <- barcelona_raw |>
+  slice(1) |>
+  select(lon, lat) |>
+  st_as_sf(coords = c("lon", "lat"))
+
+era <- readRDS(ERA_RDS)
+
+clim_monthly <- era |>
+  st_extract(barcelona_lonlat) |>
+  as_tibble() |>
+  select(-geometry) |>
+  filter(time < CLIM_REFERENCE_END) |>
+  mutate(month = month(time, label = TRUE)) |>
+  group_by(month) |>
+  summarize(t2m = mean(t2m), .groups = "drop") |>
+  arrange(month)
+
+## TODO for paleoclimate-driven version: replace this block with a
+## per-outbreak temperature reconstruction. The downstream wiring is
+## unchanged — group_temp[[g]] just needs to be a numeric vector of
+## length T_max for each group.
+group_temp <- setNames(
+  lapply(groups, function(g) {
+    start_date <- min(barcelona_raw$date[barcelona_raw$group == g])
+    end_date   <- start_date + days(T_max - 1)
+    monthly_to_daily_range(clim_monthly$t2m, start_date, end_date)
+  }),
+  groups
+)
+
+cat("Temperature range per group (°C):\n")
+sapply(group_temp, function(v) c(min = min(v), max = max(v)))
+```
+
+```{r}
+## Visualize: per-outbreak temperature trajectory.
+temp_long <- imap_dfr(group_temp, function(v, g) {
+  start_date <- min(barcelona_raw$date[barcelona_raw$group == g])
+  tibble(group = g, time = seq_along(v),
+         date = start_date + days(time - 1),
+         month_of_year = month(date) + (mday(date) - 1) / 31,
+         temp = v)
+}) |> mutate(group = factor(group, levels = groups))
+
+ggplot(temp_long, aes(month_of_year, temp, group = group, colour = group)) +
+  geom_line(alpha = 0.7) +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  labs(title = "Per-outbreak temperature trajectory",
+       subtitle = "Same Barcelona climatology, sampled at different phases",
+       x = NULL, y = "t2m (°C)") +
+  theme_bw()
+```
+
+## Fixed parameters
+
+Same as the alpha-based notebook except `alpha` is gone; the seasonal multiplier comes from fitted Brière params instead.
+
+```{r}
+plague <- yersinia::plague_stochastic_humans
+
+shared_names <- c("R0", "T_min", "T_max", "q_briere", "kappa")
+local_names  <- c("beta_h", "I_ini", "lambda_baseline")
+fitted_names <- c(shared_names, local_names)
+
+fixed_pars <- plague_fit_fixed_pars(scenario = "historical",
+                                    fitted_names = c(fitted_names, "K_h", "K_r", "beta_r"))
+fixed_pars$beta_I  <- 0
+fixed_pars$p_obs   <- 0.8
+fixed_pars$R_ini   <- 0
+fixed_pars$I_h_ini <- 0
+fixed_pars$R_h_ini <- 0
+fixed_pars$obs_period <- 1L
+fixed_pars$seasonal <- rep(1, T_max)   # overridden per-group by wrap
+fixed_pars$g_h     <- 0.1
+fixed_pars$rho     <- 2.5
+
+group_fixed_pars <- setNames(
+  lapply(groups, function(g) {
+    pop <- group_meta$pop[group_meta$group == g]
+    list(K_h = pop, K_r = pop)
+  }),
+  groups
+)
+```
+
+## Wrapped packer (mechanistic Brière)
+
+The seasonal multiplier is now **recomputed from temperature per posterior draw** using the fitted Brière parameters. Both `R0_to_beta_r` and `delta_R_briere` are defined inside the wrap so the closure carries them through `monty_runner_callr` serialization (see CLAUDE.md "monty_packer + monty_runner_callr gotcha").
+
+```{r}
+inner_packer <- monty_packer_grouped(
+  groups = groups,
+  scalar = c(local_names, shared_names),
+  shared = shared_names,
+  fixed  = fixed_pars
+)
+
+with_group_fixed <- function(packer, group_fixed, group_temp,
+                             T_ref = 17.8, cap = 1000) {
+  R0_to_beta_r <- function(R0, g_r, rho, delta_R) {
+    R0 * delta_R / ((1 - g_r) * (1 - exp(-rho)))
+  }
+
+  ## Inlined Brière. Returns >= 1 (= 1 at T_ref, larger away from optimum).
+  ## If the chain proposes T_min/T_max that violate T_min < T_ref < T_max
+  ## or that put observed temps outside [T_min, T_max], we return `cap`
+  ## for those days — likelihood crashes, posterior rejects the proposal.
+  delta_R_briere <- function(temperature, T_min, T_max, q) {
+    if (T_ref <= T_min || T_ref >= T_max) {
+      return(rep(cap, length(temperature)))
+    }
+    L_ref <- (T_ref - T_min) * (T_max - T_ref)^q
+    in_range <- temperature > T_min & temperature < T_max
+    L_T <- ifelse(in_range,
+                  (temperature - T_min) * (T_max - temperature)^q,
+                  NA_real_)
+    mult <- L_ref / L_T
+    pmin(ifelse(is.na(mult), cap, mult), cap)
+  }
+
+  out <- packer
+  inner_unpack <- packer$unpack
+  out$unpack <- function(x) {
+    u <- inner_unpack(x)
+    Map(function(g, gp) {
+      pars <- c(gp, group_fixed[[g]])
+      pars$beta_r <- R0_to_beta_r(pars$R0, pars$g_r, pars$rho, pars$delta_R)
+      pars$R0     <- NULL
+      ## Mechanistic seasonal forcing.
+      pars$seasonal <- delta_R_briere(
+        group_temp[[g]],
+        T_min = pars$T_min,
+        T_max = pars$T_max,
+        q     = pars$q_briere
+      )
+      pars$T_min    <- NULL
+      pars$T_max    <- NULL
+      pars$q_briere <- NULL
+      pars
+    }, names(u), u)
+  }
+  class(out) <- class(packer)
+  out
+}
+
+packer <- with_group_fixed(inner_packer, group_fixed_pars, group_temp)
+
+cat("packer parameter names (", length(packer$names()), "total):\n")
+print(packer$names())
+```
+
+## Prior
+
+Brière parameters are bounded uniforms — bounds chosen so that:
+
+-   `T_min ∈ (-5, 7)` is always strictly below the coldest observed temperature (\~7.4°C in Barcelona_24 January). Prevents the chain from proposing T_min that puts observed temps outside the function's support.
+-   `T_max ∈ (25, 50)` is always strictly above the hottest observed temperature (\~22.5°C August).
+-   `q_briere ~ Gamma(3, 2)` (mean 1.5, mode 1) — weakly informative around the literature value, can stretch.
+
+R0 prior unchanged (`Gamma(3, 0.6)`); kappa unchanged.
+
+```{r}
+local_prior_exprs <- function(g) {
+  list(
+    bquote(.(as.name(sprintf("beta_h<%s>",          g))) ~ Uniform(0.001, 0.15)),
+    bquote(.(as.name(sprintf("I_ini<%s>",           g))) ~ Uniform(1, 5e4)),
+    bquote(.(as.name(sprintf("lambda_baseline<%s>", g))) ~ Exponential(rate = 0.1))
+  )
+}
+
+shared_prior_exprs <- list(
+  bquote(R0       ~ Gamma(shape = 3, rate = 0.6)),
+  bquote(T_min    ~ Uniform(-5, 7)),
+  bquote(T_max    ~ Uniform(25, 50)),
+  bquote(q_briere ~ Gamma(shape = 3, rate = 2)),
+  bquote(kappa    ~ Gamma(shape = 3, rate = 0.2))
+)
+
+prior_body <- as.call(c(
+  list(as.name("{")),
+  shared_prior_exprs,
+  unlist(lapply(groups, local_prior_exprs), recursive = FALSE)
+))
+
+prior <- monty_dsl(prior_body)
+
+stopifnot(setequal(prior$parameters, packer$names()))
+length(prior$parameters)
+```
+
+## Initial values
+
+Start at the literature Brière values (the current defaults of `delta_R_multiplier()`). Other inits match the Approach A pilot's converged region.
+
+```{r}
+init_local_centre <- function(g) {
+  c(
+    setNames(0.05,  sprintf("beta_h<%s>",          g)),
+    setNames(1000,  sprintf("I_ini<%s>",           g)),
+    setNames(3,     sprintf("lambda_baseline<%s>", g))
+  )
+}
+
+init_centre <- c(
+  R0       = 5,
+  T_min    = 5,      # literature value
+  T_max    = 37,     # literature value
+  q_briere = 1.5,    # literature value
+  kappa    = 20,
+  unlist(lapply(groups, init_local_centre))
+)
+init_centre <- init_centre[packer$names()]
+
+n_chains <- 4
+set.seed(1)
+init_chains <- replicate(
+  n_chains,
+  init_centre + rnorm(length(init_centre), 0, 0.05) * abs(init_centre)
+)
+```
+
+## Diagonal VCV
+
+```{r}
+vcv_diag <- c(
+  R0       = 0.5^2,
+  T_min    = 1.0^2,    # cold-cliff exploration; ~degrees
+  T_max    = 2.0^2,    # warm-cliff exploration; weakly identified, larger steps OK
+  q_briere = 0.3^2,
+  kappa    = 3^2,
+  unlist(lapply(groups, function(g) c(
+    setNames(0.01^2, sprintf("beta_h<%s>",          g)),
+    setNames(200^2,  sprintf("I_ini<%s>",           g)),
+    setNames(2^2,    sprintf("lambda_baseline<%s>", g))
+  )))
+)
+vcv_diag <- vcv_diag[packer$names()]
+init_vcv <- diag(vcv_diag)
+dimnames(init_vcv) <- list(packer$names(), packer$names())
+```
+
+## Smoke test
+
+```{r}
+unfilter <- dust_unfilter_create(plague, time_start = 0,
+                                 data = dat, n_groups = length(groups))
+unpacked <- packer$unpack(init_centre)
+
+cat("Barcelona_15 derived seasonal at init (T_min=5, T_max=37, q=1.5):\n")
+cat("  range:", range(unpacked$Barcelona_15$seasonal), "\n")
+
+ll_init <- dust_likelihood_run(unfilter, unpacked)
+cat("\ndeterministic ll per group at init_centre:\n")
+print(setNames(ll_init, groups))
+cat("sum:", sum(ll_init), "\n")
+
+likelihood_det <- dust_likelihood_monty(unfilter, packer)
+posterior_det <- likelihood_det + prior
+cat("posterior density at init:", posterior_det$density(init_centre), "\n")
+```
+
+## Monty — deterministic pilot
+
+Same recipe as Approach A: deterministic likelihood + adaptive sampler tunes the 17×17 VCV.
+
+```{r}
+sampler_det <- monty_sampler_adaptive(initial_vcv = init_vcv)
+runner      <- monty_runner_callr(n_workers = n_chains)
+
+samples_pilot <- monty_sample(posterior_det, sampler_det, 50000,
+                              initial = init_chains,
+                              runner = runner, n_chains = n_chains,
+                              burnin = 15000)
+```
+
+### Pilot diagnostics
+
+```{r}
+samples_pilot_df <- as_draws_df(samples_pilot)
+summarise_draws(samples_pilot_df)
+
+matplot(samples_pilot$density, type = "l", lty = 1,
+        xlab = "Sample", ylab = "Log posterior probability density")
+```
+
+```{r, fig.width = 12, fig.height = 8}
+mcmc_trace(samples_pilot_df,
+           pars = c("R0", "T_min", "T_max", "q_briere", "kappa"))
+mcmc_hist(samples_pilot_df,
+          pars = c("R0", "T_min", "T_max", "q_briere", "kappa"))
+```
+
+### Brière curve from posterior
+
+The substantive output: posterior on the inferred Brière temperature response. Compare to the literature default curve.
+
+```{r, fig.width = 9, fig.height = 6}
+n_curves <- 100
+draws_curve <- samples_pilot_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_pilot_df) %/% n_curves)) |>
+  dplyr::slice_head(n = n_curves)
+
+T_grid <- seq(0, 35, length.out = 200)
+T_ref_used <- 17.8
+
+briere_curve <- function(temp, T_min, T_max, q, T_ref = 17.8, cap = 1000) {
+  if (T_ref <= T_min || T_ref >= T_max) return(rep(NA_real_, length(temp)))
+  L_ref <- (T_ref - T_min) * (T_max - T_ref)^q
+  in_range <- temp > T_min & temp < T_max
+  L_T <- ifelse(in_range, (temp - T_min) * (T_max - temp)^q, NA_real_)
+  mult <- L_ref / L_T
+  pmin(ifelse(is.na(mult), cap, mult), cap)
+}
+
+curves_long <- map_dfr(seq_len(nrow(draws_curve)), function(i) {
+  m <- briere_curve(T_grid,
+                    T_min = draws_curve$T_min[i],
+                    T_max = draws_curve$T_max[i],
+                    q     = draws_curve$q_briere[i])
+  tibble(draw = i, temp = T_grid, multiplier = m)
+})
+
+literature_curve <- tibble(
+  temp = T_grid,
+  multiplier = briere_curve(T_grid, T_min = 5, T_max = 37, q = 1.5))
+
+ggplot() +
+  geom_line(data = curves_long,
+            aes(temp, multiplier, group = draw),
+            colour = "#22008822") +
+  geom_line(data = literature_curve,
+            aes(temp, multiplier),
+            colour = "red", size = 1, linetype = "dashed") +
+  coord_cartesian(ylim = c(1, 50), xlim = c(0, 35)) +
+  labs(title = "Posterior Brière temperature response (purple) vs literature default (red dashed)",
+       subtitle = "Multiplier on delta_R: higher = faster carcass infectivity loss",
+       x = "Temperature (°C)", y = "delta_R multiplier") +
+  theme_bw()
+```
+
+```{r, fig.width = 10, fig.height = 12}
+samples_pilot_long <- samples_pilot_df |>
+  pivot_longer(matches("<"),
+               names_to = c("param", "group"),
+               names_pattern = "(.*)<(.*)>") |>
+  mutate(group = factor(group, levels = groups))
+
+ggplot(samples_pilot_long, aes(value, group)) +
+  ggdist::stat_halfeye(alpha = 0.7, normalize = "panels") +
+  facet_wrap(~ param, scales = "free_x") +
+  labs(title = "Pilot — local parameter posteriors by outbreak (mechanistic)",
+       x = NULL, y = NULL) +
+  theme_bw()
+```
+
+### Pilot fit check (forward simulation)
+
+```{r}
+n_pp     <- 100
+draws_pp <- samples_pilot_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_pilot_df) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+simulate_one_draw <- function(theta_row, t_grid) {
+  unpacked <- packer$unpack(unlist(theta_row[, packer$names()]))
+  sim <- vapply(seq_along(unpacked), function(g) {
+    pars <- unpacked[[g]]
+    sys <- dust_system_create(plague, pars = pars, n_particles = 1)
+    dust_system_set_state_initial(sys)
+    yy <- dust_system_simulate(sys, t_grid)
+    D_h <- drop(dust_unpack_state(sys, yy)$D_h)
+    pars$p_obs * D_h + pars$lambda_baseline
+  }, numeric(length(t_grid)))
+  colnames(sim) <- groups
+  sim
+}
+
+t_grid <- seq(0, T_max)
+
+deaths_pilot_long <- map_dfr(seq_len(nrow(draws_pp)), function(i) {
+  sim <- simulate_one_draw(draws_pp[i, ], t_grid)
+  as_tibble(sim) |>
+    mutate(time = t_grid, draw = i) |>
+    pivot_longer(-c(time, draw), names_to = "group", values_to = "mu") |>
+    mutate(group = factor(group, levels = groups))
+})
+
+ggplot() +
+  geom_line(data = deaths_pilot_long,
+            aes(time, mu, group = draw),
+            colour = "#22008822") +
+  geom_point(data = barcelona_raw,
+             aes(time, deaths), size = 0.4) +
+  facet_wrap(~ group, scales = "free", ncol = 1) +
+  labs(title = "Pilot forward simulation (mechanistic Brière)",
+       x = "Day", y = "Deaths") +
+  theme_bw()
+```
+
+### Comparison with the alpha-based fit
+
+After running both pilots, the headline comparison:
+
+1.  **Forward simulation envelopes** — both should cover the data equally well. If the mechanistic fit is structurally adequate, no fit-quality penalty for using interpretable parameters.
+2.  **Brière posterior vs literature curve** — does the data shift the Brière shape relative to the lab-measured defaults? `T_min` is the parameter most likely to identify cleanly for Barcelona; if its posterior is e.g. 9°C with a tight CI, that's a substantive claim ("the cold cliff for plague transmission as recorded in mortality is \~4°C warmer than Hinnebusch's biofilm-failure threshold").
+3.  **R0 baseline comparison** — the alpha-based fit gave R0 \~6.3 at `seasonal = 1` (which corresponds to T_ref = 17.8°C in this notebook). The mechanistic fit's R0 has the same interpretation, so they should be directly comparable.
+
+## Tuned VCV → stochastic production
+
+Same wiring as Approach A — extract tuned VCV, inflate, swap unfilter for the stochastic filter, warm-start chains. (See `monty-barcelona-hierarchical.qmd` for the full block.)
+
+```{r, eval = FALSE}
+det_vcv  <- apply(samples_pilot$details$vcv, c(1, 2), mean)
+dimnames(det_vcv) <- list(packer$names(), packer$names())
+prod_vcv <- 0.7 * (2.38^2 / length(packer$names())) * det_vcv
+
+filter <- dust_filter_create(plague, time_start = 0,
+                             data = dat, n_particles = 1000,
+                             n_groups = length(groups), n_threads = 4)
+likelihood_final <- dust_likelihood_monty(filter, packer,
+                                          save_trajectories = TRUE)
+posterior_final  <- likelihood_final + prior
+sampler_final    <- monty_sampler_random_walk(prod_vcv)
+
+init_final <- t(as.matrix(samples_pilot_df[
+  samples_pilot_df$.iteration == max(samples_pilot_df$.iteration),
+  packer$names()]))
+
+samples <- monty_sample(posterior_final, sampler_final, 5000,
+                        initial = init_final,
+                        runner = runner, n_chains = n_chains, burnin = 500)
+```

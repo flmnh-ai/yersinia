@@ -1,0 +1,648 @@
+---
+title: "Monty (multi-city joint fit, 6 outbreaks — mechanistic Brière temperature forcing)"
+format: html
+editor: visual
+---
+
+**Sibling of `monty-barcelona-mechanistic.qmd`.** Same model, same R0/Brière reparameterization, same K_h/K_r pinning. The difference: **adds two non-Barcelona outbreaks** (Debrecen 1739–40, Malta 1813) to the joint fit. Cohort spans climates from Hungarian continental winters (−2°C monthly mean) to Mediterranean summers (27°C monthly mean).
+
+The point of the expansion is **`T_min` identification** plus cross-outbreak `beta_h` and `beta_I` variation. Three earlier pilots tried different warm-cliff anchors — Cairo 1835 (failed, intervention-confounded + outbreak ended before summer), Algiers 1821 (small signal), Vetlyanka 1878–79 (sparse smolder-then-explode epidemiology destabilized the joint fit). All three caused multimodal posteriors. **Rolling back to the 6-outbreak cohort that previously fit cleanly with loose priors**. `T_max` and `kappa` priors stay at the loose settings that worked in earlier pilots — tightening either of them (lab-anchor on T_max, low-kappa-blocking on kappa) walls off between-mode RW MH excursions and leaves chains trapped in whichever basin they entered. Loose priors let the chain mix; we accept that `T_max` posterior will pile at its lower bound (data + biology consistent with literature even without the explicit anchor).
+
+**Cohort (6 outbreaks):**
+
+| id | place | year | days | active months | peak | pop | mortality | Jan T̄ | Jul T̄ | role |
+|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
+| 15 | Barcelona | 1457 | 204 | May–Dec | Aug | 40k | \~5% | 7°C | 22°C | central curve |
+| 17 | Barcelona | 1483 | 193 | Mar–Sep | Jun | 30k | \~5% | 7°C | 22°C | central curve |
+| 20 | Barcelona | 1501 | 211 | May–Nov | Jul | 25k | \~9% | 7°C | 22°C | central curve |
+| 24 | Barcelona | 1558 | 201 | Jan–Aug | Jun | 35k | \~12% | 7°C | 22°C | central curve |
+| 38 | Debrecen | 1739–40 | 304 | May–Mar | Oct | 26k | 33% | −2°C | 21°C | cold cliff (mixed bubonic/pneumonic) |
+| 82 | Malta | 1813 | 209 | May–Nov | Jul | 96k | 4.6% | 12°C | 27°C | Mediterranean cross-check |
+
+**`beta_I` is a per-outbreak fitted parameter** (was pinned at 0 in earlier notebooks). Previous pilots showed `beta_I<Debrecen>` strongly positive (railing the prior bound) while Barcelona summer outbreaks stayed near zero — supporting the cold-weather pneumonic-transmission hypothesis. Cross-outbreak variation in `beta_I` is itself a substantive finding from this fit.
+
+**Caveats to flag in interpretation:**
+
+-   **Debrecen 1739–40**: 33% recorded mortality strains the closed-population assumption. K_h is pinned at the recorded 26k but real `S_h(0)` may be higher (out-migration during the outbreak shrunk the denominator). `beta_h<Debrecen>` will absorb the discrepancy.
+-   **Malta 1813**: coverage was Valletta-only initially, then expanded to rural districts after a quarantine commission was established mid-outbreak. This creates an artificial step in apparent reporting that no single `lambda_baseline<Malta>` value can capture cleanly. Expect some misfit around the coverage transition.
+-   **`T_max` not pinned by data**: Barcelona summers (~22°C) and Malta summer (~27°C) don't engage the warm cliff. The loose `Uniform(30, 50)` prior is used so the chain can mix freely; expect posterior to pile at the lower bound (~30°C). Report as "data + literature consistent with X. cheopis warm-cliff failure ~28–32°C." A future iteration with HMC (which handles the geometry better than RW MH) could swap in the informative `Normal(30, 1.5)` lab-anchored prior to make this explicit.
+-   **Modern climatology bias**: ERA5 monthly-mean climatology is used as a proxy for outbreak-era temperature. The Little Ice Age (1450–1850) ran cooler than modern by 1–3°C in continental Europe and 0.5–1°C in the Mediterranean. This biases `T_min` toward warmer values (model never sees true historical cold). Real paleoclimate reconstructions would shift the headline numbers; sensitivity-analysis or paleoclimate-driven re-fit deferred to a follow-up.
+
+## Setup
+
+```{r}
+library(monty)
+library(odin2)
+library(dust2)
+
+#library(yersinia)
+library(tidyverse)
+library(lubridate)
+
+library(posterior)
+library(bayesplot)
+
+library(sf)
+library(stars)
+```
+
+## Outbreak selection + paths
+
+```{r}
+outbreak_spec <- tribble(
+  ~place,       ~id,
+  "Barcelona",  15,
+  "Barcelona",  17,
+  "Barcelona",  20,
+  "Barcelona",  24,
+  "Debrecen",   38,
+  "Malta",      82
+  ## Algiers 10 + Vetlyanka 123 dropped after destabilising the joint fit.
+  ## Cairo 32 dropped earlier (quarantine confound, didn't engage warm cliff).
+  ## See notebook intro for the rationale.
+)
+
+MORTALITY_CSV <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/data-raw/plague-season-v3_2/input/rawdata.csv"
+ERA_RDS       <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/era_preprocessed.RDS"
+CLIM_REFERENCE_END <- ymd("1990-01-01")
+```
+
+## Data
+
+```{r}
+mortality_raw <- read_csv(MORTALITY_CSV, show_col_types = FALSE)
+
+outbreak_raw <- mortality_raw |>
+  inner_join(outbreak_spec, by = c("place", "id")) |>
+  mutate(date = ymd(if_else(str_length(dateorig) < 10,
+                            paste0(dateorig, "-01"), dateorig))) |>
+  group_by(place, id) |>
+  arrange(date, .by_group = TRUE) |>
+  mutate(time     = as.integer(date - min(date)) + 1L,
+         group    = factor(sprintf("%s_%d", place, id),
+                           levels = sprintf("%s_%d", outbreak_spec$place,
+                                            outbreak_spec$id))) |>
+  ungroup() |>
+  select(group, place, id, year = startyear, time, date,
+         deaths = n, population, lon, lat)
+
+T_max <- max(outbreak_raw$time)
+
+dat <- outbreak_raw |>
+  select(group, time, deaths) |>
+  complete(group, time = 1:T_max) |>
+  arrange(group, time) |>
+  mutate(group = as.character(group))
+
+stopifnot(length(unique(table(dat$group))) == 1L,
+          all(table(dat$group) == T_max))
+
+cat(sprintf("T_max = %d days; %d groups; %d total rows (NA padded = %d)\n",
+            T_max, nlevels(outbreak_raw$group), nrow(dat),
+            sum(is.na(dat$deaths))))
+
+group_meta <- outbreak_raw |>
+  group_by(group) |>
+  summarise(place = first(place),
+            id    = first(id),
+            year  = first(year),
+            duration     = max(time),
+            n_obs        = sum(!is.na(deaths)),
+            pop          = first(population),
+            total_deaths = sum(deaths, na.rm = TRUE),
+            peak_deaths  = max(deaths, na.rm = TRUE),
+            lon          = first(lon),
+            lat          = first(lat),
+            .groups = "drop")
+group_meta
+```
+
+```{r, fig.width = 10, fig.height = 14}
+ggplot(outbreak_raw, aes(time, deaths)) +
+  geom_point(size = 0.4) +
+  facet_wrap(~ group, scales = "free", ncol = 1) +
+  labs(title = "Cohort outbreaks (Krauer plague-specific daily)",
+       x = "Day since outbreak start", y = "Deaths") +
+  theme_bw()
+```
+
+## Per-outbreak temperature climatology
+
+Each outbreak gets its **own** ERA5 climatology, extracted at the outbreak's lat/lon and interpolated across that outbreak's calendar window. Loop over groups instead of using one Barcelona climatology.
+
+```{r}
+monthly_to_daily_range <- function(monthly, start_date, end_date) {
+  stopifnot(length(monthly) == 12)
+  start_date <- ymd(start_date); end_date <- ymd(end_date)
+  start_year <- year(start_date); end_year <- year(end_date)
+  years <- (start_year - 1):(end_year + 1)
+  mids <- numeric(0); vals <- numeric(0); offset <- 0
+  for (yr in years) {
+    yr_start <- ymd(sprintf("%d-01-01", yr))
+    yr_end   <- ymd(sprintf("%d-12-31", yr))
+    n_days   <- as.integer(yr_end - yr_start) + 1L
+    month_starts <- ymd(sprintf("%d-%02d-01", yr, 1:12))
+    month_ends   <- c(month_starts[-1] - days(1), yr_end)
+    month_mids   <- as.integer(month_starts + (month_ends - month_starts) / 2 - yr_start) + offset
+    mids <- c(mids, month_mids)
+    vals <- c(vals, monthly)
+    offset <- offset + n_days
+  }
+  fn <- splinefun(mids, vals, method = "periodic")
+  full_start <- ymd(sprintf("%d-01-01", years[1]))
+  i_start <- as.integer(start_date - full_start) + 1L
+  i_end   <- as.integer(end_date   - full_start) + 1L
+  fn(i_start:i_end)
+}
+```
+
+```{r}
+groups <- levels(outbreak_raw$group)
+
+era <- readRDS(ERA_RDS)
+
+## Per-group climatology lon/lat overrides — for outbreaks whose actual
+## location falls outside the ERA5 file's spatial extent. ERA5 extent for
+## our file: lon ∈ [-10.1, 45.9], lat ∈ [28.1, 62.1]. None of the current
+## 6 cohort outbreaks need an override; kept here for future use.
+clim_lonlat_override <- list()
+
+## Build per-group climatology + per-day temperature trajectory.
+group_temp <- setNames(
+  lapply(groups, function(g) {
+    meta <- group_meta[group_meta$group == g, ]
+    lonlat <- if (!is.null(clim_lonlat_override[[g]])) {
+      clim_lonlat_override[[g]]
+    } else {
+      c(lon = meta$lon, lat = meta$lat)
+    }
+    lonlat_sf <- st_as_sf(tibble(lon = lonlat[["lon"]], lat = lonlat[["lat"]]),
+                          coords = c("lon", "lat"))
+    clim_monthly <- era |>
+      st_extract(lonlat_sf) |>
+      as_tibble() |>
+      select(-geometry) |>
+      filter(time < CLIM_REFERENCE_END) |>
+      mutate(month = month(time, label = TRUE)) |>
+      group_by(month) |>
+      summarize(t2m = mean(t2m), .groups = "drop") |>
+      arrange(month)
+    if (sum(!is.na(clim_monthly$t2m)) == 0) {
+      stop(sprintf("All-NA climatology for group %s at (lon=%.2f, lat=%.2f). ",
+                   g, lonlat[["lon"]], lonlat[["lat"]]),
+           "Location is outside ERA5 file extent. Add a clim_lonlat_override entry.")
+    }
+    start_date <- min(outbreak_raw$date[outbreak_raw$group == g])
+    end_date   <- start_date + days(T_max - 1)
+    monthly_to_daily_range(clim_monthly$t2m, start_date, end_date)
+  }),
+  groups
+)
+
+cat("Temperature range per group (°C, model timeseries spans T_max days):\n")
+print(round(sapply(group_temp, function(v) c(min = min(v), max = max(v))), 1))
+
+cat(sprintf("\nGlobal range across cohort: [%.1f, %.1f] °C\n",
+            min(sapply(group_temp, min)),
+            max(sapply(group_temp, max))))
+```
+
+```{r, fig.width = 10, fig.height = 5}
+temp_long <- imap_dfr(group_temp, function(v, g) {
+  start_date <- min(outbreak_raw$date[outbreak_raw$group == g])
+  tibble(group = g, time = seq_along(v),
+         date = start_date + days(time - 1),
+         month_of_year = month(date) + (mday(date) - 1) / 31,
+         temp = v)
+}) |> mutate(group = factor(group, levels = groups))
+
+ggplot(temp_long, aes(month_of_year, temp, group = group, colour = group)) +
+  geom_line(alpha = 0.8) +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  labs(title = "Per-outbreak temperature trajectories (ERA5 climatology at each city)",
+       subtitle = "Cohort spans winter Hungary to Mediterranean summer",
+       x = NULL, y = "t2m (°C)") +
+  theme_bw()
+```
+
+## Fixed parameters
+
+Same as the Barcelona mechanistic notebook.
+
+```{r}
+plague <- yersinia::plague_stochastic_humans
+
+## REPARAM-BETAI: beta_I (human-to-human transmission) added as a local
+## fitted parameter. Was previously pinned at 0. Captures pneumonic +
+## ectoparasite transmission, which historical accounts suggest varied
+## meaningfully across outbreaks (Cairo 1835 mixed bubonic/pneumonic;
+## Debrecen 1739-40 winter peak fits the cold-weather indoor-crowding
+## scenario; Barcelona summer outbreaks plausibly less pneumonic).
+## To revert: drop "beta_I" from local_names, set fixed_pars$beta_I <- 0,
+## remove beta_I priors/inits/VCV entries.
+shared_names <- c("R0", "T_min", "T_max", "q_briere", "kappa")
+local_names  <- c("beta_h", "beta_I", "I_ini", "lambda_baseline")
+fitted_names <- c(shared_names, local_names)
+
+fixed_pars <- plague_fit_fixed_pars(scenario = "historical",
+                                    fitted_names = c(fitted_names, "K_h", "K_r", "beta_r"))
+fixed_pars$p_obs   <- 0.8
+fixed_pars$R_ini   <- 0
+fixed_pars$I_h_ini <- 0
+fixed_pars$R_h_ini <- 0
+fixed_pars$obs_period <- 1L
+fixed_pars$seasonal <- rep(1, T_max)   # overridden per-group by wrap
+fixed_pars$g_h     <- 0.1
+fixed_pars$rho     <- 2.5
+
+## Per-outbreak K_h overrides — none needed for the current 6-outbreak
+## cohort, but the mechanism is kept for future small-population outbreaks
+## where census population understates the at-risk catchment.
+K_h_override <- list()
+
+group_fixed_pars <- setNames(
+  lapply(groups, function(g) {
+    pop <- group_meta$pop[group_meta$group == g]
+    K_h <- if (!is.null(K_h_override[[g]])) K_h_override[[g]] else pop
+    list(K_h = K_h, K_r = K_h)
+  }),
+  groups
+)
+cat("Per-group (K_h, K_r) — overrides marked with *:\n")
+for (g in groups) {
+  override_mark <- if (!is.null(K_h_override[[g]])) " *" else ""
+  cat(sprintf("  %-15s K_h = K_r = %d%s\n", g, group_fixed_pars[[g]]$K_h, override_mark))
+}
+```
+
+## Wrapped packer (mechanistic Brière)
+
+Same as Barcelona mechanistic — helpers defined inside the wrap so callr serialization works.
+
+```{r}
+inner_packer <- monty_packer_grouped(
+  groups = groups,
+  scalar = c(local_names, shared_names),
+  shared = shared_names,
+  fixed  = fixed_pars
+)
+
+with_group_fixed <- function(packer, group_fixed, group_temp,
+                             T_ref = 17.8, cap = 1000) {
+  R0_to_beta_r <- function(R0, g_r, rho, delta_R) {
+    R0 * delta_R / ((1 - g_r) * (1 - exp(-rho)))
+  }
+  delta_R_briere <- function(temperature, T_min, T_max, q) {
+    if (T_ref <= T_min || T_ref >= T_max) {
+      return(rep(cap, length(temperature)))
+    }
+    L_ref <- (T_ref - T_min) * (T_max - T_ref)^q
+    in_range <- temperature > T_min & temperature < T_max
+    L_T <- ifelse(in_range,
+                  (temperature - T_min) * (T_max - temperature)^q,
+                  NA_real_)
+    mult <- L_ref / L_T
+    pmin(ifelse(is.na(mult), cap, mult), cap)
+  }
+
+  out <- packer
+  inner_unpack <- packer$unpack
+  out$unpack <- function(x) {
+    u <- inner_unpack(x)
+    Map(function(g, gp) {
+      pars <- c(gp, group_fixed[[g]])
+      pars$beta_r <- R0_to_beta_r(pars$R0, pars$g_r, pars$rho, pars$delta_R)
+      pars$R0     <- NULL
+      pars$seasonal <- delta_R_briere(
+        group_temp[[g]],
+        T_min = pars$T_min,
+        T_max = pars$T_max,
+        q     = pars$q_briere
+      )
+      pars$T_min    <- NULL
+      pars$T_max    <- NULL
+      pars$q_briere <- NULL
+      pars
+    }, names(u), u)
+  }
+  class(out) <- class(packer)
+  out
+}
+
+packer <- with_group_fixed(inner_packer, group_fixed_pars, group_temp)
+
+cat("packer parameter names (", length(packer$names()), "total):\n")
+print(packer$names())
+```
+
+## Prior
+
+Brière prior bounds for the cliffs:
+
+-   `T_min ~ Uniform(-15, -3)` — Debrecen's monthly mean reaches −2°C; the prior bound at −3 keeps T_min strictly below all model temperatures. Lower bound −15 is well past any plausible cold cliff. Posterior should be informed by Debrecen.
+-   `T_max ~ Normal(30, 1.5)` — **informative prior anchored to lab biology** rather than data-driven. Lab studies of Xenopsylla cheopis (the principal rat-flea vector) put the warm-cliff transmission failure at ~28–32°C across multiple species; Y. pestis itself loses growth above ~32°C. Mean 30°C, SD 1.5°C, ~95% mass in [27, 33]°C. The data range in this cohort (Barcelona summer ~22°C, Malta summer ~27°C, Debrecen summer ~21°C) does not engage the warm cliff — `T_max` would be unidentified from the death curves alone, and a flat prior would just produce posteriors piled at whatever lower bound we set. The informative prior pins `T_max` at the lab-derived value while letting the data (especially Malta, which gets closest) push within the plausible biological range. Consistent with the project's general pattern of pinning lab-known quantities (g_h, rho, K_r, K_h).
+-   `q_briere ~ Gamma(3, 2)` — unchanged.
+
+R0 and kappa unchanged.
+
+```{r}
+local_prior_exprs <- function(g) {
+  list(
+    bquote(.(as.name(sprintf("beta_h<%s>",          g))) ~ Uniform(0.001, 0.15)),
+    ## REPARAM-BETAI: per-outbreak human-to-human transmission rate.
+    ## Uniform(0, 0.1) covers Didelot's Cairo posterior (~0.04) plus headroom.
+    ## Note: 0 is a meaningful value here (no human-to-human transmission).
+    bquote(.(as.name(sprintf("beta_I<%s>",          g))) ~ Uniform(0, 0.1)),
+    bquote(.(as.name(sprintf("I_ini<%s>",           g))) ~ Uniform(1, 5e4)),
+    bquote(.(as.name(sprintf("lambda_baseline<%s>", g))) ~ Exponential(rate = 0.1))
+  )
+}
+
+shared_prior_exprs <- list(
+  bquote(R0       ~ Gamma(shape = 3, rate = 0.6)),
+  bquote(T_min    ~ Uniform(-15, -3)),
+  ## T_max prior REVERTED to Uniform(30, 50). The Normal(30, 1.5)
+  ## informative prior (lab-biology anchor) hurt RW MH mixing — chains got
+  ## trapped in whichever mode they entered because the tight prior
+  ## penalised between-mode excursions. With the loose Uniform prior,
+  ## T_max posterior will pile at the lower bound (30°C), but that's a
+  ## defensible "data + biology consistent" finding. Re-anchor with the
+  ## informative prior once we have HMC or parallel tempering.
+  bquote(T_max    ~ Uniform(30, 50)),
+  bquote(q_briere ~ Gamma(shape = 3, rate = 2)),
+  ## kappa REVERTED to Gamma(3, 0.2). The tightened Gamma(8, 0.5) blocked
+  ## the degenerate kappa ~ 1.5 mode but also blocked between-mode RW
+  ## excursions (kappa was acting as a noise-absorbing safety valve).
+  ## With loose kappa, drop chains that find kappa < 5 in post-processing.
+  bquote(kappa    ~ Gamma(shape = 3, rate = 0.2))
+)
+
+prior_body <- as.call(c(
+  list(as.name("{")),
+  shared_prior_exprs,
+  unlist(lapply(groups, local_prior_exprs), recursive = FALSE)
+))
+
+prior <- monty_dsl(prior_body)
+
+stopifnot(setequal(prior$parameters, packer$names()))
+length(prior$parameters)
+```
+
+## Initial values
+
+```{r}
+init_local_centre <- function(g) {
+  c(
+    setNames(0.05,  sprintf("beta_h<%s>",          g)),
+    setNames(0.01,  sprintf("beta_I<%s>",          g)),  # small starting value, not exactly zero
+    setNames(1000,  sprintf("I_ini<%s>",           g)),
+    setNames(3,     sprintf("lambda_baseline<%s>", g))
+  )
+}
+
+init_centre <- c(
+  R0       = 4,        # near Barcelona-mechanistic posterior peak
+  T_min    = -5,       # well within prior, gives the chain room
+  T_max    = 35,       # within prior, gives chain room to explore
+  q_briere = 1.0,      # near Barcelona-mechanistic posterior peak
+  kappa    = 20,
+  unlist(lapply(groups, init_local_centre))
+)
+init_centre <- init_centre[packer$names()]
+
+n_chains <- 4
+set.seed(1)
+init_chains <- replicate(
+  n_chains,
+  init_centre + rnorm(length(init_centre), 0, 0.05) * (abs(init_centre) + 0.1)
+)
+```
+
+## Diagonal VCV
+
+```{r}
+vcv_diag <- c(
+  R0       = 0.5^2,
+  T_min    = 1.0^2,
+  T_max    = 2.0^2,    # wider for Uniform(30, 50) — chain needs room to explore
+  q_briere = 0.3^2,
+  kappa    = 3^2,
+  unlist(lapply(groups, function(g) c(
+    setNames(0.01^2,  sprintf("beta_h<%s>",          g)),
+    setNames(0.005^2, sprintf("beta_I<%s>",          g)),  # ~5% of prior width
+    setNames(200^2,   sprintf("I_ini<%s>",           g)),
+    setNames(2^2,     sprintf("lambda_baseline<%s>", g))
+  )))
+)
+vcv_diag <- vcv_diag[packer$names()]
+init_vcv <- diag(vcv_diag)
+dimnames(init_vcv) <- list(packer$names(), packer$names())
+```
+
+## Smoke test
+
+```{r}
+unfilter <- dust_unfilter_create(plague, time_start = 0,
+                                 data = dat, n_groups = length(groups))
+unpacked <- packer$unpack(init_centre)
+
+cat("Sample group seasonal at init:\n")
+for (g in c("Barcelona_24", "Cairo_32", "Debrecen_38")) {
+  v <- unpacked[[g]]$seasonal
+  cat(sprintf("  %-15s temp range %.1f to %.1f → seasonal range %.2f to %.2f\n",
+              g, min(group_temp[[g]]), max(group_temp[[g]]),
+              min(v), max(v)))
+}
+
+ll_init <- dust_likelihood_run(unfilter, unpacked)
+cat("\ndeterministic ll per group at init_centre:\n")
+print(setNames(round(ll_init, 1), groups))
+cat("sum:", round(sum(ll_init), 1), "\n")
+
+likelihood_det <- dust_likelihood_monty(unfilter, packer)
+posterior_det <- likelihood_det + prior
+cat("posterior density at init:", round(posterior_det$density(init_centre), 1), "\n")
+```
+
+## Monty — deterministic pilot
+
+5 globals + 6 × 4 = 29 free parameters. Compute scales with n_groups: each likelihood call is \~6× a single-outbreak call.
+
+```{r}
+sampler_det <- monty_sampler_adaptive(initial_vcv = init_vcv)
+runner      <- monty_runner_callr(n_workers = n_chains)
+
+samples_pilot <- monty_sample(posterior_det, sampler_det, 20000,
+                              initial = init_chains,
+                              runner = runner, n_chains = n_chains,
+                              burnin = 10000)
+```
+
+### Pilot diagnostics
+
+```{r}
+samples_pilot_df <- as_draws_df(samples_pilot)
+summarise_draws(samples_pilot_df)
+
+matplot(samples_pilot$density, type = "l", lty = 1,
+        xlab = "Sample", ylab = "Log posterior probability density")
+```
+
+```{r, fig.width = 12, fig.height = 8}
+mcmc_trace(samples_pilot_df,
+           pars = c("R0", "T_min", "T_max", "q_briere", "kappa"))
+mcmc_hist(samples_pilot_df,
+          pars = c("R0", "T_min", "T_max", "q_briere", "kappa"))
+```
+
+### Brière curve from posterior — the headline figure
+
+```{r, fig.width = 10, fig.height = 6}
+n_curves <- 100
+draws_curve <- samples_pilot_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_pilot_df) %/% n_curves)) |>
+  dplyr::slice_head(n = n_curves)
+
+T_grid <- seq(-10, 40, length.out = 200)
+
+briere_curve <- function(temp, T_min, T_max, q, T_ref = 17.8, cap = 1000) {
+  if (T_ref <= T_min || T_ref >= T_max) return(rep(NA_real_, length(temp)))
+  L_ref <- (T_ref - T_min) * (T_max - T_ref)^q
+  in_range <- temp > T_min & temp < T_max
+  L_T <- ifelse(in_range, (temp - T_min) * (T_max - temp)^q, NA_real_)
+  mult <- L_ref / L_T
+  pmin(ifelse(is.na(mult), cap, mult), cap)
+}
+
+curves_long <- map_dfr(seq_len(nrow(draws_curve)), function(i) {
+  m <- briere_curve(T_grid,
+                    T_min = draws_curve$T_min[i],
+                    T_max = draws_curve$T_max[i],
+                    q     = draws_curve$q_briere[i])
+  tibble(draw = i, temp = T_grid, multiplier = m)
+})
+
+literature_curve <- tibble(
+  temp = T_grid,
+  multiplier = briere_curve(T_grid, T_min = 5, T_max = 37, q = 1.5))
+
+## Show the temperature ranges of each city as rugs along the bottom.
+city_temp_ranges <- imap_dfr(group_temp, function(v, g) {
+  tibble(group = g, t_min_obs = min(v), t_max_obs = max(v))
+}) |> mutate(group = factor(group, levels = groups))
+
+ggplot() +
+  geom_line(data = curves_long,
+            aes(temp, multiplier, group = draw),
+            colour = "#22008822") +
+  geom_line(data = literature_curve,
+            aes(temp, multiplier),
+            colour = "red", linewidth = 1, linetype = "dashed") +
+  geom_segment(data = city_temp_ranges,
+               aes(x = t_min_obs, xend = t_max_obs,
+                   y = 1, yend = 1, colour = group),
+               linewidth = 1.5, alpha = 0.6,
+               position = position_nudge(y = -0.5)) +
+  coord_cartesian(ylim = c(0.5, 50), xlim = c(-10, 40)) +
+  labs(title = "Posterior Brière temperature response (purple) vs literature default (red dashed)",
+       subtitle = "Coloured bars = observed temperature range per outbreak",
+       x = "Temperature (°C)", y = "delta_R multiplier",
+       colour = NULL) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+```{r, fig.width = 10, fig.height = 14}
+samples_pilot_long <- samples_pilot_df |>
+  pivot_longer(matches("<"),
+               names_to = c("param", "group"),
+               names_pattern = "(.*)<(.*)>") |>
+  mutate(group = factor(group, levels = groups))
+
+ggplot(samples_pilot_long, aes(value, group)) +
+  ggdist::stat_halfeye(alpha = 0.7, normalize = "panels") +
+  facet_wrap(~ param, scales = "free_x") +
+  labs(title = "Pilot — local parameter posteriors by outbreak (multi-city)",
+       x = NULL, y = NULL) +
+  theme_bw()
+```
+
+### Pilot fit check (forward simulation)
+
+```{r}
+n_pp     <- 100
+draws_pp <- samples_pilot_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_pilot_df) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+simulate_one_draw <- function(theta_row, t_grid) {
+  unpacked <- packer$unpack(unlist(theta_row[, packer$names()]))
+  sim <- vapply(seq_along(unpacked), function(g) {
+    pars <- unpacked[[g]]
+    sys <- dust_system_create(plague, pars = pars, n_particles = 1)
+    dust_system_set_state_initial(sys)
+    yy <- dust_system_simulate(sys, t_grid)
+    D_h <- drop(dust_unpack_state(sys, yy)$D_h)
+    pars$p_obs * D_h + pars$lambda_baseline
+  }, numeric(length(t_grid)))
+  colnames(sim) <- groups
+  sim
+}
+
+t_grid <- seq(0, T_max)
+
+deaths_pilot_long <- map_dfr(seq_len(nrow(draws_pp)), function(i) {
+  sim <- simulate_one_draw(draws_pp[i, ], t_grid)
+  as_tibble(sim) |>
+    mutate(time = t_grid, draw = i) |>
+    pivot_longer(-c(time, draw), names_to = "group", values_to = "mu") |>
+    mutate(group = factor(group, levels = groups))
+})
+```
+
+```{r, fig.width = 10, fig.height = 14}
+ggplot() +
+  geom_line(data = deaths_pilot_long,
+            aes(time, mu, group = draw),
+            colour = "#22008822") +
+  geom_point(data = outbreak_raw,
+             aes(time, deaths), size = 0.4, color = 'red') +
+  facet_wrap(~ group, scales = "free", ncol = 1) +
+  labs(title = "Pilot forward simulation (multi-city mechanistic)",
+       x = "Day", y = "Deaths") +
+  theme_bw()
+```
+
+### What to look for
+
+1.  **`T_min` posterior** — should now be *enclosed* (not bound-piling) somewhere between −10 and Debrecen's coldest model day. A finite, narrow posterior here is the substantive cold-cliff identification this notebook was built for.
+2.  **`T_max` posterior** — should be enclosed somewhere between Cairo's hottest model day and 50. Watch for Cairo's quarantine-driven decline being misattributed to the warm cliff (would push T_max implausibly low).
+3.  **Forward simulation per city** — Cairo's spring-peak shape is the diagnostic for warm-cliff fit. Debrecen's autumn-peak-then-winter-tail is the diagnostic for cold-cliff fit. Malta should fit cleanly with no special structure.
+4.  **Cross-fit consistency** — Cairo's posterior here vs. the single-outbreak `monty-seasonal.qmd` fit. Big divergence = the joint fit is forcing Cairo to share Brière params it doesn't want; tight agreement = the shared Brière is biologically real across cities.
+
+## Tuned VCV → stochastic production
+
+Same wiring as Approach A — copy from `monty-barcelona-hierarchical.qmd` if needed. Skipped here; structurally identical.
+
+```{r, eval = FALSE}
+det_vcv  <- apply(samples_pilot$details$vcv, c(1, 2), mean)
+dimnames(det_vcv) <- list(packer$names(), packer$names())
+prod_vcv <- 0.7 * (2.38^2 / length(packer$names())) * det_vcv
+
+filter <- dust_filter_create(plague, time_start = 0,
+                             data = dat, n_particles = 1000,
+                             n_groups = length(groups), n_threads = 4)
+likelihood_final <- dust_likelihood_monty(filter, packer,
+                                          save_trajectories = TRUE)
+posterior_final  <- likelihood_final + prior
+sampler_final    <- monty_sampler_random_walk(prod_vcv)
+
+init_final <- t(as.matrix(samples_pilot_df[
+  samples_pilot_df$.iteration == max(samples_pilot_df$.iteration),
+  packer$names()]))
+
+samples <- monty_sample(posterior_final, sampler_final, 5000,
+                        initial = init_final,
+                        runner = runner, n_chains = n_chains, burnin = 500)
+```

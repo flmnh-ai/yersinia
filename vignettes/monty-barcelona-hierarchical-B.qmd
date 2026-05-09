@@ -1,0 +1,611 @@
+---
+title: "Monty (Barcelona joint fit, 4 outbreaks — Approach B / true hierarchical)"
+format: html
+editor: visual
+---
+
+**Sibling of `monty-barcelona-hierarchical.qmd` (Approach A).** Same data, same model, same R0/alpha/seasonal reparameterization. The difference: **per-outbreak local parameters are drawn from a hyperprior** rather than fitted with independent priors.
+
+For each pooled local parameter `theta` (one of `beta_h, K_r, I_ini, lambda_baseline`):
+
+```
+mu_log_theta    ~ Normal(...)    # hyperprior on the log-scale mean
+sigma_log_theta ~ Exponential(.) # hyperprior on the log-scale spread
+z_theta<g>      ~ Normal(0, 1)   # per-outbreak z-score (NCP)
+theta<g>        = exp(mu_log_theta + sigma_log_theta * z_theta<g>)   # derived
+```
+
+The non-centered parameterization (z-score form) keeps gradients well-conditioned for HMC and avoids Neal's funnel when `sigma_log_theta` is small. The derived `theta<g>` is computed inside the wrapped packer; it never appears as a fitted parameter (so the prior model is over `mu, sigma, z` only).
+
+What this buys us vs. Approach A:
+
+-   **Partial pooling.** Outbreaks with weak data get pulled toward the cross-outbreak mean. Outbreaks with strong data dominate their own posterior.
+-   **Cross-outbreak distribution as output.** The posterior on `(mu_log_theta, sigma_log_theta)` *is* the answer to "how does `theta` vary across centuries in Barcelona?" — a quantity Approach A only gives you implicitly via the spread of independent local posteriors.
+-   **Predictive prior for new outbreaks.** A fitted hyperprior gives you a defensible prior for any future outbreak you want to fit, drawn from the same population.
+
+What stays the same:
+
+-   `R0`, `alpha`, `kappa` are still **single global values** (not pooled) — they're properties of plague biology / Barcelona climate / the recording regime, not per-outbreak quantities.
+-   `K_h`, `g_h`, `rho` are pinned exactly as in Approach A.
+-   The dust2 model (`plague_stochastic_humans`) is unchanged.
+
+Sampling notes:
+
+-   First pass uses `monty_sampler_random_walk` (with adaptive VCV pilot) so we can compare apples-to-apples with Approach A.
+-   The right sampler for hierarchical models is **HMC** (`monty_sampler_hmc`) — `monty_dsl` provides analytic gradients for the prior side. Switch when you've confirmed the model structure works. HMC requires unconstrained, differentiable priors throughout — see notes near the prior chunk for the swap-out.
+
+## Setup
+
+```{r}
+library(monty)
+library(odin2)
+library(dust2)
+
+#library(yersinia)
+library(tidyverse)
+library(lubridate)
+
+library(posterior)
+library(bayesplot)
+
+library(sf)
+library(stars)
+```
+
+## Outbreak selection + paths
+
+Same four Barcelona outbreaks as Approach A. Same data sources.
+
+```{r}
+OUTBREAK_IDS <- c(15, 17, 20, 24)
+
+MORTALITY_CSV <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/data-raw/plague-season-v3_2/input/rawdata.csv"
+ERA_RDS       <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/era_preprocessed.RDS"
+CLIM_REFERENCE_END <- ymd("1990-01-01")
+USE_TEMPERATURE   <- TRUE
+```
+
+## Data
+
+```{r}
+mortality_raw <- read_csv(MORTALITY_CSV, show_col_types = FALSE)
+
+barcelona_raw <- mortality_raw |>
+  filter(place == "Barcelona", id %in% OUTBREAK_IDS) |>
+  mutate(date = ymd(if_else(str_length(dateorig) < 10,
+                            paste0(dateorig, "-01"), dateorig))) |>
+  group_by(id) |>
+  arrange(date, .by_group = TRUE) |>
+  mutate(time = as.integer(date - min(date)) + 1L,
+         group = factor(sprintf("Barcelona_%d", id),
+                        levels = sprintf("Barcelona_%d", OUTBREAK_IDS))) |>
+  ungroup() |>
+  select(group, id, year = startyear, time, date, deaths = n, population, lon, lat)
+
+T_max <- max(barcelona_raw$time)
+
+dat <- barcelona_raw |>
+  select(group, time, deaths) |>
+  complete(group, time = 1:T_max) |>
+  arrange(group, time) |>
+  mutate(group = as.character(group))
+
+stopifnot(length(unique(table(dat$group))) == 1L,
+          all(table(dat$group) == T_max))
+
+cat(sprintf("T_max = %d days; %d groups; %d total rows (NA padded = %d)\n",
+            T_max, nlevels(dat$group), nrow(dat), sum(is.na(dat$deaths))))
+
+group_meta <- barcelona_raw |>
+  group_by(group) |>
+  summarise(id = first(id), year = first(year),
+            duration = max(time), n_obs = sum(!is.na(deaths)),
+            pop = first(population),
+            total_deaths = sum(deaths, na.rm = TRUE),
+            peak_deaths  = max(deaths, na.rm = TRUE),
+            .groups = "drop")
+group_meta
+```
+
+## Per-group seasonal vectors
+
+Identical to Approach A. ERA5 climatology → per-outbreak temperature → `delta_R_multiplier`. Each group's seasonal vector is anchored to its own start date.
+
+```{r}
+monthly_to_daily_range <- function(monthly, start_date, end_date) {
+  stopifnot(length(monthly) == 12)
+  start_date <- ymd(start_date); end_date <- ymd(end_date)
+  start_year <- year(start_date); end_year <- year(end_date)
+  years <- (start_year - 1):(end_year + 1)
+  mids <- numeric(0); vals <- numeric(0); offset <- 0
+  for (yr in years) {
+    yr_start <- ymd(sprintf("%d-01-01", yr))
+    yr_end   <- ymd(sprintf("%d-12-31", yr))
+    n_days   <- as.integer(yr_end - yr_start) + 1L
+    month_starts <- ymd(sprintf("%d-%02d-01", yr, 1:12))
+    month_ends   <- c(month_starts[-1] - days(1), yr_end)
+    month_mids   <- as.integer(month_starts + (month_ends - month_starts) / 2 - yr_start) + offset
+    mids <- c(mids, month_mids)
+    vals <- c(vals, monthly)
+    offset <- offset + n_days
+  }
+  fn <- splinefun(mids, vals, method = "periodic")
+  full_start <- ymd(sprintf("%d-01-01", years[1]))
+  i_start <- as.integer(start_date - full_start) + 1L
+  i_end   <- as.integer(end_date   - full_start) + 1L
+  fn(i_start:i_end)
+}
+```
+
+```{r}
+groups <- levels(barcelona_raw$group)
+
+if (isTRUE(USE_TEMPERATURE)) {
+  barcelona_lonlat <- barcelona_raw |>
+    slice(1) |>
+    select(lon, lat) |>
+    st_as_sf(coords = c("lon", "lat"))
+
+  era <- readRDS(ERA_RDS)
+
+  clim_monthly <- era |>
+    st_extract(barcelona_lonlat) |>
+    as_tibble() |>
+    select(-geometry) |>
+    filter(time < CLIM_REFERENCE_END) |>
+    mutate(month = month(time, label = TRUE)) |>
+    group_by(month) |>
+    summarize(t2m = mean(t2m), .groups = "drop") |>
+    arrange(month)
+
+  group_seasonal_data <- setNames(
+    lapply(groups, function(g) {
+      start_date <- min(barcelona_raw$date[barcelona_raw$group == g])
+      end_date   <- start_date + days(T_max - 1)
+      daily_temp <- monthly_to_daily_range(clim_monthly$t2m, start_date, end_date)
+      delta_R_multiplier(daily_temp)
+    }),
+    groups
+  )
+} else {
+  group_seasonal_data <- setNames(
+    lapply(groups, function(g) rep(1, T_max)), groups)
+}
+
+## Sanity check (same as Approach A): each per-group seasonal vector should
+## be anchored to that outbreak's actual first-observation date.
+seasonal_check <- imap_dfr(group_seasonal_data, function(v, g) {
+  data_start <- min(barcelona_raw$date[barcelona_raw$group == g])
+  expected_day1_temp <- monthly_to_daily_range(
+    clim_monthly$t2m, data_start, data_start)
+  expected_day1_mult <- delta_R_multiplier(expected_day1_temp)
+  tibble(group = g,
+         start_date     = data_start,
+         start_month    = as.character(month(data_start, label = TRUE)),
+         day1_match     = isTRUE(all.equal(v[1], expected_day1_mult)),
+         amplitude_ratio = max(v) / min(v))
+})
+print(seasonal_check)
+stopifnot(all(seasonal_check$day1_match),
+          all(seasonal_check$amplitude_ratio > 1.3))
+```
+
+## Fixed parameters
+
+Same as Approach A: pin `g_h, rho` at literature; pin `K_h` per group from Krauer; everything not fitted falls back to `historical.yaml`.
+
+```{r}
+plague <- yersinia::plague_stochastic_humans
+
+## What's fitted as a SCALAR in the packer:
+##   - shared_scalar: one value applies to all groups
+##       R0, alpha, kappa, plus the hyperparameters (mu_log_*, sigma_log_*)
+##   - local_scalar: one value per group (these are the z-scores in NCP form)
+##       z_beta_h, z_K_r, z_I_ini, z_lambda_baseline
+## All other quantities (g_h, rho, K_h, etc.) are fixed.
+pooled_locals <- c("beta_h", "K_r", "I_ini", "lambda_baseline")
+local_z_names <- paste0("z_", pooled_locals)
+
+hyper_names <- c(
+  paste0("mu_log_",    pooled_locals),
+  paste0("sigma_log_", pooled_locals)
+)
+
+shared_names <- c("R0", "alpha", "kappa", hyper_names)
+fitted_names <- c(shared_names, local_z_names)   # what the SAMPLER explores
+
+## fitted_names_for_strip is what gets stripped from `historical.yaml`. We
+## include K_h, beta_r (the wrap will overwrite both), plus the fitted set.
+fixed_pars <- plague_fit_fixed_pars(
+  scenario = "historical",
+  fitted_names = c(pooled_locals, "R0", "alpha", "kappa", "K_h", "beta_r")
+)
+fixed_pars$beta_I  <- 0
+fixed_pars$p_obs   <- 0.8
+fixed_pars$R_ini   <- 0
+fixed_pars$I_h_ini <- 0
+fixed_pars$R_h_ini <- 0
+fixed_pars$obs_period <- 1L
+fixed_pars$seasonal <- rep(1, T_max)   # overridden per-group by wrap
+fixed_pars$g_h     <- 0.1
+fixed_pars$rho     <- 2.5
+
+group_fixed_pars <- setNames(
+  lapply(groups, function(g) list(K_h = group_meta$pop[group_meta$group == g])),
+  groups
+)
+```
+
+## Hierarchical packer
+
+The packer fits `(R0, alpha, kappa, hyperparams, z_*<g>)` — 3 + 8 + 16 = **27 free parameters**. The wrapped `unpack`:
+
+1. Pulls per-group parameters via `monty_packer_grouped` (so each group gets its hyperparams + z-scores).
+2. Computes `theta<g> = exp(mu_log_theta + sigma_log_theta * z_theta<g>)` for each pooled local. These derived values overwrite any same-named entries from the inner unpack.
+3. Injects per-group `K_h` (Krauer population).
+4. Converts `R0 → beta_r` (R0 reparameterization, same as A).
+5. Computes `seasonal[t] = seasonal_data[t]^alpha` per group (continuous seasonality switch, same as A).
+6. Strips out the auxiliary names (`R0, alpha, hyperparams, z_*`) so dust2 only sees model parameters.
+
+```{r}
+inner_packer <- monty_packer_grouped(
+  groups = groups,
+  scalar = c(local_z_names, shared_names),
+  shared = shared_names,
+  fixed  = fixed_pars
+)
+
+## IMPORTANT: helpers (R0_to_beta_r, ncp_to_theta) are defined as locals
+## inside `with_hierarchical` so they're captured in the closure environment.
+## callr workers (monty_runner_callr) serialize the closure with `saveRDS`,
+## which carries the enclosing environment but not the global namespace —
+## so global helpers would be invisible to worker chains. See CLAUDE.md
+## "monty_packer + monty_runner_callr gotcha".
+with_hierarchical <- function(packer, group_fixed, group_seasonal,
+                              pooled_locals) {
+  R0_to_beta_r <- function(R0, g_r, rho, delta_R) {
+    R0 * delta_R / ((1 - g_r) * (1 - exp(-rho)))
+  }
+  ncp_to_theta <- function(mu_log, sigma_log, z) {
+    exp(mu_log + sigma_log * z)
+  }
+
+  out <- packer
+  inner_unpack <- packer$unpack
+  out$unpack <- function(x) {
+    u <- inner_unpack(x)
+    Map(function(g, gp) {
+      pars <- c(gp, group_fixed[[g]])
+
+      ## NCP transform: derive each pooled local from its hyperparams + z.
+      for (par in pooled_locals) {
+        pars[[par]] <- ncp_to_theta(
+          pars[[paste0("mu_log_",    par)]],
+          pars[[paste0("sigma_log_", par)]],
+          pars[[paste0("z_",         par)]]
+        )
+        pars[[paste0("z_",         par)]] <- NULL
+        pars[[paste0("mu_log_",    par)]] <- NULL
+        pars[[paste0("sigma_log_", par)]] <- NULL
+      }
+
+      ## R0 reparam (same as Approach A).
+      pars$beta_r <- R0_to_beta_r(pars$R0, pars$g_r, pars$rho, pars$delta_R)
+      pars$R0     <- NULL
+
+      ## Per-group seasonal modulation (same as Approach A).
+      pars$seasonal <- group_seasonal[[g]] ^ pars$alpha
+      pars$alpha    <- NULL
+
+      pars
+    }, names(u), u)
+  }
+  class(out) <- class(packer)
+  out
+}
+
+packer <- with_hierarchical(inner_packer, group_fixed_pars,
+                            group_seasonal_data, pooled_locals)
+
+cat("packer parameter names (", length(packer$names()), "total):\n")
+print(packer$names())
+```
+
+## Hierarchical prior
+
+Hyperpriors centred on plausible values from the Approach A pilot:
+
+| Parameter | Hyperprior centre | Reasoning |
+|---|---|---|
+| `mu_log_beta_h ~ Normal(log(0.03), 1)` | beta_h ≈ 0.03 | Approach A pilot medians 0.02–0.05 |
+| `mu_log_K_r ~ Normal(log(15000), 1)` | K_r ≈ 15k | Pilot medians 5k–25k |
+| `mu_log_I_ini ~ Normal(log(50), 2)` | I_ini ≈ 50 (wide) | Pilot range 1–500 |
+| `mu_log_lambda ~ Normal(log(2), 1)` | lambda ≈ 2 | Pilot medians 1–5 |
+| `sigma_log_* ~ Exponential(1)` | E\[sigma\] = 1 | Allows ~2.7x cross-outbreak range at 1 SD; weakly informative |
+| `z_*<g> ~ Normal(0, 1)` | standard | NCP convention |
+
+```{r}
+shared_prior_exprs <- list(
+  bquote(R0    ~ Uniform(2, 12)),
+  bquote(alpha ~ Uniform(0, 3)),
+  bquote(kappa ~ Gamma(shape = 3, rate = 0.2)),
+  ## Hyperpriors — log-scale means and exponential-prior scales.
+  bquote(mu_log_beta_h          ~ Normal(.(log(0.03)), 1)),
+  bquote(sigma_log_beta_h       ~ Exponential(rate = 1)),
+  bquote(mu_log_K_r             ~ Normal(.(log(15000)), 1)),
+  bquote(sigma_log_K_r          ~ Exponential(rate = 1)),
+  bquote(mu_log_I_ini           ~ Normal(.(log(50)), 2)),
+  bquote(sigma_log_I_ini        ~ Exponential(rate = 0.5)),
+  bquote(mu_log_lambda_baseline ~ Normal(.(log(2)), 1)),
+  bquote(sigma_log_lambda_baseline ~ Exponential(rate = 1))
+)
+
+local_z_prior_exprs <- function(g) {
+  list(
+    bquote(.(as.name(sprintf("z_beta_h<%s>",          g))) ~ Normal(0, 1)),
+    bquote(.(as.name(sprintf("z_K_r<%s>",             g))) ~ Normal(0, 1)),
+    bquote(.(as.name(sprintf("z_I_ini<%s>",           g))) ~ Normal(0, 1)),
+    bquote(.(as.name(sprintf("z_lambda_baseline<%s>", g))) ~ Normal(0, 1))
+  )
+}
+
+prior_body <- as.call(c(
+  list(as.name("{")),
+  shared_prior_exprs,
+  unlist(lapply(groups, local_z_prior_exprs), recursive = FALSE)
+))
+
+prior <- monty_dsl(prior_body)
+
+stopifnot(setequal(prior$parameters, packer$names()))
+length(prior$parameters)
+```
+
+> **For HMC compatibility:** the priors above use `Uniform` (R0, alpha) and `Gamma` (kappa). HMC needs unconstrained, differentiable priors. To swap in HMC, replace these with:
+>
+> -   `R0 <- 2 + 10 * inv_logit(R0_logit)` with `R0_logit ~ Normal(0, 1.5)` (or fit on log scale: `log_R0 ~ Normal(log(5), 0.5)`)
+> -   `alpha <- 3 * inv_logit(alpha_logit)` with `alpha_logit ~ Normal(0, 1.5)`
+> -   `log_kappa ~ Normal(log(15), 0.5)` then `kappa <- exp(log_kappa)`
+>
+> The pooled hyperpriors here (Normal + Exponential) are already HMC-compatible.
+
+## Initial values
+
+Start every chain at:
+
+-   Hyperparams at their prior means (so the posterior shape doesn't immediately fight the prior).
+-   z-scores at 0 (so each `theta<g>` starts at `exp(mu_log_theta)` — the population centre).
+-   `R0 = 5, alpha = 1, kappa = 15` (same as Approach A).
+
+```{r}
+init_z_centre <- function(g) {
+  c(
+    setNames(0, sprintf("z_beta_h<%s>",          g)),
+    setNames(0, sprintf("z_K_r<%s>",             g)),
+    setNames(0, sprintf("z_I_ini<%s>",           g)),
+    setNames(0, sprintf("z_lambda_baseline<%s>", g))
+  )
+}
+
+init_centre <- c(
+  R0 = 5, alpha = 1, kappa = 15,
+  mu_log_beta_h          = log(0.03), sigma_log_beta_h          = 0.5,
+  mu_log_K_r             = log(15000), sigma_log_K_r            = 0.5,
+  mu_log_I_ini           = log(50),    sigma_log_I_ini          = 1.0,
+  mu_log_lambda_baseline = log(2),     sigma_log_lambda_baseline = 0.5,
+  unlist(lapply(groups, init_z_centre))
+)
+init_centre <- init_centre[packer$names()]
+
+n_chains <- 4
+set.seed(1)
+init_chains <- replicate(
+  n_chains,
+  init_centre + rnorm(length(init_centre), 0, 0.05)
+)
+```
+
+## Diagonal VCV
+
+Step sizes calibrated to each parameter's natural scale. Hyperparameters on log scale → step ~0.1; z-scores → step ~0.3 (since they're Normal(0,1)).
+
+```{r}
+hyper_vcv_diag <- c(
+  R0 = 0.5^2, alpha = 0.15^2, kappa = 3^2,
+  mu_log_beta_h = 0.2^2, sigma_log_beta_h = 0.15^2,
+  mu_log_K_r    = 0.2^2, sigma_log_K_r    = 0.15^2,
+  mu_log_I_ini  = 0.3^2, sigma_log_I_ini  = 0.2^2,
+  mu_log_lambda_baseline = 0.2^2, sigma_log_lambda_baseline = 0.15^2
+)
+local_z_vcv_diag <- unlist(lapply(groups, function(g) c(
+  setNames(0.3^2, sprintf("z_beta_h<%s>",          g)),
+  setNames(0.3^2, sprintf("z_K_r<%s>",             g)),
+  setNames(0.3^2, sprintf("z_I_ini<%s>",           g)),
+  setNames(0.3^2, sprintf("z_lambda_baseline<%s>", g))
+)))
+vcv_diag <- c(hyper_vcv_diag, local_z_vcv_diag)
+vcv_diag <- vcv_diag[packer$names()]
+init_vcv <- diag(vcv_diag)
+dimnames(init_vcv) <- list(packer$names(), packer$names())
+```
+
+## Smoke test
+
+Sanity-check the wired-up packer: at `init_centre`, every group's pars list should have a sensible `beta_h, K_r, I_ini, lambda_baseline, beta_r, seasonal`.
+
+```{r}
+unpacked <- packer$unpack(init_centre)
+
+cat("Sample group (Barcelona_15) after unpack:\n")
+str(unpacked$Barcelona_15[c("beta_h", "K_r", "I_ini", "lambda_baseline",
+                            "beta_r", "K_h")], max.level = 1)
+cat("\nseasonal length:", length(unpacked$Barcelona_15$seasonal),
+    "; range:", range(unpacked$Barcelona_15$seasonal), "\n")
+
+unfilter <- dust_unfilter_create(plague, time_start = 0,
+                                 data = dat, n_groups = length(groups))
+ll_init <- dust_likelihood_run(unfilter, unpacked)
+cat("\ndeterministic ll per group at init_centre:\n")
+print(setNames(ll_init, groups))
+cat("sum:", sum(ll_init), "\n")
+
+likelihood_det <- dust_likelihood_monty(unfilter, packer)
+posterior_det <- likelihood_det + prior
+cat("posterior density at init:", posterior_det$density(init_centre), "\n")
+```
+
+## Monty — deterministic pilot (random walk)
+
+Start with `monty_sampler_random_walk` + adaptive VCV — same recipe as Approach A so we can compare. **Switch to `monty_sampler_hmc()` once you confirm the structure works** (and after rewriting the bounded priors to be unconstrained-differentiable, see note above).
+
+```{r}
+sampler_det <- monty_sampler_adaptive(initial_vcv = init_vcv)
+runner      <- monty_runner_callr(n_workers = n_chains)
+
+samples_pilot <- monty_sample(posterior_det, sampler_det, 50000,
+                              initial = init_chains,
+                              runner = runner, n_chains = n_chains,
+                              burnin = 15000)
+```
+
+### Pilot diagnostics
+
+```{r}
+samples_pilot_df <- as_draws_df(samples_pilot)
+summarise_draws(samples_pilot_df) |> print(n = Inf)
+
+matplot(samples_pilot$density, type = "l", lty = 1,
+        xlab = "Sample", ylab = "Log posterior probability density")
+```
+
+```{r, fig.width = 10, fig.height = 8}
+mcmc_trace(samples_pilot_df, pars = c("R0", "alpha", "kappa"))
+```
+
+```{r, fig.width = 10, fig.height = 10}
+## Hyperparameter posteriors — the headline output of Approach B.
+## mu_log_* tells you the population-level central tendency of each pooled
+## local; sigma_log_* tells you how much it varies across outbreaks (small
+## sigma = strong shrinkage; big sigma = independent per-outbreak).
+mcmc_areas(samples_pilot_df,
+           pars = grep("mu_log_|sigma_log_", packer$names(), value = TRUE),
+           prob = 0.8, prob_outer = 0.95)
+```
+
+```{r, fig.width = 10, fig.height = 12}
+## Derived per-group locals (theta<g>) reconstructed from posterior draws.
+## These are NOT in samples_pilot_df directly — we have to apply the NCP
+## transform to each draw.
+derive_thetas <- function(draws_df, pooled_locals, groups) {
+  out <- list()
+  for (par in pooled_locals) {
+    mu_col    <- paste0("mu_log_", par)
+    sigma_col <- paste0("sigma_log_", par)
+    for (g in groups) {
+      z_col      <- sprintf("z_%s<%s>", par, g)
+      theta_col  <- sprintf("%s<%s>", par, g)
+      out[[theta_col]] <- exp(draws_df[[mu_col]] +
+                              draws_df[[sigma_col]] * draws_df[[z_col]])
+    }
+  }
+  bind_cols(draws_df[, c(".chain", ".iteration", ".draw")], as_tibble(out))
+}
+
+derived <- derive_thetas(samples_pilot_df, pooled_locals, groups)
+
+derived_long <- derived |>
+  pivot_longer(matches("<"),
+               names_to = c("param", "group"),
+               names_pattern = "(.*)<(.*)>") |>
+  mutate(group = factor(group, levels = groups))
+
+ggplot(derived_long, aes(value, group)) +
+  ggdist::stat_halfeye(alpha = 0.7) +
+  facet_wrap(~ param, scales = "free_x") +
+  scale_x_continuous() +
+  labs(title = "Pilot — derived per-group locals (after NCP transform)",
+       subtitle = "Shrinkage toward the cross-outbreak mean is the hierarchical signal",
+       x = NULL, y = NULL) +
+  theme_bw()
+```
+
+### Pilot fit check (forward simulation)
+
+Same logic as Approach A — push posterior draws through the model and overlay each outbreak's data.
+
+```{r}
+n_pp     <- 100
+draws_pp <- samples_pilot_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_pilot_df) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+simulate_one_draw <- function(theta_row, t_grid) {
+  unpacked <- packer$unpack(unlist(theta_row[, packer$names()]))
+  sim <- vapply(seq_along(unpacked), function(g) {
+    pars <- unpacked[[g]]
+    sys <- dust_system_create(plague, pars = pars, n_particles = 1)
+    dust_system_set_state_initial(sys)
+    yy <- dust_system_simulate(sys, t_grid)
+    D_h <- drop(dust_unpack_state(sys, yy)$D_h)
+    pars$p_obs * D_h + pars$lambda_baseline
+  }, numeric(length(t_grid)))
+  colnames(sim) <- groups
+  sim
+}
+
+t_grid <- seq(0, T_max)
+
+deaths_pilot_long <- map_dfr(seq_len(nrow(draws_pp)), function(i) {
+  sim <- simulate_one_draw(draws_pp[i, ], t_grid)
+  as_tibble(sim) |>
+    mutate(time = t_grid, draw = i) |>
+    pivot_longer(-c(time, draw), names_to = "group", values_to = "mu") |>
+    mutate(group = factor(group, levels = groups))
+})
+
+ggplot() +
+  geom_line(data = deaths_pilot_long,
+            aes(time, mu, group = draw),
+            colour = "#22008822") +
+  geom_point(data = barcelona_raw,
+             aes(time, deaths), size = 0.4) +
+  facet_wrap(~ group, scales = "free", ncol = 1) +
+  labs(title = "Pilot forward simulation (Approach B)",
+       x = "Day", y = "Deaths") +
+  theme_bw()
+```
+
+### What to look for
+
+After this pilot, check:
+
+1.  **R-hat on hyperparameters.** Mu and sigma should mix cleanly across chains. If sigma_log_* hits zero (chains stuck at the no-variation boundary), you have funnel pathology — switch to HMC.
+2.  **Shrinkage.** Compare derived per-group `theta<g>` posteriors (above) with the independent posteriors from Approach A. Outbreaks with weaker data (e.g., short duration, small peaks) should be pulled closer to the cross-outbreak mean.
+3.  **Posterior predictive coverage.** The forward simulation should still cover each outbreak's data — partial pooling makes locals more conservative, so very particular outbreaks may show slight tightening of the predictive fan.
+4.  **`sigma_log_*` posteriors.** If `sigma_log_X` posterior is concentrated near 0, the data says "this parameter is essentially constant across outbreaks" — informative even if the per-outbreak posteriors look similar.
+
+## Tuned VCV → stochastic production
+
+Identical to Approach A's structure — extract tuned VCV from adaptive sampler, inflate, run stochastic filter, posterior-predictive overlay. (Sections elided here; copy from `monty-barcelona-hierarchical.qmd` if you get this far.)
+
+```{r, eval = FALSE}
+det_vcv  <- apply(samples_pilot$details$vcv, c(1, 2), mean)
+dimnames(det_vcv) <- list(packer$names(), packer$names())
+prod_vcv <- 0.7 * (2.38^2 / length(packer$names())) * det_vcv
+
+filter <- dust_filter_create(plague, time_start = 0,
+                             data = dat, n_particles = 1000,
+                             n_groups = length(groups), n_threads = 4)
+likelihood_final <- dust_likelihood_monty(filter, packer,
+                                          save_trajectories = TRUE)
+posterior_final  <- likelihood_final + prior
+sampler_final    <- monty_sampler_random_walk(prod_vcv)
+
+init_final <- t(as.matrix(samples_pilot_df[
+  samples_pilot_df$.iteration == max(samples_pilot_df$.iteration),
+  packer$names()]))
+
+samples <- monty_sample(posterior_final, sampler_final, 5000,
+                        initial = init_final,
+                        runner = runner, n_chains = n_chains, burnin = 500)
+```

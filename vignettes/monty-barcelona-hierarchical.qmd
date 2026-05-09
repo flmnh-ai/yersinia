@@ -1,0 +1,696 @@
+---
+title: "Monty (Barcelona joint fit, 4 outbreaks)"
+format: html
+editor: visual
+---
+
+Joint fit of four Barcelona outbreaks (Krauer ids 15, 17, 20, 24) with partial parameter sharing. Three parameters (`R0`, `alpha`, `kappa`) are global — one value used by every outbreak — and three (`beta_h`, `I_ini`, `lambda_baseline`) are local, with one independent value per outbreak. `K_h` and `K_r` are both **pinned per outbreak** to the Krauer-listed population (Didelot-style `K_r = K_h`). `g_h` (human survival probability of infection) and `rho` (carcass infectivity range) are **pinned at literature values** (`g_h = 0.1`, `rho = 2.5`, both from Didelot 2017).
+
+K_r as a free parameter is largely a nuisance for short outbreaks (~200 days, slow rat demography): the rat-side force of infection has K_r cancel in absolute new-infection counts when `T_r ≈ K_r`, and the human-side force has K_r appear only as a `1/K_r` factor that `beta_h` absorbs. Pinning K_r at K_h matches Didelot 2017's choice and makes `beta_h<g>` directly comparable across outbreaks.
+
+**Three reparameterizations vs the earlier `beta_r` joint fit, all done R-side in the wrapped packer (no odin model edits):**
+
+1.  **`R0` instead of `beta_r`.** `R0 = beta_r * (1 - g_r) * (1 - exp(-rho)) / delta_R` is the basic reproduction number; the wrapped packer converts `R0 → beta_r` before pars hit dust2. Better priors (literature R0 ≈ 2–8 for plague), removes the residual `(beta_r, delta_R)` ridge, and the headline output is directly interpretable.
+2.  **Per-outbreak temperature-driven seasonal forcing.** Each outbreak gets its own `seasonal_data[t]` vector derived from ERA5 climatology at Barcelona, interpolated across that outbreak's specific calendar window.
+3.  **Continuous seasonality switch via `alpha`.** `seasonal_eff[t] = seasonal_data[t]^alpha`, with `alpha` fitted. `alpha = 0` recovers no-forcing behavior; `alpha = 1` matches the literature-derived calibration; `alpha > 1` amplifies seasonality. Replaces the binary `USE_SEASONAL` flag with a continuous parameter whose posterior tells you how strongly the data supports temperature-driven forcing.
+
+This is the "approach A" of the hierarchical fit: cheap parameter sharing via `monty::monty_packer_grouped()`, no random-effects hyperprior. The dust2 grouped filter sums per-group log-likelihoods internally; data is supplied in long format with a `group` column.
+
+> **To revert any of these reparameterizations:** search for `## REPARAM-R0`, `## REPARAM-SEASONAL`, or `## REPARAM-ALPHA` markers in the chunks below. Each is a small, self-contained block that can be commented out independently. Reverting all three brings back the simple `beta_r` + flat-`seasonal` setup of the prior pilot.
+
+## Setup
+
+```{r}
+library(monty)
+library(odin2)
+library(dust2)
+
+#library(yersinia)
+library(tidyverse)
+library(lubridate)
+
+library(posterior)
+library(bayesplot)
+
+## REPARAM-SEASONAL: sf + stars needed for ERA5 climatology extraction.
+## To revert: drop these and the climatology section below.
+library(sf)
+library(stars)
+```
+
+## Outbreak selection
+
+Four Barcelona outbreaks from the Krauer dataset, all daily plague-specific and "complete". (Id 16 — the 1475–1476 outbreak — was dropped after a first run; its 421-day double-wave structure pulled the joint fit toward bad regions of parameter space.)
+
+| id  | year | days | population |
+|-----|------|------|------------|
+| 15  | 1457 | 204  | 40,000     |
+| 17  | 1483 | 193  | 30,000     |
+| 20  | 1501 | 211  | 25,000     |
+| 24  | 1558 | 201  | 35,000     |
+
+```{r}
+OUTBREAK_IDS <- c(15, 17, 20, 24)
+
+MORTALITY_CSV <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/data-raw/plague-season-v3_2/input/rawdata.csv"
+
+## REPARAM-SEASONAL: ERA5 climatology RDS for the seasonal forcing vectors.
+## To revert (back to flat seasonal = 1): set USE_TEMPERATURE = FALSE.
+ERA_RDS <- "~/UF Dropbox/Nick Gauthier/Projects/black-death/data/era_preprocessed.RDS"
+CLIM_REFERENCE_END <- ymd("1990-01-01")  # modern climatology cutoff
+USE_TEMPERATURE <- TRUE
+```
+
+## Data
+
+Load Krauer raw, filter to the chosen Barcelona ids, then build the long-format frame the dust2 grouped filter expects: columns `group`, `time`, `deaths`. Each outbreak's `time` is days since *its* first observation, 1-indexed (matching the single-outbreak fit convention). Shorter outbreaks are padded with `NA` deaths up to `T_max` so all groups share the same time grid — dust2 requires this and skips the comparison at NA rows.
+
+```{r}
+mortality_raw <- read_csv(MORTALITY_CSV, show_col_types = FALSE)
+
+barcelona_raw <- mortality_raw |>
+  filter(place == "Barcelona", id %in% OUTBREAK_IDS) |>
+  mutate(date = ymd(if_else(str_length(dateorig) < 10,
+                            paste0(dateorig, "-01"), dateorig))) |>
+  group_by(id) |>
+  arrange(date, .by_group = TRUE) |>
+  mutate(time = as.integer(date - min(date)) + 1L,
+         group = factor(sprintf("Barcelona_%d", id),
+                        levels = sprintf("Barcelona_%d", OUTBREAK_IDS))) |>
+  ungroup() |>
+  ## REPARAM-SEASONAL: keep `date`, `lon`, `lat` for ERA5 extraction below.
+  ## To revert: drop date/lon/lat from this select.
+  select(group, id, year = startyear, time, date, deaths = n, population, lon, lat)
+
+T_max <- max(barcelona_raw$time)
+
+## dust2 requires the group column to be integer or character (not factor),
+## but we want factor ordering for plotting later — keep the factor in
+## `barcelona_raw` and coerce to character only in the filter-bound `dat`.
+dat <- barcelona_raw |>
+  select(group, time, deaths) |>
+  complete(group, time = 1:T_max) |>
+  arrange(group, time) |>
+  mutate(group = as.character(group))
+
+stopifnot(length(unique(table(dat$group))) == 1L,
+          all(table(dat$group) == T_max))
+
+cat(sprintf("T_max = %d days; %d groups; %d total rows (NA padded = %d)\n",
+            T_max, nlevels(dat$group), nrow(dat), sum(is.na(dat$deaths))))
+```
+
+```{r}
+ggplot(barcelona_raw, aes(time, deaths)) +
+  geom_point(size = 0.5) +
+  facet_wrap(~ group, scales = "free", ncol = 1) +
+  labs(title = "Barcelona outbreaks (Krauer plague-specific daily)",
+       x = "Day since outbreak start", y = "Deaths") +
+  theme_bw()
+```
+
+Per-outbreak metadata (the `pop` column is wired into the per-group `K_h` below):
+
+```{r}
+group_meta <- barcelona_raw |>
+  group_by(group) |>
+  summarise(id = first(id),
+            year = first(year),
+            duration = max(time),
+            n_obs = sum(!is.na(deaths)),
+            pop = first(population),
+            total_deaths = sum(deaths, na.rm = TRUE),
+            peak_deaths  = max(deaths, na.rm = TRUE),
+            .groups = "drop")
+group_meta
+```
+
+## Per-group seasonal vectors (REPARAM-SEASONAL)
+
+Each outbreak gets its own `seasonal_data[t]` vector — temperature multiplier on `delta_R` derived from ERA5 climatology at Barcelona, interpolated across that outbreak's calendar window. The model computes `delta_R_eff(t) = delta_R * seasonal[t]` (cold weather → multiplier < 1 → carcasses persist longer → higher transmission).
+
+`monthly_to_daily_range()` is copied from `monty-seasonal.qmd` for self-containment (TODO: extract to package). `delta_R_multiplier()` is the package function.
+
+> **To revert (back to flat seasonal = 1):** set `USE_TEMPERATURE <- FALSE` in the setup chunk above. The chunk below produces a list of `rep(1, T_max)` vectors when that flag is off, which is identical to the prior pilot's behavior.
+
+```{r}
+## REPARAM-SEASONAL: monthly→daily climatology interpolator (vignette-local).
+monthly_to_daily_range <- function(monthly, start_date, end_date) {
+  stopifnot(length(monthly) == 12)
+  start_date <- ymd(start_date); end_date <- ymd(end_date)
+  start_year <- year(start_date); end_year <- year(end_date)
+  years <- (start_year - 1):(end_year + 1)            # pad for spline edges
+  mids <- numeric(0); vals <- numeric(0); offset <- 0
+  for (yr in years) {
+    yr_start <- ymd(sprintf("%d-01-01", yr))
+    yr_end   <- ymd(sprintf("%d-12-31", yr))
+    n_days   <- as.integer(yr_end - yr_start) + 1L
+    month_starts <- ymd(sprintf("%d-%02d-01", yr, 1:12))
+    month_ends   <- c(month_starts[-1] - days(1), yr_end)
+    month_mids   <- as.integer(month_starts + (month_ends - month_starts) / 2 - yr_start) + offset
+    mids <- c(mids, month_mids)
+    vals <- c(vals, monthly)
+    offset <- offset + n_days
+  }
+  fn <- splinefun(mids, vals, method = "periodic")
+  full_start <- ymd(sprintf("%d-01-01", years[1]))
+  i_start <- as.integer(start_date - full_start) + 1L
+  i_end   <- as.integer(end_date   - full_start) + 1L
+  fn(i_start:i_end)
+}
+```
+
+```{r}
+## REPARAM-SEASONAL: ERA5 climatology + per-group temperature multipliers.
+if (isTRUE(USE_TEMPERATURE)) {
+  barcelona_lonlat <- barcelona_raw |>
+    slice(1) |>
+    select(lon, lat) |>
+    st_as_sf(coords = c("lon", "lat"))
+
+  era <- readRDS(ERA_RDS)
+
+  clim_monthly <- era |>
+    st_extract(barcelona_lonlat) |>
+    as_tibble() |>
+    select(-geometry) |>
+    filter(time < CLIM_REFERENCE_END) |>
+    mutate(month = month(time, label = TRUE)) |>
+    group_by(month) |>
+    summarize(t2m = mean(t2m), .groups = "drop") |>
+    arrange(month)
+
+  ## Per-group seasonal vector of length T_max. Each group's clock starts on
+  ## its own first observation; we extend the temperature multiplier across
+  ## T_max days so the dust2 simulation has a value at every step (NA-padded
+  ## data positions still need a seasonal value for the model to step).
+  group_seasonal_data <- setNames(
+    lapply(groups <- levels(barcelona_raw$group), function(g) {
+      start_date <- min(barcelona_raw$date[barcelona_raw$group == g])
+      end_date   <- start_date + days(T_max - 1)
+      daily_temp <- monthly_to_daily_range(clim_monthly$t2m, start_date, end_date)
+      delta_R_multiplier(daily_temp)
+    }),
+    levels(barcelona_raw$group)
+  )
+} else {
+  ## Flat seasonal — equivalent to the prior pilot.
+  group_seasonal_data <- setNames(
+    lapply(levels(barcelona_raw$group), function(g) rep(1, T_max)),
+    levels(barcelona_raw$group)
+  )
+}
+
+## REPARAM-SEASONAL: per-group sanity check. Each group's seasonal vector
+## should start on its own first-observation date and track the calendar
+## from there. The model's `seasonal[time + 1]` indexing aligns time = day
+## 1 of outbreak with calendar day 1 of that outbreak.
+seasonal_check <- imap_dfr(group_seasonal_data, function(v, g) {
+  data_start <- min(barcelona_raw$date[barcelona_raw$group == g])
+  ## Independently re-derive the day-1 temperature/multiplier from the
+  ## climatology — should equal v[1] if the seasonal vector was correctly
+  ## anchored to data_start. Catches the failure mode where every group's
+  ## seasonal vector accidentally uses the same start date.
+  expected_day1_temp <- monthly_to_daily_range(
+    clim_monthly$t2m, data_start, data_start)
+  expected_day1_mult <- delta_R_multiplier(expected_day1_temp)
+  tibble(group = g,
+         start_date      = data_start,
+         start_month     = as.character(month(data_start, label = TRUE)),
+         start_temp_C    = round(expected_day1_temp, 2),
+         day1_multiplier = round(v[1], 4),
+         expected_mult   = round(expected_day1_mult, 4),
+         min_multiplier  = round(min(v), 3),
+         max_multiplier  = round(max(v), 3),
+         amplitude_ratio = round(max(v) / min(v), 3),
+         day1_anchor_ok  = isTRUE(all.equal(v[1], expected_day1_mult)))
+})
+print(seasonal_check)
+
+## Amplitude ratio < 1.3 would mean weak `alpha` identifiability.
+stopifnot(all(seasonal_check$day1_anchor_ok))
+stopifnot(all(seasonal_check$amplitude_ratio > 1.3))
+cat("\nAll per-group seasonal vectors correctly anchored to outbreak start dates;\n",
+    "all seasonal amplitudes > 1.3x (alpha will be identifiable).\n", sep = "")
+```
+
+```{r}
+## Plot per-group seasonal multiplier on a calendar (month-of-year) axis so
+## you can visually verify each outbreak's vector tracks its true season.
+seasonal_long <- imap_dfr(group_seasonal_data, function(v, g) {
+  start_date <- min(barcelona_raw$date[barcelona_raw$group == g])
+  tibble(group = g,
+         time  = seq_along(v),
+         date  = start_date + days(time - 1),
+         month_of_year = month(date) + (mday(date) - 1) / 31,
+         seasonal = v)
+}) |> mutate(group = factor(group, levels = levels(barcelona_raw$group)))
+
+## Two views: (a) per-group time series with calendar x-axis, (b) all four
+## overlaid by month-of-year — confirming they trace the same Barcelona
+## climatology, just sampled at different phases.
+p_calendar <- ggplot(seasonal_long, aes(date, seasonal)) +
+  geom_line() +
+  geom_vline(data = seasonal_check, aes(xintercept = start_date),
+             linetype = "dashed", colour = "red") +
+  facet_wrap(~ group, scales = "free_x", ncol = 1) +
+  labs(title = "Per-outbreak seasonal multiplier (red dash = outbreak start)",
+       x = NULL, y = "delta_R multiplier") +
+  theme_bw()
+
+p_monthly <- ggplot(seasonal_long, aes(month_of_year, seasonal,
+                                       group = group, colour = group)) +
+  geom_line(alpha = 0.7) +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  labs(title = "Seasonal multiplier overlaid by month-of-year",
+       subtitle = "All four trace the same Barcelona climatology",
+       x = NULL, y = "delta_R multiplier") +
+  theme_bw()
+
+print(p_calendar)
+print(p_monthly)
+```
+
+## Fixed parameters
+
+`historical.yaml` is the right baseline for medieval Barcelona — same era, comparable assumptions. We strip out anything we'll fit (the local + global names below) and override the following:
+
+-   `beta_I = 0` — no human-to-human transmission in this first cut.
+-   `R_ini = R_h_ini = I_h_ini = 0` — outbreaks start with all humans susceptible.
+-   `p_obs = 0.8` — Didelot convention; partially confounded with `lambda_baseline` so we pin it.
+-   `seasonal = rep(1, T_max)` — fallback only; the wrapped packer overrides this per-group with `seasonal_data^alpha` (see Grouped packer section).
+-   `g_h = 0.1` and `rho = 2.5` — pinned at Didelot 2017 values (see notebook intro).
+
+```{r}
+plague <- yersinia::plague_stochastic_humans
+
+groups <- levels(barcelona_raw$group)
+
+## REPARAM-R0 + REPARAM-ALPHA: shared fitted set is (R0, alpha, kappa)
+## instead of (beta_r, kappa). R0 → beta_r conversion and seasonal^alpha
+## modulation happen in the wrapped packer below.
+## To revert: shared_names <- c("beta_r", "kappa") and remove the R0/alpha
+## branches in the with_group_fixed wrap.
+shared_names <- c("R0", "alpha", "kappa")
+## REPARAM-Kr-PIN: K_r dropped from local_names (was c("beta_h", "K_r",
+## "I_ini", "lambda_baseline")) — pinned at K_h per outbreak via
+## group_fixed_pars below. To revert: add "K_r" back to local_names and
+## remove the K_r entry from group_fixed_pars.
+local_names  <- c("beta_h", "I_ini", "lambda_baseline")
+fitted_names <- c(shared_names, local_names)
+
+## fitted_names_for_strip is what gets stripped from `historical.yaml`. We
+## include `K_h`, `K_r` (both pinned per-group via the wrap) and `beta_r`
+## (overwritten from R0 via the wrap).
+fixed_pars <- plague_fit_fixed_pars(scenario = "historical",
+                                    fitted_names = c(fitted_names, "K_h", "K_r", "beta_r"))
+fixed_pars$beta_I  <- 0
+fixed_pars$p_obs   <- 0.8
+fixed_pars$R_ini   <- 0
+fixed_pars$I_h_ini <- 0
+fixed_pars$R_h_ini <- 0
+fixed_pars$obs_period <- 1L
+fixed_pars$seasonal <- rep(1, T_max)   # overridden per-group by wrap
+fixed_pars$g_h     <- 0.1
+fixed_pars$rho     <- 2.5
+
+## Per-group fixed values: each outbreak gets its own K_h AND K_r pinned
+## at the Krauer-listed population (Didelot's K_r = K_h convention). These
+## get injected into the per-group pars list by the wrapped packer below.
+group_fixed_pars <- setNames(
+  lapply(groups, function(g) {
+    pop <- group_meta$pop[group_meta$group == g]
+    list(K_h = pop, K_r = pop)
+  }),
+  groups
+)
+str(group_fixed_pars)
+```
+
+## Grouped packer
+
+`monty_packer_grouped()` takes a flat parameter vector — names like `g_h`, `beta_h<Barcelona_15>`, `beta_h<Barcelona_17>`, etc. — and unpacks it into a nested list (one entry per group), each containing the full set of per-group parameters merged with `fixed`. dust2's grouped filter consumes that nested list directly.
+
+The packer's `fixed` argument is global (every group receives the same fixed values), so to pin **per-group** quantities like `K_h` we wrap the packer's `unpack` in a small shim that splices `group_fixed_pars[[g]]` into each group's entry. The wrapped packer keeps the same `names()` (no `K_h<g>` slots in the parameter vector) and dust2 sees the K_h values it needs.
+
+```{r}
+inner_packer <- monty_packer_grouped(
+  groups = groups,
+  scalar = c(local_names, shared_names),
+  shared = shared_names,
+  fixed  = fixed_pars
+)
+
+## Wrap unpack to:
+##   (1) inject per-group K_h, K_r (REPARAM-Kr-PIN),
+##   (2) convert R0 → beta_r (REPARAM-R0),
+##   (3) modulate per-group seasonal_data by alpha (REPARAM-ALPHA + REPARAM-SEASONAL).
+## Preserves the monty_packer_grouped class so dust_likelihood_monty accepts it.
+##
+## IMPORTANT: helpers (R0_to_beta_r) are defined as locals inside this
+## function so they're captured in the closure environment. callr workers
+## (monty_runner_callr) serialize the closure with `saveRDS`, which carries
+## the function's enclosing environment but not the global namespace —
+## so a global `R0_to_beta_r` would be invisible to worker chains. See
+## CLAUDE.md "monty_packer + monty_runner_callr gotcha".
+with_group_fixed <- function(packer, group_fixed, group_seasonal) {
+  ## REPARAM-R0: convert R0 (the fitted parameter) to beta_r (what the
+  ## model consumes). delta_R, g_r, rho all live in fixed_pars so they're
+  ## available per-group. Identity bijection — no information lost.
+  R0_to_beta_r <- function(R0, g_r, rho, delta_R) {
+    R0 * delta_R / ((1 - g_r) * (1 - exp(-rho)))
+  }
+
+  out <- packer
+  inner_unpack <- packer$unpack
+  out$unpack <- function(x) {
+    u <- inner_unpack(x)
+    Map(function(g, gp) {
+      pars <- c(gp, group_fixed[[g]])
+      ## REPARAM-R0
+      pars$beta_r <- R0_to_beta_r(pars$R0, pars$g_r, pars$rho, pars$delta_R)
+      pars$R0     <- NULL
+      ## REPARAM-ALPHA + REPARAM-SEASONAL
+      pars$seasonal <- group_seasonal[[g]] ^ pars$alpha
+      pars$alpha    <- NULL
+      pars
+    }, names(u), u)
+  }
+  class(out) <- class(packer)
+  out
+}
+packer <- with_group_fixed(inner_packer, group_fixed_pars, group_seasonal_data)
+
+cat("packer parameter names (", length(packer$names()), "total):\n")
+print(packer$names())
+
+cat("\nsanity check — K_h pinned per group, R0/alpha visible in unpack:\n")
+example_theta <- setNames(rep(1, length(packer$names())), packer$names())
+example_theta["R0"]    <- 5     # R0 = 5 → beta_r ≈ 1.10 with delta_R=0.2
+example_theta["alpha"] <- 1     # full seasonality
+example_unpack <- packer$unpack(example_theta)
+str(example_unpack$Barcelona_15[c("K_h", "beta_r", "seasonal")], max.level = 1)
+```
+
+## Prior
+
+Same prior shapes as the single-outbreak `plague_fit_prior()` for the local parameters, replicated four times. Shared priors:
+
+-   **REPARAM-R0:** `R0 ~ Gamma(shape = 3, rate = 0.6)` — mean 5, mode 3.3, 95% CI ~[1, 11]. Centred on plague R0 literature consensus (Didelot 2017 Cairo posterior ~3–5; Eyam ~1.6–2.2; Black-Death-era estimates 2–3). Smooth and HMC-compatible; gentle pull toward the consensus without hard cutoffs. Replaces the earlier `Uniform(2, 12)`. Reverting: swap back to `Uniform(2, 12)` or to `beta_r ~ Uniform(0.1, 3)` depending on how far you're rolling back.
+-   **REPARAM-ALPHA:** `alpha ~ Exponential(rate = 0.5)` — mean 2, no hard upper bound. The previous `Uniform(0, 3)` had alpha railing against the upper bound, so the prior was acting as a cap rather than informing the posterior. Exponential prefers smaller alpha (alpha = 0 recovers no-forcing) but lets the data push as high as it needs. Reverting: swap back to `Uniform(0, 3)` or drop the line entirely.
+-   `kappa ~ Gamma(shape = 3, rate = 0.2)` (mean 15) — tightened from `Gamma(2, 0.05)` to match the previous pilot's posterior.
+
+`monty_dsl` won't accept a nested `{}` block, so we build a flat list of `~` statements (one per parameter) and assemble them into a single body expression.
+
+```{r}
+local_prior_exprs <- function(g) {
+  list(
+    bquote(.(as.name(sprintf("beta_h<%s>",          g))) ~ Uniform(0.001, 0.15)),
+    ## REPARAM-Kr-PIN: K_r<g> dropped — pinned per group at K_h.
+    ## Upper bound widened from 5e3 → 5e4 because the alpha=3 pilot
+    ## pushed I_ini against the old 5000 wall (winter-start outbreaks
+    ## need huge ignition under strong seasonal suppression).
+    bquote(.(as.name(sprintf("I_ini<%s>",           g))) ~ Uniform(1, 5e4)),
+    bquote(.(as.name(sprintf("lambda_baseline<%s>", g))) ~ Exponential(rate = 0.1))
+  )
+}
+
+shared_prior_exprs <- list(
+  ## REPARAM-R0: was `Uniform(2, 12)`. Gamma(3, 0.6) has mean 5, mode 3.3,
+  ## 95% CI ~[1, 11]. Smooth, HMC-friendly, centred on literature consensus.
+  bquote(R0    ~ Gamma(shape = 3, rate = 0.6)),
+  ## REPARAM-ALPHA: continuous seasonality switch. Was Uniform(0, 3) —
+  ## switched to Exponential because the previous bound was binding.
+  ## Mean 2, no hard upper bound; prefers smaller alpha (mode 0 = no
+  ## forcing) but lets the data push as needed.
+  bquote(alpha ~ Exponential(rate = 0.5)),
+  bquote(kappa ~ Gamma(shape = 3, rate = 0.2))
+)
+
+prior_body <- as.call(c(
+  list(as.name("{")),
+  shared_prior_exprs,
+  unlist(lapply(groups, local_prior_exprs), recursive = FALSE)
+))
+
+prior <- monty_dsl(prior_body)
+
+stopifnot(setequal(prior$parameters, packer$names()))
+length(prior$parameters)
+```
+
+## Initial values
+
+Per-chain starting values: shared parameters at sensible centres, locals at common centres across outbreaks. Small log-normal jitter across chains keeps R-hat meaningful.
+
+```{r}
+init_local_centre <- function(g) {
+  c(
+    setNames(0.05,  sprintf("beta_h<%s>",          g)),  # near previous posterior
+    ## REPARAM-Kr-PIN: K_r dropped from init.
+    setNames(1000,  sprintf("I_ini<%s>",           g)),  # bumped from 50 — previous pilot pushed I_ini ~3k–5k
+    setNames(3,     sprintf("lambda_baseline<%s>", g))   # near previous posterior median
+  )
+}
+
+## REPARAM-R0 + REPARAM-ALPHA: starting values bumped to where the previous
+## pilot's posterior settled (R0 ~5.2, alpha ~3, kappa ~20). Saves warmup
+## time vs starting at the no-seasonal-pilot's hand-fit centres.
+init_centre <- c(
+  R0 = 5, alpha = 2, kappa = 20,
+  unlist(lapply(groups, init_local_centre))
+)
+init_centre <- init_centre[packer$names()]
+
+n_chains <- 4
+set.seed(1)
+init_chains <- replicate(
+  n_chains,
+  init_centre * exp(rnorm(length(init_centre), 0, 0.05))
+)
+```
+
+## Diagonal VCV
+
+One diagonal VCV entry per parameter, sized in proportion to the prior width. The deterministic adaptive sampler tunes the off-diagonal structure for us, so the diagonal just needs to be in the right ballpark.
+
+```{r}
+## REPARAM-R0 + REPARAM-ALPHA: was beta_r = 0.2^2, no alpha entry.
+## R0 step ~0.5; alpha step widened from 0.15 to 0.3 (Exponential prior
+## now allows higher alpha values — bigger jumps speed exploration).
+## REPARAM-Kr-PIN: K_r entry dropped (was 5000^2).
+## I_ini step widened from 50^2 to 200^2 to match the wider 1–50000 prior.
+vcv_diag <- c(
+  R0 = 0.5^2, alpha = 0.3^2, kappa = 3^2,
+  unlist(lapply(groups, function(g) c(
+    setNames(0.01^2, sprintf("beta_h<%s>",          g)),
+    setNames(200^2,  sprintf("I_ini<%s>",           g)),
+    setNames(2^2,    sprintf("lambda_baseline<%s>", g))
+  )))
+)
+vcv_diag <- vcv_diag[packer$names()]
+init_vcv <- diag(vcv_diag)
+dimnames(init_vcv) <- list(packer$names(), packer$names())
+```
+
+## Smoke test
+
+Before sampling, run the deterministic likelihood once at `init_centre` to confirm the packer ↔ filter wiring is consistent.
+
+```{r}
+unfilter <- dust_unfilter_create(plague, time_start = 0,
+                                 data = dat, n_groups = length(groups))
+ll_init <- dust_likelihood_run(unfilter, packer$unpack(init_centre))
+cat("deterministic ll at init_centre, per group:\n")
+print(setNames(ll_init, groups))
+cat("sum:", sum(ll_init), "\n")
+```
+
+## Monty — deterministic pilot
+
+Same recipe as the single-outbreak fits: deterministic likelihood + adaptive sampler tunes the 15×15 VCV. Four groups means each likelihood call simulates \~4× a single-outbreak call, but the deterministic path is still \~100× cheaper than the stochastic filter.
+
+```{r}
+likelihood_det <- dust_likelihood_monty(unfilter, packer)
+posterior_det  <- likelihood_det + prior
+sampler_det    <- monty_sampler_adaptive(initial_vcv = init_vcv)
+
+runner <- monty_runner_callr(n_workers = n_chains)
+
+samples_pilot <- monty_sample(posterior_det, sampler_det, 30000,
+                              initial = init_chains,
+                              runner = runner, n_chains = n_chains,
+                              burnin = 10000)
+```
+
+### Pilot diagnostics
+
+```{r}
+samples_pilot_df <- as_draws_df(samples_pilot)
+summarise_draws(samples_pilot_df)
+
+matplot(samples_pilot$density, type = "l", lty = 1,
+        xlab = "Sample", ylab = "Log posterior probability density")
+```
+
+```{r, fig.width = 10, fig.height = 8}
+mcmc_trace(samples_pilot_df, pars = shared_names)
+mcmc_hist(samples_pilot_df, pars = shared_names)
+```
+
+```{r, fig.width = 10, fig.height = 12}
+## Per-group local posteriors — one panel per parameter, ridges per outbreak.
+samples_pilot_long <- samples_pilot_df |>
+  pivot_longer(matches("<"),
+               names_to = c("param", "group"),
+               names_pattern = "(.*)<(.*)>") |>
+  mutate(group = factor(group, levels = groups))
+
+ggplot(samples_pilot_long, aes(value, group)) +
+  ## normalize = "panels" rescales each facet's densities to use the full
+  ## panel height — without this, facets with large value ranges (K_r,
+  ## I_ini) show only the interval line/point because their density
+  ## values are squashed by the global rescaling.
+  ggdist::stat_halfeye(alpha = 0.7, normalize = "panels") +
+  facet_wrap(~ param, scales = "free_x") +
+  labs(title = "Pilot — local parameter posteriors by outbreak",
+       x = NULL, y = NULL) +
+  theme_bw()
+```
+
+### Pilot fit check
+
+Forward-simulate from a thinned set of pilot draws and overlay each outbreak's data. If any panel's fan misses its observations, the pilot has settled in the wrong region for that outbreak.
+
+```{r}
+n_pp     <- 100
+draws_pp <- samples_pilot_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_pilot_df) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+simulate_one_draw <- function(theta_row, t_grid) {
+  unpacked <- packer$unpack(unlist(theta_row[, packer$names()]))
+  sim <- vapply(seq_along(unpacked), function(g) {
+    pars <- unpacked[[g]]
+    sys <- dust_system_create(plague, pars = pars, n_particles = 1)
+    dust_system_set_state_initial(sys)
+    yy <- dust_system_simulate(sys, t_grid)
+    D_h <- drop(dust_unpack_state(sys, yy)$D_h)
+    pars$p_obs * D_h + pars$lambda_baseline
+  }, numeric(length(t_grid)))
+  colnames(sim) <- groups
+  sim
+}
+
+t_grid <- seq(0, T_max)
+
+deaths_pilot_long <- map_dfr(seq_len(nrow(draws_pp)), function(i) {
+  sim <- simulate_one_draw(draws_pp[i, ], t_grid)
+  as_tibble(sim) |>
+    mutate(time = t_grid, draw = i) |>
+    pivot_longer(-c(time, draw), names_to = "group", values_to = "mu") |>
+    mutate(group = factor(group, levels = groups))
+})
+
+ggplot() +
+  geom_line(data = deaths_pilot_long,
+            aes(time, mu, group = draw),
+            colour = "#22008822") +
+  geom_point(data = barcelona_raw,
+             aes(time, deaths), size = 0.4) +
+  facet_wrap(~ group, scales = "free", ncol = 1) +
+  labs(title = "Pilot forward simulation",
+       x = "Day", y = "Deaths") +
+  theme_bw()
+```
+
+### Tuned VCV
+
+```{r}
+det_vcv  <- apply(samples_pilot$details$vcv, c(1, 2), mean)
+dimnames(det_vcv) <- list(packer$names(), packer$names())
+
+d        <- length(packer$names())
+inflate  <- 0.7
+prod_vcv <- inflate * (2.38^2 / d) * det_vcv
+```
+
+## Monty — production (stochastic)
+
+```{r}
+filter <- dust_filter_create(plague, time_start = 0,
+                             data = dat, n_particles = 1000,
+                             n_groups = length(groups), n_threads = 2)
+likelihood_final <- dust_likelihood_monty(filter, packer,
+                                          save_trajectories = TRUE)
+posterior_final  <- likelihood_final + prior
+sampler_final    <- monty_sampler_random_walk(prod_vcv)
+
+init_final <- t(as.matrix(samples_pilot_df[
+  samples_pilot_df$.iteration == max(samples_pilot_df$.iteration),
+  packer$names()]))
+
+samples <- monty_sample(posterior_final, sampler_final, 5000,
+                        initial = init_final,
+                        runner = runner, n_chains = n_chains, burnin = 500)
+
+accept_rate <- function(s) {
+  apply(s$density, 2, function(x) mean(diff(x) != 0))
+}
+accept_rate(samples)
+```
+
+```{r, fig.width = 10, fig.height = 8}
+draws <- as_draws_array(samples)
+summarise_draws(draws) |> print(n = Inf)
+mcmc_trace(draws, pars = shared_names)
+```
+
+## Posterior predictive — per outbreak
+
+```{r}
+samples_df <- as_draws_df(samples)
+
+n_pp <- 200
+draws_pp <- samples_df |>
+  posterior::thin_draws(thin = max(1, posterior::ndraws(samples_df) %/% n_pp)) |>
+  dplyr::slice_head(n = n_pp)
+
+deaths_fwd_long <- map_dfr(seq_len(nrow(draws_pp)), function(i) {
+  sim <- simulate_one_draw(draws_pp[i, ], t_grid)
+  as_tibble(sim) |>
+    mutate(time = t_grid, draw = i) |>
+    pivot_longer(-c(time, draw), names_to = "group", values_to = "mu") |>
+    mutate(group = factor(group, levels = groups))
+})
+
+ggplot() +
+  geom_line(data = deaths_fwd_long,
+            aes(time, mu, group = draw),
+            colour = "#88220022") +
+  geom_point(data = barcelona_raw,
+             aes(time, deaths), size = 0.4) +
+  facet_wrap(~ group, scales = "free", ncol = 1) +
+  labs(title = "Posterior predictive — forward simulation",
+       x = "Day", y = "Deaths") +
+  theme_bw()
+```
+
+## Cross-outbreak comparison of local parameters
+
+The substantive payoff: do `beta_h`, `I_ini`, `lambda_baseline` differ meaningfully across the four Barcelona centuries, or does the joint posterior pull them toward a common value?
+
+```{r, fig.width = 10, fig.height = 12}
+samples_long <- samples_df |>
+  pivot_longer(matches("<"),
+               names_to = c("param", "group"),
+               names_pattern = "(.*)<(.*)>") |>
+  mutate(group = factor(group, levels = groups))
+
+ggplot(samples_long, aes(value, group)) +
+  ggdist::stat_halfeye(alpha = 0.7, normalize = "panels") +
+  facet_wrap(~ param, scales = "free_x") +
+  labs(title = "Production — local parameter posteriors by outbreak",
+       x = NULL, y = NULL) +
+  theme_bw()
+```

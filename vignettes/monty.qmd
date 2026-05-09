@@ -144,7 +144,11 @@ Set up our particle filter for use as the likelihood in `monty`. The packer fold
 
 ```{r}
 packer <- monty_packer(fitted_names, fixed = fixed_pars)
-likelihood <- dust_likelihood_monty(filter, packer, save_trajectories = FALSE)
+## save_trajectories = TRUE so `samples$observations$trajectories` is
+## populated for the final reconstruction below. Set FALSE for long
+## production runs and follow with a short trajectory-on pass instead
+## (see vignettes/monty-seasonal.qmd for that staged pattern).
+likelihood <- dust_likelihood_monty(filter, packer, save_trajectories = TRUE)
 ```
 
 Define the prior. `plague_fit_prior()` returns the monty DSL model used by the SLURM driver; re-defined inline here for visibility.
