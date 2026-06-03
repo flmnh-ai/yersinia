@@ -48,7 +48,11 @@ Suggests:
     sf,
     igraph,
     patchwork,
-    scales
+    scales,
+    R6,
+    shiny,
+    bslib,
+    DT
 Config/testthat/edition: 3
 VignetteBuilder: knitr
 LazyData: true

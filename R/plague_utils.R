@@ -617,32 +617,37 @@ NULL
 
 #' Validate a rat contact matrix
 #'
-#' Checks that `contact_r` is square, has dimensions matching `npop`, has
-#' zero on the diagonal (an emigrant by definition leaves its origin patch),
-#' has non-negative entries, and is row-stochastic (`rowSums == 1`). Throws
-#' an informative error otherwise; returns `contact_r` invisibly on success.
+#' Checks that the given matrix is square, has dimensions matching `npop`,
+#' has zero on the diagonal (an emigrant by definition leaves its origin
+#' patch), has non-negative entries, and is row-stochastic (`rowSums == 1`).
+#' Throws an informative error otherwise; returns the matrix invisibly on
+#' success.
 #'
-#' @param contact_r Numeric matrix.
+#' @param contact_r Numeric matrix (named for historical reasons; the
+#'   validator is symmetric across rat/human contact matrices and is reused
+#'   for both via the `name` argument).
 #' @param npop Expected number of patches.
 #' @param tol Tolerance for row-sum check (default `1e-8`).
-#' @return `contact_r` invisibly.
+#' @param name Parameter name used in error messages (default `"contact_r"`).
+#' @return The validated matrix invisibly.
 #' @keywords internal
-validate_contact_matrix <- function(contact_r, npop, tol = 1e-8) {
+validate_contact_matrix <- function(contact_r, npop, tol = 1e-8,
+                                    name = "contact_r") {
   checkmate::assert_matrix(contact_r, mode = "numeric", any.missing = FALSE,
-                           .var.name = "contact_r")
+                           .var.name = name)
   if (nrow(contact_r) != npop || ncol(contact_r) != npop) {
     cli::cli_abort(
-      "contact_r must be {npop} x {npop} (got {nrow(contact_r)} x {ncol(contact_r)})"
+      "{name} must be {npop} x {npop} (got {nrow(contact_r)} x {ncol(contact_r)})"
     )
   }
   if (any(contact_r < 0)) {
-    cli::cli_abort("contact_r entries must be non-negative")
+    cli::cli_abort("{name} entries must be non-negative")
   }
   diag_vals <- diag(contact_r)
   bad_diag <- which(diag_vals != 0)
   if (length(bad_diag) > 0) {
     cli::cli_abort(
-      "contact_r must have zero diagonal (an emigrant leaves its origin patch). \\
+      "{name} must have zero diagonal (an emigrant leaves its origin patch). \\
        Non-zero diagonal at {length(bad_diag)} patch(es): {.val {bad_diag}}."
     )
   }
@@ -650,7 +655,7 @@ validate_contact_matrix <- function(contact_r, npop, tol = 1e-8) {
   bad_rows <- which(abs(row_sums - 1) > tol)
   if (length(bad_rows) > 0) {
     cli::cli_abort(
-      "contact_r must be row-stochastic (rowSums == 1). Off rows: \\
+      "{name} must be row-stochastic (rowSums == 1). Off rows: \\
        {.val {head(bad_rows, 5)}} with rowSums {.val {head(round(row_sums[bad_rows], 4), 5)}}."
     )
   }
@@ -659,13 +664,15 @@ validate_contact_matrix <- function(contact_r, npop, tol = 1e-8) {
 
 #' Run plague metapopulation model
 #'
-#' Forward-simulates the rat-metapopulation plague model
+#' Forward-simulates the metapopulation plague model
 #' (`inst/odin/plague_stochastic_metapop.R`). Same Didelot carcass-based
 #' transmission core as [run_plague_model()], with rats dispersing between
-#' patches at rate `mu_r` according to the row-stochastic destination matrix
-#' `contact_r`. Susceptible, infected, and recovered rats migrate at the
-#' same rate; carcasses Q are sessile; humans live per-patch and do not
-#' migrate.
+#' patches at rate `mu_r` (via `contact_r`) and humans dispersing at rate
+#' `mu_h` (via `contact_h`). For each species, susceptible, infected, and
+#' recovered individuals migrate at the same rate; carcasses Q are sessile.
+#' Human-side: I_h represents both incubating and symptomatic infections
+#' (the model has no E_h compartment), and small `mu_h` is the parsimonious
+#' way to express that humans are sedentary on outbreak timescales.
 #'
 #' Per-patch parameters (`K_r`, `K_h`, `I_ini`, `R_ini`, `I_h_ini`, `R_h_ini`)
 #' must be length-`npop` numeric vectors. All transmission and demographic
@@ -679,6 +686,11 @@ validate_contact_matrix <- function(contact_r, npop, tol = 1e-8) {
 #'   (`contact_r[i, j]` = probability that a rat leaving patch `i` arrives in
 #'   patch `j`). Must have zero diagonal.
 #' @param mu_r Rat migration rate per day. Same value applies to S, I, R rats.
+#' @param contact_h Row-stochastic `npop x npop` destination matrix for
+#'   humans. Defaults to `contact_r` (assumes humans share the rat-transport
+#'   network) when `NULL`. Same validation rules as `contact_r`.
+#' @param mu_h Human migration rate per day (default 0 -- sessile humans).
+#'   Same value applies to S_h, I_h, R_h.
 #' @param K_r Length-`npop` vector of rat carrying capacities per patch.
 #' @param K_h Length-`npop` vector of human carrying capacities per patch.
 #' @param I_ini Length-`npop` vector of initial infected rats per patch.
@@ -704,6 +716,8 @@ run_plague_metapop_model <- function(scenario = "defaults",
                                      npop,
                                      contact_r,
                                      mu_r,
+                                     contact_h = NULL,
+                                     mu_h = 0,
                                      K_r,
                                      K_h,
                                      I_ini,
@@ -725,8 +739,11 @@ run_plague_metapop_model <- function(scenario = "defaults",
   npop <- as.integer(npop)
   tau_days <- if (timestep == "weekly") 7 else 1
   validate_obs_period(obs_period, tau = tau_days)
-  validate_contact_matrix(contact_r, npop)
+  validate_contact_matrix(contact_r, npop, name = "contact_r")
   checkmate::assert_number(mu_r, lower = 0, .var.name = "mu_r")
+  checkmate::assert_number(mu_h, lower = 0, .var.name = "mu_h")
+  if (is.null(contact_h)) contact_h <- contact_r
+  validate_contact_matrix(contact_h, npop, name = "contact_h")
 
   assert_patch_vec <- function(x, name) {
     checkmate::assert_numeric(x, len = npop, lower = 0, any.missing = FALSE,
@@ -769,6 +786,8 @@ run_plague_metapop_model <- function(scenario = "defaults",
       tau = tau_days,
       mu_r = mu_r,
       contact_r = contact_r,
+      mu_h = mu_h,
+      contact_h = contact_h,
       K_r = K_r, K_h = K_h,
       I_ini = I_ini, R_ini = R_ini,
       I_h_ini = I_h_ini, R_h_ini = R_h_ini,

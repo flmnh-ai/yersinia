@@ -24,6 +24,12 @@ coupling level \code{mu_r}. The returned lookup list is the form
 \code{\link[=ca_step]{ca_step()}} expects.
 }
 \details{
-Pads the empirical curves with \verb{(S_frac = 0, T_i = 0)} so fully-resistant
-cells never trigger, and fills \code{Q_i} NAs (rare-trigger noise) with \code{1}.
+Pads \code{T_i} only with \verb{(S_frac = 0, T_i = 0)} (biologically required —
+fully-resistant cells cannot trigger) and uses \code{approxfun(rule = 2)} to
+extrapolate \code{T_i} past the empirical S_frac range as the boundary value.
+For \code{Q_i} no synthetic boundary points are added, since the empirical
+Q curve often drops at high S_frac (fully-susceptible patches burn out
+fast) and a \code{Q(1) = 1} pad would inflate the lookup exactly where the
+data says it should fall. Rare-trigger NAs in \code{Q_i} (n_trig < 5) are
+dropped before interpolation.
 }

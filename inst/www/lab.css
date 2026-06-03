@@ -1,0 +1,162 @@
+/* yersinia Virtual Lab — single-screen redesign */
+
+/* ---- Layout shell ------------------------------------------------------- */
+.yl-sidebar { padding: 0.5rem 0.25rem; }
+.yl-sidebar .card { margin-bottom: 0.75rem; }
+
+/* ---- Cohort chips ------------------------------------------------------- */
+.yl-chips-empty { color: #999; font-style: italic; font-size: 0.9rem; }
+
+.yl-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.18rem 0.55rem; margin: 0.15rem 0.2rem 0.15rem 0;
+  background: #e9eef7; color: #1f4e79; border-radius: 999px;
+  font-size: 0.85rem; font-weight: 500;
+}
+.yl-chip-x {
+  color: #1f4e79; opacity: 0.6; line-height: 1; padding: 0 0.15rem;
+}
+.yl-chip-x:hover { opacity: 1; color: #c12; text-decoration: none; }
+
+/* ---- Cohort tile grid --------------------------------------------------- */
+.yl-tile-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+.yl-tile {
+  display: flex; flex-direction: column; align-items: stretch;
+  padding: 0.35rem 0.45rem 0.3rem; border: 1px solid #d0d4dc;
+  background: #fff; border-radius: 6px; cursor: pointer;
+  color: #4a5160; transition: all 0.12s ease;
+  text-align: left;
+}
+.yl-tile:hover {
+  border-color: #1f4e79; color: #1f4e79;
+  box-shadow: 0 1px 3px rgba(31, 78, 121, 0.12);
+}
+.yl-tile-selected {
+  background: #1f4e79; color: #fff; border-color: #1f4e79;
+}
+.yl-tile-selected:hover { color: #fff; background: #25588a; }
+.yl-tile-spark { height: 36px; line-height: 0; }
+.yl-tile-spark svg { display: block; width: 100%; height: 100%; }
+.yl-tile-meta {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-top: 0.15rem; font-size: 0.78rem;
+}
+.yl-tile-meta strong { font-size: 0.82rem; }
+.yl-tile-meta small { opacity: 0.75; }
+
+/* ---- Priors panel ------------------------------------------------------- */
+.yl-prior-shorthand { font-size: 0.78rem; margin-left: 0.5rem; }
+
+.yl-pill-toggle .form-check { margin-bottom: 0; }
+.yl-pill-toggle .shiny-options-group {
+  display: flex; flex-wrap: wrap; gap: 0.25rem;
+}
+.yl-pill-toggle label.radio-inline,
+.yl-pill-toggle .form-check-inline {
+  margin: 0; padding: 0.15rem 0.6rem;
+  border: 1px solid #d0d4dc; border-radius: 999px;
+  font-size: 0.78rem; cursor: pointer; background: #fff;
+}
+.yl-pill-toggle input[type="radio"] { display: none; }
+.yl-pill-toggle input[type="radio"]:checked + span,
+.yl-pill-toggle .form-check-inline:has(input:checked) {
+  background: #1f4e79; color: #fff; border-color: #1f4e79;
+}
+
+.yl-num-row {
+  display: flex; gap: 0.5rem; margin: 0.4rem 0;
+}
+.yl-num { flex: 1 1 0; }
+.yl-num .form-control { padding: 0.2rem 0.4rem; font-size: 0.82rem; }
+.yl-num .control-label { font-size: 0.75rem; margin-bottom: 0.1rem; }
+
+/* ---- Status bar --------------------------------------------------------- */
+/* Lives as the last item in .yl-main (in-flow) so it never overlaps the
+   diag strip or hero. Doesn't span the sidebar; that's the trade-off for
+   reliable visibility across bslib page containers. */
+.yl-statusbar {
+  flex: 0 0 auto;
+  margin-top: 0.5rem;
+  background: #fff;
+  border: 1px solid #d0d4dc; border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem;
+}
+.yl-statusbar-msg { flex: 1 1 auto; font-size: 0.9rem; min-width: 0; }
+.yl-statusbar-actions {
+  display: flex; align-items: center; gap: 0.4rem; flex: 0 0 auto;
+}
+
+/* ---- Main column flex layout -------------------------------------------- */
+.yl-main {
+  display: flex; flex-direction: column;
+  flex: 1 1 auto; min-height: 0;
+  height: 100%;
+}
+.yl-hero-wrap {
+  flex: 1 1 auto; min-height: 200px;
+  display: flex; flex-direction: column;
+}
+.yl-hero-wrap > .card { flex: 1 1 auto; }
+
+/* ---- Diagnostic chips --------------------------------------------------- */
+.yl-diag-strip {
+  flex: 0 0 auto;
+  display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center;
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.4rem;
+  background: #fafbfc;
+  border: 1px solid #eef0f4; border-radius: 6px;
+  min-height: 2.2rem;
+  font-size: 0.78rem;
+}
+.yl-diag-label {
+  font-weight: 600; color: #555; margin-right: 0.25rem;
+  letter-spacing: 0.02em; text-transform: uppercase; font-size: 0.7rem;
+}
+.yl-diag-empty { color: #aab1bd; font-style: italic; }
+.yl-diag-spacer { flex: 1 1 auto; }
+.yl-diag-open {
+  font-size: 0.78rem; color: #1f4e79; white-space: nowrap;
+}
+.yl-diag-open:hover { color: #25588a; }
+
+/* ---- Diagnostic plots (in modal) ---------------------------------------- */
+.yl-diag-plots-subhead {
+  font-size: 0.78rem; letter-spacing: 0.02em;
+  text-transform: uppercase; color: #555; margin: 0.4rem 0 0.2rem;
+}
+.yl-diag-chip {
+  display: inline-block;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem; font-weight: 500;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+.yl-diag-alert { background: #fbe7e9; color: #a01a25; }
+.yl-diag-warn  { background: #fff3cd; color: #856404; }
+.yl-diag-info  { background: #d8e7f3; color: #1f4e79; }
+.yl-diag-ok    { background: #d4edda; color: #1c7430; }
+
+/* ---- Hero plot ---------------------------------------------------------- */
+.shiny-plot-output { background: transparent; }
+
+/* ---- Help tab iframe (parameter explainer) ------------------------------ */
+.yl-help-frame {
+  width: 100%; flex: 1 1 auto; min-height: 400px;
+  border: none; background: #fdfdfb;
+}
+
+/* navset_card_tab wraps its content in .tab-content. Make sure the lab's
+   .yl-main inside it expands to fill the card. */
+.bslib-card .tab-content > .tab-pane.active {
+  display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+}
+
+/* Icon-only status bar buttons keep a consistent square footprint. */
+.yl-iconbtn { padding: 0.25rem 0.5rem; }

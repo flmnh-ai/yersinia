@@ -4,22 +4,27 @@
 \alias{validate_contact_matrix}
 \title{Validate a rat contact matrix}
 \usage{
-validate_contact_matrix(contact_r, npop, tol = 1e-08)
+validate_contact_matrix(contact_r, npop, tol = 1e-08, name = "contact_r")
 }
 \arguments{
-\item{contact_r}{Numeric matrix.}
+\item{contact_r}{Numeric matrix (named for historical reasons; the
+validator is symmetric across rat/human contact matrices and is reused
+for both via the \code{name} argument).}
 
 \item{npop}{Expected number of patches.}
 
 \item{tol}{Tolerance for row-sum check (default \code{1e-8}).}
+
+\item{name}{Parameter name used in error messages (default \code{"contact_r"}).}
 }
 \value{
-\code{contact_r} invisibly.
+The validated matrix invisibly.
 }
 \description{
-Checks that \code{contact_r} is square, has dimensions matching \code{npop}, has
-zero on the diagonal (an emigrant by definition leaves its origin patch),
-has non-negative entries, and is row-stochastic (\code{rowSums == 1}). Throws
-an informative error otherwise; returns \code{contact_r} invisibly on success.
+Checks that the given matrix is square, has dimensions matching \code{npop},
+has zero on the diagonal (an emigrant by definition leaves its origin
+patch), has non-negative entries, and is row-stochastic (\code{rowSums == 1}).
+Throws an informative error otherwise; returns the matrix invisibly on
+success.
 }
 \keyword{internal}

@@ -9,6 +9,8 @@ run_plague_metapop_model(
   npop,
   contact_r,
   mu_r,
+  contact_h = NULL,
+  mu_h = 0,
   K_r,
   K_h,
   I_ini,
@@ -34,6 +36,13 @@ run_plague_metapop_model(
 patch \code{j}). Must have zero diagonal.}
 
 \item{mu_r}{Rat migration rate per day. Same value applies to S, I, R rats.}
+
+\item{contact_h}{Row-stochastic \verb{npop x npop} destination matrix for
+humans. Defaults to \code{contact_r} (assumes humans share the rat-transport
+network) when \code{NULL}. Same validation rules as \code{contact_r}.}
+
+\item{mu_h}{Human migration rate per day (default 0 -- sessile humans).
+Same value applies to S_h, I_h, R_h.}
 
 \item{K_r}{Length-\code{npop} vector of rat carrying capacities per patch.}
 
@@ -71,13 +80,15 @@ decay (defaults to no seasonality).}
 \code{plague_results} tibble with \code{population} column running 1..npop.
 }
 \description{
-Forward-simulates the rat-metapopulation plague model
+Forward-simulates the metapopulation plague model
 (\code{inst/odin/plague_stochastic_metapop.R}). Same Didelot carcass-based
 transmission core as \code{\link[=run_plague_model]{run_plague_model()}}, with rats dispersing between
-patches at rate \code{mu_r} according to the row-stochastic destination matrix
-\code{contact_r}. Susceptible, infected, and recovered rats migrate at the
-same rate; carcasses Q are sessile; humans live per-patch and do not
-migrate.
+patches at rate \code{mu_r} (via \code{contact_r}) and humans dispersing at rate
+\code{mu_h} (via \code{contact_h}). For each species, susceptible, infected, and
+recovered individuals migrate at the same rate; carcasses Q are sessile.
+Human-side: I_h represents both incubating and symptomatic infections
+(the model has no E_h compartment), and small \code{mu_h} is the parsimonious
+way to express that humans are sedentary on outbreak timescales.
 }
 \details{
 Per-patch parameters (\code{K_r}, \code{K_h}, \code{I_ini}, \code{R_ini}, \code{I_h_ini}, \code{R_h_ini})

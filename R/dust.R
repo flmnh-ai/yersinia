@@ -23,11 +23,11 @@ plague_stochastic_metapop <- structure(
   package = "yersinia",
   path = NULL,
   parameters = data.frame(
-    name = c("npop", "tau", "mu_r", "contact_r", "K_r", "K_h", "I_ini", "R_ini", "I_h_ini", "R_h_ini", "r_r", "r_h", "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho", "m_r", "m_h", "g_r", "g_h", "delta_R", "iota", "obs_period", "seasonal"),
-    type = c("int", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type"),
-    constant = c(TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
-    required = c(FALSE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE),
-    rank = c(0L, 0L, 0L, 2L, 1L, 1L, 1L, 1L, 1L, 1L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 1L)),
+    name = c("npop", "tau", "mu_r", "contact_r", "mu_h", "contact_h", "K_r", "K_h", "I_ini", "R_ini", "I_h_ini", "R_h_ini", "r_r", "r_h", "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho", "m_r", "m_h", "g_r", "g_h", "delta_R", "iota", "obs_period", "seasonal"),
+    type = c("int", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type", "real_type"),
+    constant = c(TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE),
+    required = c(FALSE, FALSE, FALSE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE),
+    rank = c(0L, 0L, 0L, 2L, 0L, 2L, 1L, 1L, 1L, 1L, 1L, 1L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 1L)),
   properties = list(
     time_type = "discrete",
     has_compare = FALSE,

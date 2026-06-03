@@ -1,34 +1,79 @@
 # Default plague model scenario
-# Baseline biological/disease parameters using carcass-based transmission
+#
+# Updated 2026-05-14: biologically-defensible starting point for fitting
+# any outbreak in the bundled `outbreaks` dataset. Designed so a new lab
+# user can pick a cohort, click Run pilot, and get a reasonable fit
+# without per-outbreak prior tweaks.
+#
+# Opinionated defaults — see inst/explainer/parameters.html for the
+# parameter-by-parameter rationale. Era-specific scenarios
+# (didelot, historical, modern-estimates) remain for paper reproduction;
+# pick them when you want to commit to a specific era's values.
+#
 # ALL rates are per day.
 
 # Metadata
 name: "defaults"
-description: "Default biological parameters for plague models (carcass formulation)"
-source: "Package defaults based on Keeling & Gilligan (2000) and Didelot et al. (2017)"
-reference: "Plague modeling package"
+description: "Curated baseline for outbreak fitting; biologically-defensible values aligned with the Virtual Lab workflow."
+source: "Curated blend of Didelot et al. (2017), plague clinical literature, and historical CFR consensus."
+reference: "See inst/explainer/parameters.html for parameter-by-parameter rationale."
 time_unit: "day"
 
-# Rat population parameters
-r_r: 0.01370     # Rat population growth rate (per day, = 5/365)
-p: 0.975         # Probability of inherited resistance
-iota: 0.75       # Fecundity multiplier for resistant rats (always fixed, not fitted)
-d_r: 0.000548    # Natural death rate of rats (per day, = 0.2/365)
+# ---- Rat population ---------------------------------------------------------
+# Demographic rates kept small / non-zero so long-horizon fits stay stable;
+# short-outbreak fits (<200 days) are insensitive to these.
+r_r: 0.01370       # Rat birth rate (~5/year)
+d_r: 0.000548      # Natural rat death rate (~0.2/year)
+p: 0.975           # Heritable resistance probability; inert when R_ini = 0
+iota: 0.75         # Fitness cost of resistance; structural, always fixed
 
-# Disease transmission parameters
-beta_r: 0.77     # Transmission rate from carcasses to rats (per day)
-rho: 2.63        # Rat carcass infectivity range (dimensionless)
-m_r: 0.056       # Plague resolution rate in rats (per day, ~1/18 days)
-g_r: 0.02        # Probability rat survives infection
-delta_R: 0.267   # Carcass decay rate (per day, ~3.7 day infectious period)
+# ---- Disease in rats --------------------------------------------------------
+# m_r = 0.2 (5-day infectious window) reflects the clinical reality that
+# plague-infected R. norvegicus die in 3-5 days. Earlier package values of
+# 0.04-0.06 (16-25 days) were model-fit residuals — biologically wrong.
+# Together with beta_r = 0.77, rho = 2.5, delta_R = 0.27, gives
+# R0 ~ 2.85 (matches Didelot's Cairo posterior).
+beta_r: 0.77       # Carcass-to-rat transmission rate (per day)
+rho: 2.5           # Flea redistribution exponent (consensus value)
+m_r: 0.2           # Plague resolution rate in rats (1/5 days)
+g_r: 0.0           # Rat survival probability (~0% for primary plague hosts)
+delta_R: 0.27      # Carcass decay rate (~3.7-day infectious window)
 
-# Human population parameters (when applicable)
-r_h: 0.000123    # Human population growth rate (per day, = 0.045/365)
-d_h: 0.000110    # Natural death rate of humans (per day, = 0.04/365)
-beta_h: 0.0145   # Transmission rate from carcasses to humans (per day)
-beta_I: 0.0      # Human-to-human transmission rate (per day)
-m_h: 0.125       # Plague resolution rate in humans (per day, ~1/8 days)
-g_h: 0.1         # Probability human survives infection
+# ---- Human population -------------------------------------------------------
+r_h: 0.000123      # Human birth rate (~4.5%/year)
+d_h: 0.000110      # Natural death rate (~30-year life expectancy)
+beta_h: 0.02       # Carcass-to-human transmission rate (era-blend)
+beta_I: 0.0        # Human-to-human (pneumonic); fit on if line-list evidence
+m_h: 0.08          # Plague resolution rate in humans (~12.5-day untreated bubonic)
+g_h: 0.1           # Human survival probability (90% CFR, historical bubonic)
 
-# Spatial parameters
-mu_r: 0.0000822  # Rat movement rate (per day, = 0.03/365)
+# K_h, K_r, p_obs deliberately UNSET. `lab_fit_assemble()` pins K_h / K_r
+# from each outbreak's `population` column in the `outbreaks` dataset.
+# p_obs falls through to the odin default (1.0); the canonical convention
+# is to pin at 0.8 via the fit setup, with `lambda_baseline` carrying the
+# rest of the record-quality signal.
+
+# ---- Spatial (metapop only) ------------------------------------------------
+mu_r: 0.0000822    # Rat movement rate (per day); used by metapop simulations only.
+
+notes: |
+  Designed for the Virtual Lab default workflow:
+  - Hierarchical fits over the bundled `outbreaks` dataset
+  - Cohort-level shared params: beta_r, rho, kappa
+  - Outbreak-local params: beta_h, I_ini, lambda_baseline
+  - K_h, K_r pinned per outbreak from metadata
+
+  Key opinionated choices vs the old defaults:
+  - m_r 0.056 -> 0.2: rats die in days, not weeks. The old value was a
+    model-fit residual; the new one tracks clinical observation.
+  - rho 2.63 -> 2.5: round to consensus. Trivial change.
+  - g_r 0.02 -> 0.0: primary plague hosts have ~0% survival. Old value
+    was a numerical safety floor.
+  - m_h 0.125 -> 0.08: 12.5-day untreated bubonic plague duration.
+    The old 0.125 (8 days) was too fast for untreated cases.
+  - beta_h 0.0145 -> 0.02: small bump from Cairo posterior toward
+    Black-Death-era values. Defensible across the cohort.
+
+  If you specifically want Cairo 1801 reproduction, use `didelot`.
+  For Black-Death-era cohorts use `historical`. For modern outbreaks
+  use `modern-estimates`.

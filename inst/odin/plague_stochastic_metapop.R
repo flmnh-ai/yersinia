@@ -1,22 +1,31 @@
 ## Metapopulation stochastic plague model with infectious rat carcasses
-## (Didelot et al. 2017 transmission core) plus rat dispersal between patches.
-## Same migration rate `mu_r` applies to S, I, R rats; carcasses Q are sessile
-## (the rat-mediated movement of live infected rats and their subsequent death
-## elsewhere is the spatial-spread mechanism). Humans live per-patch but do
-## not migrate in v1 -- placeholder names mu_h / contact_h reserved for that
-## purely-additive extension.
+## (Didelot et al. 2017 transmission core) plus rat and human dispersal
+## between patches. Migration rates `mu_r` and `mu_h` each apply uniformly
+## to their species' S, I, R compartments; carcasses Q are sessile. The
+## rat-mediated mechanism (live infected rats migrating, dying elsewhere,
+## producing local carcasses) is the canonical spatial-spread channel;
+## adding human migration also lets directly human-to-human transmission
+## (`beta_I`) drive intercity spread.
 ##
-## All compartments are arrayed [npop]. Setting `mu_r = 0` decouples patches
-## entirely; with identical per-patch parameters and deterministic mode, each
-## patch's trajectory then matches a single-population run.
+## All compartments are arrayed [npop]. Setting `mu_r = 0` and `mu_h = 0`
+## decouples patches entirely; with identical per-patch parameters and
+## deterministic mode, each patch's trajectory matches a single-population
+## run.
 ##
-## Naming convention: rat-side migration is `mu_r` and `contact_r` (not bare
-## `mu` / `contact`) so adding `mu_h` / `contact_h` later is purely additive.
+## Note on human migration semantics: I_h represents all infected humans
+## including the (mobile) 2-7 day incubation window before bubonic symptoms
+## manifest; sessile-I_h would require an explicit E_h compartment to be
+## defensible. Treating S_h/I_h/R_h symmetrically with a single mu_h is
+## the parsimonious choice -- empirically small mu_h captures
+## "sedentary-on-outbreak-timescales" behaviour without forcing a strong
+## structural assumption. State-dependent mu_h (flight from infected
+## cities) belongs in a separate v2 extension.
 ##
 ## Written in odin2 DSL. ALL rates per day. tau is the time step in days
 ## (default 1).
 
-# Core compartment updates -- rats migrate (S, I, R), Q does not, humans do not (v1).
+# Core compartment updates -- rats migrate (S, I, R), Q does not.
+# (Human migration is in the human block below.)
 update(S[]) <- S[i] - n_SI[i] + n_susceptible_births[i] - n_deaths_S[i] -
                n_emigrate_S[i] + n_immigrate_S[i]
 update(I[]) <- I[i] + n_SI[i] - n_IR[i] - n_deaths_I[i] -
@@ -26,10 +35,14 @@ update(R[]) <- R[i] + n_recovered[i] + n_resistant_births[i] - n_deaths_R[i] -
 update(Q[]) <- Q[i] + n_new_carcasses[i] - n_carcass_decay[i]
 update(D_r[]) <- if (time %% obs_period == 0) n_new_carcasses[i] else (D_r[i] + n_new_carcasses[i])
 
-# Human compartments -- per-patch, no movement (v1)
-update(S_h[]) <- S_h[i] - n_SI_h[i] + births_h[i] - n_deaths_S_h[i]
-update(I_h[]) <- I_h[i] + n_SI_h[i] - n_IR_h[i] - n_deaths_I_h[i]
-update(R_h[]) <- R_h[i] + n_recovered_h[i] - n_deaths_R_h[i]
+# Human compartments -- S_h, I_h, R_h migrate at mu_h via contact_h
+# (mirror of the rat block; D_h is an accumulator, doesn't migrate).
+update(S_h[]) <- S_h[i] - n_SI_h[i] + births_h[i] - n_deaths_S_h[i] -
+                 n_emigrate_S_h[i] + n_immigrate_S_h[i]
+update(I_h[]) <- I_h[i] + n_SI_h[i] - n_IR_h[i] - n_deaths_I_h[i] -
+                 n_emigrate_I_h[i] + n_immigrate_I_h[i]
+update(R_h[]) <- R_h[i] + n_recovered_h[i] - n_deaths_R_h[i] -
+                 n_emigrate_R_h[i] + n_immigrate_R_h[i]
 update(D_h[]) <- if (time %% obs_period == 0) (n_IR_h[i] - n_recovered_h[i]) else (D_h[i] + n_IR_h[i] - n_recovered_h[i])
 
 ### Rats -- intermediate calculations (per patch)
@@ -60,6 +73,7 @@ p_rat_birth_R[] <- 1 - exp(-rat_birth_rate_R_clipped[i] * tau)
 p_rat_death <- 1 - exp(-d_r * tau)
 p_carcass_decay <- 1 - exp(-delta_R_eff * tau)
 p_migrate_r <- 1 - exp(-mu_r * tau)
+p_migrate_h <- 1 - exp(-mu_h * tau)
 
 ## Rat draws
 n_deaths_S[] <- Binomial(S[i], p_rat_death)
@@ -112,7 +126,7 @@ R_flow[, 2:npop] <- Binomial(n_emigrate_R[i] - sum(R_flow[i, 1:(j-1)]),
                              cond_p_r[i, j])
 n_immigrate_R[] <- sum(R_flow[, i])
 
-## Human transitions (per patch, no migration)
+## Human transitions (per patch)
 p_human_death <- 1 - exp(-d_h * tau)
 birth_rate_h <- r_h
 birth_rate_h_clipped <- if (birth_rate_h > 0) birth_rate_h else 0
@@ -129,6 +143,35 @@ births_h[] <- Binomial(S_h[i] + R_h[i], p_human_birth)
 n_SI_h[] <- Binomial(S_h[i] - n_deaths_S_h[i], p_SI_h[i])
 n_IR_h[] <- Binomial(I_h[i] - n_deaths_I_h[i], p_IR_h)
 n_recovered_h[] <- Binomial(n_IR_h[i], g_h)
+
+## Migration of humans. Same pool convention as rats: emigrants drawn from
+## the cohort remaining after deaths and within-compartment transitions
+## this step. I_h migrates -- the model has no E_h compartment, so I_h
+## includes the mobile incubation window; small mu_h captures sedentary
+## behaviour without forcing sessile-I_h structurally.
+n_emigrate_S_h[] <- Binomial(S_h[i] - n_deaths_S_h[i] - n_SI_h[i], p_migrate_h)
+n_emigrate_I_h[] <- Binomial(I_h[i] - n_deaths_I_h[i] - n_IR_h[i], p_migrate_h)
+n_emigrate_R_h[] <- Binomial(R_h[i] - n_deaths_R_h[i], p_migrate_h)
+
+## Sequential multinomial routing for human emigrants over contact_h
+## (analogous to contact_r routing for rats above).
+sum_remaining_contact_h[, ] <- sum(contact_h[i, j:npop])
+cond_p_h[, ] <- if (sum_remaining_contact_h[i, j] > 0) contact_h[i, j] / sum_remaining_contact_h[i, j] else 0
+
+S_h_flow[, 1] <- Binomial(n_emigrate_S_h[i], cond_p_h[i, 1])
+S_h_flow[, 2:npop] <- Binomial(n_emigrate_S_h[i] - sum(S_h_flow[i, 1:(j-1)]),
+                               cond_p_h[i, j])
+n_immigrate_S_h[] <- sum(S_h_flow[, i])
+
+I_h_flow[, 1] <- Binomial(n_emigrate_I_h[i], cond_p_h[i, 1])
+I_h_flow[, 2:npop] <- Binomial(n_emigrate_I_h[i] - sum(I_h_flow[i, 1:(j-1)]),
+                               cond_p_h[i, j])
+n_immigrate_I_h[] <- sum(I_h_flow[, i])
+
+R_h_flow[, 1] <- Binomial(n_emigrate_R_h[i], cond_p_h[i, 1])
+R_h_flow[, 2:npop] <- Binomial(n_emigrate_R_h[i] - sum(R_h_flow[i, 1:(j-1)]),
+                               cond_p_h[i, j])
+n_immigrate_R_h[] <- sum(R_h_flow[, i])
 
 ## Initial states (per patch). Each patch starts at K_r[i] total rats
 ## partitioned into S + I + R; humans similarly partitioned to K_h[i].
@@ -193,6 +236,12 @@ dim(births_h) <- npop
 dim(n_SI_h) <- npop
 dim(n_IR_h) <- npop
 dim(n_recovered_h) <- npop
+dim(n_emigrate_S_h) <- npop
+dim(n_emigrate_I_h) <- npop
+dim(n_emigrate_R_h) <- npop
+dim(n_immigrate_S_h) <- npop
+dim(n_immigrate_I_h) <- npop
+dim(n_immigrate_R_h) <- npop
 dim(initial_S) <- npop
 dim(initial_S_h) <- npop
 dim(K_r) <- npop
@@ -202,11 +251,17 @@ dim(R_ini) <- npop
 dim(I_h_ini) <- npop
 dim(R_h_ini) <- npop
 dim(contact_r) <- c(npop, npop)
+dim(contact_h) <- c(npop, npop)
 dim(sum_remaining_contact) <- c(npop, npop)
 dim(cond_p_r) <- c(npop, npop)
 dim(S_flow) <- c(npop, npop)
 dim(I_flow) <- c(npop, npop)
 dim(R_flow) <- c(npop, npop)
+dim(sum_remaining_contact_h) <- c(npop, npop)
+dim(cond_p_h) <- c(npop, npop)
+dim(S_h_flow) <- c(npop, npop)
+dim(I_h_flow) <- c(npop, npop)
+dim(R_h_flow) <- c(npop, npop)
 
 ## User-defined parameters -- ALL rates per day.
 ## Per-patch (length npop): K_r, K_h, I_ini, R_ini, I_h_ini, R_h_ini.
@@ -215,6 +270,8 @@ npop <- parameter(2, type = "integer", constant = TRUE)
 tau <- parameter(1)
 mu_r <- parameter(0)               # rat migration rate (per day; 0 = decoupled)
 contact_r <- parameter()           # row-stochastic destination matrix [npop, npop]
+mu_h <- parameter(0)               # human migration rate (per day; 0 = sessile humans)
+contact_h <- parameter()           # row-stochastic destination matrix for humans [npop, npop]
 K_r <- parameter()                 # rat carrying capacity per patch
 K_h <- parameter()                 # human carrying capacity per patch
 I_ini <- parameter()               # initial infected rats per patch (counts)
