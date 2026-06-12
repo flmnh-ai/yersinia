@@ -1,5 +1,36 @@
-# Historical plague outbreak data from Dean et al.
-# This script processes raw plague outbreak data into package data objects
+# Historical plague outbreak data compiled by Dean et al. (2018),
+# "Human ectoparasites and the spread of plague in Europe during the Second
+# Pandemic", PNAS 115(6):1304-1309. doi:10.1073/pnas.1715640115
+#
+# IMPORTANT: the `deaths` counts are NOT uniformly plague-specific across
+# outbreaks -- the source documents differ in whether they record
+# cause-of-death or simply all burials during the outbreak period. For
+# likelihood fitting to the plague model's D_h (plague deaths only) this
+# matters at the wave shoulders (early and late days), though for outbreaks
+# with large populations and high peaks the distinction is usually dominated
+# by the plague signal. Per-outbreak provenance is documented below.
+#
+#   Plague-specific (cause distinguished in source record):
+#     - Barcelona 1490  "cerca de morts" municipal death-search, parishes
+#                       visited daily, plague vs non-plague distinguished
+#                       (Schwartz & Carreras i Candi 1892)
+#     - London 1563     London Bills of Mortality -- weekly counts by cause
+#     - Malta 1813      Civic epidemic records
+#     - Prague 1713     Civic mortality lists
+#     - Cairo 1835      Municipal records during the outbreak
+#
+#   All-cause burial records during outbreak (baseline usually negligible
+#   vs epidemic peak, so treatable as ~plague for fitting purposes):
+#     - Givry 1348      Parish register of burials (cause not recorded in
+#                       14th c. parish records; 1200-1500 population so
+#                       background ~<1/day, peaks of 20+)
+#     - Eyam 1665       Parish burial register (700-person village;
+#                       background ~1/month vs plague peaks of 6+/day)
+#
+#   Ambiguous / mixed:
+#     - Florence 1400   Libri dei Morti -- sometimes annotated by cause,
+#                       sometimes not; treat early/late wave values with
+#                       caution when fitting
 
 library(tibble)
 library(dplyr)
@@ -144,28 +175,19 @@ prague_1713 <- tibble(
   year = 1713
 )
 
-# London 1563 (weekly data)
+# London 1563 (weekly Bills of Mortality). `day` is the calendar day at the
+# end of each reporting week (7, 14, ..., 231); the `obs_period` column
+# below marks this outbreak as 7-day. The model side aggregates D_h over
+# 7-day windows when fit with obs_period = 7. Earlier versions of this
+# dataset stored the same weekly counts at `day = 1, 8, 15, ...` (week
+# index renamed to `day`) with NAs in between -- internally inconsistent
+# with the rest of the dataset and incoherent against the model's daily
+# clock; replaced 2026-05.
 london_1563 <- tibble(
-  week = 1:225,
-  deaths = c(17, NA, NA, NA, NA, NA, NA, 25, NA, NA, NA, NA, NA,
-             NA, 23, NA, NA, NA, NA, NA, NA, 44, NA, NA, NA, NA,
-             NA, NA, 64, NA, NA, NA, NA, NA, NA, 131, NA, NA, NA,
-             NA, NA, NA, 174, NA, NA, NA, NA, NA, NA, 289, NA,
-             NA, NA, NA, NA, NA, 299, NA, NA, NA, NA, NA, NA,
-             542, NA, NA, NA, NA, NA, NA, 608, NA, NA, NA, NA,
-             NA, NA, 976, NA, NA, NA, NA, NA, NA, 963, NA, NA,
-             NA, NA, NA, NA, 1454, NA, NA, NA, NA, NA, NA, 1626,
-             NA, NA, NA, NA, NA, NA, 1372, NA, NA, NA, NA, NA,
-             NA, 1828, NA, NA, NA, NA, NA, NA, 1262, NA, NA, NA,
-             NA, NA, NA, 829, NA, NA, NA, NA, NA, NA, 1000, NA,
-             NA, NA, NA, NA, NA, 905, NA, NA, NA, NA, NA, NA,
-             380, NA, NA, NA, NA, NA, NA, 283, NA, NA, NA, NA,
-             NA, NA, 506, NA, NA, NA, NA, NA, NA, 281, NA, NA,
-             NA, NA, NA, NA, 178, NA, NA, NA, NA, NA, NA, 249,
-             NA, NA, NA, NA, NA, NA, 239, NA, NA, NA, NA, NA,
-             NA, 134, NA, NA, NA, NA, NA, NA, 121, NA, NA, NA,
-             NA, NA, NA, 45, NA, NA, NA, NA, NA, NA, 26, NA, NA,
-             NA, NA, NA, NA, 13),
+  day = seq(7, 7 * 33, by = 7),
+  deaths = c(17, 25, 23, 44, 64, 131, 174, 289, 299, 542, 608, 976, 963,
+             1454, 1626, 1372, 1828, 1262, 829, 1000, 905, 380, 283, 506,
+             281, 178, 249, 239, 134, 121, 45, 26, 13),
   population = 85000,
   location = "London",
   year = 1563
@@ -188,7 +210,10 @@ givry_1348 <- tibble(
   year = 1348
 )
 
-# Combine all datasets into a single tibble
+# Combine all datasets into a single tibble. `obs_period` is the length in
+# days of the reporting window each `deaths` value covers -- 1 for daily
+# records, 7 for London's weekly Bills of Mortality. Fitting code uses this
+# to set the matching D_h aggregation period in the model.
 outbreaks <- bind_rows(
   barcelona_1490,
   malta_1813,
@@ -196,13 +221,15 @@ outbreaks <- bind_rows(
   cairo_1835,
   eyam_1665,
   prague_1713,
-  rename(london_1563, day = week),  # standardize column name
+  london_1563,
   givry_1348
 ) %>%
-  # Add outbreak_id for easy filtering
-  mutate(outbreak_id = paste(location, year, sep = "_")) %>%
-  # Reorder columns
-  select(outbreak_id, location, year, population, day, deaths)
+  mutate(outbreak_id = paste(location, year, sep = "_"),
+         obs_period = if_else(location == "London", 7L, 1L)) %>%
+  select(outbreak_id, location, year, population, day, deaths, obs_period)
 
 # Save single dataset
 usethis::use_data(outbreaks, overwrite = TRUE)
+
+
+
