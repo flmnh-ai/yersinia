@@ -1,0 +1,579 @@
+---
+title: "Dean a sensitivity"
+format: html
+editor: visual
+---
+
+```{r}
+# =========================================================
+# Dean et al. rat–flea–human plague model
+# Barcelona outbreak
+# Sensitivity of posterior geometry to flea searching efficiency
+# =========================================================
+
+library(yersinia)
+library(dplyr)
+library(rstan)
+library(posterior)
+library(bayesplot)
+library(GGally)
+library(ggplot2)
+library(tidyr)
+library(purrr)
+
+# ---------------------------------------------------------
+# 1. Barcelona mortality data
+# ---------------------------------------------------------
+
+dat <- outbreaks |>
+  dplyr::filter(location == "Barcelona") |>
+  dplyr::select(time = day, deaths)
+
+N_city <- outbreaks |>
+  dplyr::filter(location == "Barcelona") |>
+  dplyr::summarise(population = first(population)) |>
+  pull(population)
+
+# ---------------------------------------------------------
+# 2. Initial rat population assumption
+# ---------------------------------------------------------
+# Dean et al. allow up to 1:1 rat:human ratio.
+# We'll use 1 rat per 5 humans as baseline.
+
+Sr0 <- round(N_city / 5)
+
+# ---------------------------------------------------------
+# 3. Flea searching efficiency scenarios
+# ---------------------------------------------------------
+
+a_vals <- c(
+  low  = 1 / Sr0,
+  mid  = 3 / Sr0,
+  high = 6 / Sr0
+)
+
+df_vals <- c(
+  low  = 1 / 8,
+  mid  = 1 / 5,
+  high = 1 / 2
+)
+a_vals
+df_vals
+```
+
+```{stan output.var=deanmod}
+functions {
+
+  vector plague_rf(
+                   real t,
+                   vector y,
+                   array[] real theta,
+                   array[] real x_r,
+                   array[] int x_i
+                   ) {
+
+    // ---------------------------------------------------
+    // Estimated parameters
+    // ---------------------------------------------------
+
+    real beta_r = theta[1];
+    real beta_h = theta[2];
+    real a      = theta[3];
+
+    // ---------------------------------------------------
+    // Fixed parameters
+    // ---------------------------------------------------
+
+    real gamma_r = theta[4];
+    real gamma_h = theta[5];
+
+    real g_r = theta[6];
+    real g_h = theta[7];
+
+    real r_f = theta[8];
+    real K_f = theta[9];
+    real d_f = theta[10];
+
+    // ---------------------------------------------------
+    // State variables
+    // ---------------------------------------------------
+
+    real Sr = y[1];
+    real Ir = y[2];
+    real Rr = y[3];
+    real Dr = y[4];
+
+    real H  = y[5];
+    real F  = y[6];
+
+    real Sh = y[7];
+    real Ih = y[8];
+    real Rh = y[9];
+    real Dh = y[10];
+
+    // ---------------------------------------------------
+    // Population sizes
+    // ---------------------------------------------------
+
+    real Nr = Sr + Ir + Rr;
+    real Nh = Sh + Ih + Rh;
+
+    vector[10] dydt;
+
+    // ---------------------------------------------------
+    // Infection forces
+    // ---------------------------------------------------
+
+    real lambda_r =
+
+      beta_r *Sr*
+      F /
+      (Nr + 1e-9) *
+      (1 - exp(-a * Nr));
+
+    real lambda_h =
+
+      beta_h *
+      F *
+      exp(-a * Nr);
+
+    // ---------------------------------------------------
+    // Rat dynamics
+    // ---------------------------------------------------
+
+    dydt[1] = -lambda_r ;
+
+    dydt[2] =
+      lambda_r  -
+      gamma_r * Ir;
+
+    dydt[3] =
+      g_r * gamma_r * Ir;
+
+    dydt[4] =
+      (1 - g_r) * gamma_r * Ir;
+
+    // ---------------------------------------------------
+    // Flea population
+    // ---------------------------------------------------
+
+    dydt[5] =
+
+      r_f *
+      H *
+      (1 - H / (K_f * Nr + 1e-9));
+
+    // ---------------------------------------------------
+    // Infectious fleas
+    // ---------------------------------------------------
+
+    dydt[6] =
+
+      ((1 - g_r) * gamma_r * Ir *H)
+
+      /// (1 + F / 1000)
+
+      - d_f * F;
+
+    // ---------------------------------------------------
+    // Human dynamics
+    // ---------------------------------------------------
+
+    dydt[7] =
+      -lambda_h * Sh;
+
+    dydt[8] =
+      lambda_h * Sh -
+      gamma_h * Ih;
+
+    dydt[9] =
+      g_h * gamma_h * Ih;
+
+    dydt[10] =
+      (1 - g_h) *
+      gamma_h *
+      Ih;
+
+    return dydt;
+  }
+}
+
+data {
+
+  int<lower=1> N;
+
+  array[N] real ts;
+
+  array[N] int deaths;
+
+  int<lower=1> N_city;
+
+  int<lower=1> Sr0;
+
+  real<lower=0> a_fixed;
+}
+
+parameters {
+
+  real<lower=0> beta_r;
+
+  real<lower=0> beta_h;
+
+  real<lower=1> Ir0;
+
+  real<lower=0> H0;
+
+  real<lower=0> phi;
+}
+
+transformed parameters {
+
+  vector[10] y0;
+
+  array[10] real theta;
+
+  array[N] vector[10] y_hat;
+
+  vector[N] expected_deaths;
+
+  // ---------------------------------------------------
+  // Fixed biological parameters
+  // ---------------------------------------------------
+
+  theta[1] = beta_r;
+  theta[2] = beta_h;
+  theta[3] = a_fixed;
+
+  theta[4] = 1 / 5.2;
+  theta[5] = 1 / 10.0;
+
+  theta[6] = 0.1;
+  theta[7] = 0.4;
+
+  theta[8] = 0.0084;
+  theta[9] = 6.0;
+  theta[10] = 1 / 5.0;
+
+  // ---------------------------------------------------
+  // Initial conditions
+  // ---------------------------------------------------
+
+  y0[1] = Sr0 - Ir0;
+  y0[2] = Ir0;
+  y0[3] = 0;
+  y0[4] = 0;
+
+  y0[5] = fmin(H0, 20);
+
+  y0[6] = 1;
+
+  y0[7] = N_city;
+  y0[8] = 1;
+  y0[9] = 0;
+  y0[10] = 0;
+
+  // ---------------------------------------------------
+  // Solve ODE
+  // ---------------------------------------------------
+
+  y_hat = ode_rk45(
+    plague_rf,
+    y0,
+    0,
+    ts,
+    theta,
+    rep_array(0.0,0),
+    rep_array(0,0)
+  );
+
+  // ---------------------------------------------------
+  // Expected deaths
+  // ---------------------------------------------------
+
+  for(i in 1:N){
+
+    if(i == 1){
+
+      expected_deaths[i] = 1e-6;
+
+    } else {
+
+      expected_deaths[i] =
+
+        fmax(
+          y_hat[i,10] -
+          y_hat[i-1,10],
+          1e-6
+        );
+    }
+  }
+}
+
+model {
+
+  // ---------------------------------------------------
+  // Priors
+  // ---------------------------------------------------
+
+  beta_r ~ lognormal(-3, 0.5);
+
+  beta_h ~ lognormal(-5, 0.5);
+
+  Ir0 ~ lognormal(log(5), 0.5);
+
+  H0 ~ lognormal(log(5), 0.5);
+
+  phi ~ exponential(1);
+
+  // ---------------------------------------------------
+  // Likelihood
+  // ---------------------------------------------------
+
+  deaths ~ neg_binomial_2(
+    expected_deaths,
+    phi
+  );
+}
+generated quantities {
+
+  array[N] int y_rep;
+
+  for(i in 1:N){
+
+    y_rep[i] = neg_binomial_2_rng(
+      expected_deaths[i],
+      phi
+    );
+  }
+}
+```
+
+```{r}
+inits_fun <- function(){
+
+  list(
+    beta_r = runif(1, 0.01, 0.1),
+    beta_h = runif(1, 0.001, 0.02),
+    Ir0 = runif(1, 1, 10),
+    H0 = runif(1, 1, 10),
+    phi = runif(1, 1, 5)
+  )
+}
+```
+
+```{r}
+stan_data <- list(
+
+  N = nrow(dat),
+
+  ts = as.vector(dat$time),
+
+  deaths = as.integer(dat$deaths),
+
+  N_city = as.integer(N_city),
+
+  Sr0 = as.integer(Sr0),
+
+  a_fixed = a_vals["mid"]
+)
+```
+
+Fit Mid
+
+```{r}
+fit_mid <- rstan::sampling(
+
+  deanmod,
+
+  data = stan_data,
+
+  init = inits_fun,
+
+  chains = 4,
+
+  cores = 4,
+
+  iter = 1000,
+
+  warmup = 500,
+
+  seed = 42,
+
+  control = list(
+    adapt_delta = 0.97,
+    max_treedepth = 13
+  )
+)
+```
+
+```{r}
+post_df <- as.data.frame(
+
+  rstan::extract(
+
+    fit_mid,
+
+    pars = c(
+      "beta_r",
+      "beta_h",
+      "Ir0",
+      "H0"
+    )
+  )
+
+)
+
+post_df <- post_df |>
+  dplyr::rename(F0 = H0)
+```
+
+```{r}
+GGally::ggpairs(post_df)
+```
+
+### Actual Sensitivity Analysis
+
+```{r}
+fits <- list()
+
+for(i in names(a_vals)){
+
+  cat("Running scenario:", i, "\n")
+
+  stan_data <- list(
+
+    N = nrow(dat),
+
+    ts = as.vector(dat$time),
+
+    deaths = as.integer(dat$deaths),
+
+    N_city = as.integer(N_city),
+
+    Sr0 = as.integer(Sr0),
+
+    a_fixed = a_vals[i]
+  )
+
+  fits[[i]] <- sampling(
+
+    deanmod,
+
+    data = stan_data,
+
+    init = inits_fun,
+
+    chains = 4,
+
+    cores = 4,
+
+    iter = 1000,
+
+    warmup = 500,
+
+    seed = 42,
+
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 13,
+      stepsize = 0.01
+    )
+  )
+}
+```
+
+### Extraction of posteriors
+
+```{r}
+post_df <- map2_df(
+
+  fits,
+
+  names(fits),
+
+  ~{
+
+    as.data.frame(
+
+      rstan::extract(
+
+        .x,
+
+        pars = c(
+          "beta_r",
+          "beta_h",
+          "Ir0",
+          "H0"
+        )
+      )
+
+    ) |>
+
+      mutate(
+        a_scenario = .y
+      )
+  }
+)
+
+post_df <- post_df |>
+  dplyr::rename(N0 = H0)
+```
+
+```{r}
+GGally::ggpairs(
+
+  post_df,
+
+  columns = 1:4,
+
+  mapping = aes(
+    color = a_scenario,
+    alpha = 0.25
+  ),
+
+  upper = list(
+    continuous = "blank"
+  ),
+
+  progress = FALSE
+)
+```
+
+```{r}
+GGally::ggpairs(
+  post_df,
+  columns = 1:4,
+  mapping = aes(
+    color = a_scenario
+  ),
+  lower = list(
+    continuous = GGally::wrap("points", alpha = 0.25)
+  ),
+  upper = list(
+    continuous = "blank"
+  ),
+  legend = 1,
+  progress = FALSE
+) +
+  theme(legend.position = "right")
+```
+
+```{r}
+GGally::ggpairs(
+  post_df,
+  columns = 1:4,
+  mapping = aes(
+    color = a_scenario
+  ),
+  lower = list(
+    continuous = GGally::wrap("points", alpha = 0.25)
+  ),
+  upper = list(
+    continuous = "blank"
+  ),
+  legend = 1,
+  progress = FALSE
+) +
+  labs(color = expression(a[scenario])) +
+  theme(legend.position = "right")
+```

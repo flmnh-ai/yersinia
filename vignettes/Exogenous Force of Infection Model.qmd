@@ -1,0 +1,896 @@
+---
+title: "Human Plague"
+format: html
+editor: visual
+---
+
+## Exogenous Force of Infection Model
+
+This is a single outbreak model, which forms the general structure of the multiple outbreak, hierarchical latent variable model.
+
+## Packages
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(yersinia)
+library(rstan)
+library(ggplot2)
+library(bayesplot)
+rstan_options(auto_write = TRUE)
+```
+
+# Data
+
+Uses the Barcelona data set.
+
+```{r}
+dat <- outbreaks |>
+  dplyr::filter(location == 'Barcelona') |>
+  dplyr::select(time = day, deaths)
+
+N_city_dat <- outbreaks |>
+  dplyr::filter(location == 'Barcelona') |>
+  dplyr::select(population)
+
+N_city <- N_city_dat[[1,1]]
+
+dat_list <- list(
+  T      = nrow(dat), 
+  t0     = 0.0,
+  ts     = as.numeric(dat$time),
+  y      = as.integer(dat$deaths),
+  N      = as.numeric(N_city),  # scalar
+  t_max  = max(dat$time),       # 
+  x_r    = numeric(0),          # empty arrays to match Stan
+  x_i    = integer(0)
+)
+```
+
+# Model
+
+This is a much simpler model compared to the Rat-Flea-Human model we have been using. This process models human infections as being driven by an exogenous, time-varying reservoir-to-human hazard (force of infection) $\lambda(t)$ representing the per‑susceptible, per‑day risk of infection arising from the rat–flea system. Here $\lambda(t)$ is parameterized as a Gaussian burst (or pulse) with total area A, peak time t_peak, and width $\sigma$, such that,
+
+$$
+\lambda(t) = amp × exp(−(t − t_{peak})^2 / (2 σ^2))
+$$
+
+and the instantaneous peak height (amplitude) is derived as,
+
+$$
+amp = A/(\sqrt(2\pi)\sigma)
+$$
+
+Biologically, $A$ is the cumulative spillover pressure over the outbreak (integrating infectious fleas, bite rates, and per‑bite transmissibility through time), $t_{peak}$ marks when spillover pressure is highest (e.g., near the peak of the rat epidemic), and $\sigma$ controls duration of the hazard (reflecting rat epidemic length, flea survival off‑host, season/climate, and human behavior).
+
+Human infection dynamics follow a simple deterministic system with states $S(t)$ (susceptible), $I(t)$ (infectious), $C_D(t)$ (cumulative deaths), and $C_R(t)$ (cumulative recoveries; which we don't really use). The ODEs are:
+
+$$
+\begin{aligned}
+\frac{dS}{dt} &= -\lambda h(t)\cdot S(t) \\
+\frac{dI}{dt} &= \lambda h(t)\cdot S(t) - \delta \cdot I(t) \\
+\frac{dC_D}{dt} &= p_{\text{death}} \cdot \delta \cdot I(t) \\
+\frac{dC_R}{dt} &= (1 - p_{\text{death}})\cdot \delta \cdot I(t)
+\end{aligned}
+$$
+
+where $\delta$ is the infection duration, and $p_{\text{death}}$ is the probability of dying from the infection (these are not identifiable, but have really tight priors on them given what we know about duration of infection and probability of dying from plague infection.
+
+# Stan Code
+
+```{stan output.var="model",data="dat_list",chains=4,iter=1000}
+functions {
+  // Force of infection function
+  real lambda_of_t(real t, real amp, real t_peak, real sigma) {
+    real z = (t - t_peak) / sigma;
+    return amp * exp(-0.5 * z * z); // Not sure why, but z * z runs faster than z^2
+  }
+  // ODE system
+  array[] real plague_ode(real t, array[] real y, array[] real theta,
+                          array[] real x_r, array[] int x_i) {
+    real amp     = theta[1]; // amplitude = intensity of spillover, approx num of infectious fleas per human × bite rate × per‑bite transmission probability
+    real t_peak  = theta[2]; // peak time = when spillover is at its highest (i.e., time shortly after fleas leave dying rats and seek alternative hosts)
+    real sigma   = theta[3]; // hazard width = reflects duration of rat epidemic, flea survival off‑host, climate/seasonality, and human behaviors or interventions
+    real delta   = theta[4]; // infection duration
+    real p_death = theta[5]; // probability of dying from infection
+
+    real S = y[1];
+    real I = y[2];
+    real lambda = lambda_of_t(t, amp, t_peak, sigma);
+
+    array[4] real dy;
+    dy[1] = -lambda * S;
+    dy[2] =  lambda * S - delta * I;
+    dy[3] =  p_death * delta * I;
+    dy[4] = (1 - p_death) * delta * I;
+    return dy;
+  }
+}
+data {
+  int<lower=1> T;              // Number of rows
+  real t0;
+  array[T] real ts;           // time steps
+  array[T] int<lower=0> y;    // Deaths
+  real<lower=0> N;            // Human population
+  real<lower=0> t_max;
+  array[0] real x_r;          // empty real data to satisfy signature
+  array[0] int x_i;           // empty int data
+}
+parameters {
+  real<lower=0> A;
+  real<lower=0, upper=t_max> t_peak;
+  real<lower=0> sigma;
+  real<lower=0> delta;
+  real<lower=0.70, upper=0.98> p_death;
+  real<lower=0> phi;
+}
+transformed parameters {
+  array[4] real y0;
+  y0[1] = N;  // use scalar N
+  y0[2] = 0;
+  y0[3] = 0;
+  y0[4] = 0;
+
+  real amp = A / (sqrt(2 * pi()) * sigma);
+  array[5] real theta = { amp, t_peak, sigma, delta, p_death };
+
+  array[T, 4] real traj = integrate_ode_bdf(plague_ode, y0, t0, ts, theta, x_r, x_i);
+
+  vector[T] mu;
+  mu[1] = traj[1, 3];
+  for (t in 2:T) mu[t] = traj[t, 3] - traj[t-1, 3];
+}
+model {
+  A       ~ lognormal(log(0.3), 0.5);
+  t_peak  ~ uniform(0, t_max);
+  sigma   ~ lognormal(log(5), 0.4);
+  delta   ~ lognormal(log(0.10), 0.4);
+  p_death ~ beta(180, 20); // Very tight prior (70-95% mortality)
+  phi     ~ exponential(1);
+  y ~ neg_binomial_2(mu + 1e-9, phi);
+}
+```
+
+# Model Sampling
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+model <- rstan::sampling(model, data = dat_list, cores = 4, chains = 4, iter = 2000, seed = 42)
+```
+
+# Model Statistics
+
+Give the summary statistics for the parameters of interest as well as model convergence (e.g., ESS and Rhat) metrics.
+
+```{r}
+# Print only selected parameters from a stanfit
+print(
+  model,
+  pars = c("A", "t_peak", "sigma", "delta", "p_death"),
+  probs = c(0.05, 0.5, 0.95),
+  digits_summary = 2
+)
+```
+
+# Plots
+
+The first plot shows the posterior density curves.
+
+```{r}
+post <- rstan::extract(model)  # permuted = TRUE (default), collapses chains
+
+draws_df <- data.frame(
+  A       = post$A,
+  t_peak  = post$t_peak,
+  sigma   = post$sigma,
+  delta   = post$delta,
+  p_death = post$p_death
+)
+
+dens_long <- tidyr::pivot_longer(draws_df, everything(), names_to = "parameter", values_to = "value")
+
+p_dens <- ggplot(dens_long, aes(x = value)) +
+  geom_density(fill = "#2a9d8f", alpha = 0.4, color = "#2a9d8f") +
+  facet_wrap(~ parameter, scales = "free", ncol = 3) +
+  labs(title = "Posterior densities", x = NULL, y = "Density") +
+  theme_minimal(base_size = 12)
+
+p_dens
+```
+
+This second plot shows the relationship between different parameters in the model.
+
+```{r}
+post_arr <- rstan::extract(model, permuted = FALSE)  # array: iterations x chains x parameters
+param_names <- dimnames(post_arr)[[3]]
+idx <- function(name) match(name, param_names)
+
+iter   <- dim(post_arr)[1]
+chains <- dim(post_arr)[2]
+params <- c("A","t_peak","sigma","delta","p_death")
+
+A_arr       <- post_arr[,, idx("A")]
+sigma_arr   <- post_arr[,, idx("sigma")]
+t_peak_arr  <- post_arr[,, idx("t_peak")]
+delta_arr   <- post_arr[,, idx("delta")]
+p_death_arr <- post_arr[,, idx("p_death")]
+
+#amp_arr <- A_arr / (sqrt(2*pi) * sigma_arr)
+
+post_3d <- array(NA_real_, dim = c(iter, chains, length(params)),
+                 dimnames = list(NULL, NULL, params))
+post_3d[,,1] <- A_arr
+post_3d[,,2] <- t_peak_arr
+post_3d[,,3] <- sigma_arr
+post_3d[,,4] <- delta_arr
+post_3d[,,5] <- p_death_arr
+
+bayesplot::color_scheme_set("teal")
+p_pairs <- bayesplot::mcmc_pairs(
+  post_3d,
+  off_diag_args = list(alpha = 0.25, size = 0.4),
+  diag_fun = "dens"
+)
+
+p_pairs
+```
+
+## Posterior predictive check for Malta exogenous model
+
+```{r}
+# Extract posterior
+post <- rstan::extract(model)  # your fitted Malta model
+
+# Get observed data
+obs_deaths <- dat$deaths
+n_obs <- length(obs_deaths)
+
+# Generate posterior predictive samples
+n_samples <- 500  # number of posterior draws to plot
+sample_idx <- sample(1:length(post$A), n_samples)
+
+# Extract trajectories
+pred_deaths <- matrix(NA, nrow = n_samples, ncol = n_obs)
+for (i in 1:n_samples) {
+  idx <- sample_idx[i]
+  # Extract mu (predicted deaths) from posterior
+  # Note: you'll need to re-extract mu from the stanfit object
+  # This assumes you saved mu in generated quantities
+  pred_deaths[i, ] <- post$mu[idx, ]
+}
+
+# Calculate quantiles
+pred_median <- apply(pred_deaths, 2, median)
+pred_lower <- apply(pred_deaths, 2, quantile, 0.05)
+pred_upper <- apply(pred_deaths, 2, quantile, 0.95)
+
+# Create data frame for plotting
+ppc_df <- data.frame(
+  time = dat$time,
+  observed = obs_deaths,
+  median = pred_median,
+  lower = pred_lower,
+  upper = pred_upper
+)
+
+# Plot
+ggplot(ppc_df, aes(x = time)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "#2a9d8f", alpha = 0.3) +
+  geom_line(aes(y = median), color = "#2a9d8f", size = 1) +
+  geom_point(aes(y = observed), size = 1.5, alpha = 0.6) +
+  labs(
+    title = "Posterior Predictive Check: Malta 1813",
+    subtitle = "Observed deaths (points) vs. model predictions (line + 90% CI)",
+    x = "Day",
+    y = "Daily deaths"
+  ) +
+  theme_minimal(base_size = 12)
+
+# Goodness of fit metrics
+residuals <- obs_deaths - pred_median
+rmse <- sqrt(mean(residuals^2))
+mae <- mean(abs(residuals))
+
+cat("RMSE:", round(rmse, 2), "\n")
+cat("MAE:", round(mae, 2), "\n")
+```
+
+```{r}
+# Posterior predictive check for Malta exogenous model
+# Extract parameters from posterior
+post <- rstan::extract(model)
+
+# Get mu and phi from posterior
+n_samples <- min(500, nrow(post$mu))
+sample_idx <- sample(1:nrow(post$mu), n_samples)
+
+# Generate posterior predictive samples manually
+pred_deaths <- matrix(NA, nrow = n_samples, ncol = ncol(post$mu))
+for (i in 1:n_samples) {
+  idx <- sample_idx[i]
+  for (t in 1:ncol(post$mu)) {
+    pred_deaths[i, t] <- rnbinom(1, 
+                                 mu = post$mu[idx, t] + 1e-9, 
+                                 size = post$phi[idx])
+  }
+}
+
+# Calculate quantiles
+pred_median <- apply(pred_deaths, 2, median)
+pred_lower <- apply(pred_deaths, 2, quantile, 0.05)
+pred_upper <- apply(pred_deaths, 2, quantile, 0.95)
+
+# Rest of plotting code...
+# Calculate quantiles
+pred_median <- apply(pred_deaths, 2, median)
+pred_lower <- apply(pred_deaths, 2, quantile, 0.05)
+pred_upper <- apply(pred_deaths, 2, quantile, 0.95)
+
+# Create data frame for plotting
+ppc_df <- data.frame(
+  time = dat$time,
+  observed = obs_deaths,
+  median = pred_median,
+  lower = pred_lower,
+  upper = pred_upper
+)
+
+# Plot
+ggplot(ppc_df, aes(x = time)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "#2a9d8f", alpha = 0.3) +
+  geom_line(aes(y = median), color = "#2a9d8f", size = 1) +
+  geom_point(aes(y = observed), size = 1.5, alpha = 0.6) +
+  labs(
+    title = "Posterior Predictive Check: Malta 1813",
+    subtitle = "Observed deaths vs. posterior predictive distribution (90% interval)",
+    x = "Day",
+    y = "Daily deaths"
+  ) +
+  theme_minimal()
+```
+
+## Hierarchical Model Prep
+
+```{r}
+# Select 4 outbreaks
+locations <- c("Malta", 
+               #"Prague", 
+               "Barcelona")#, 
+               #"Florence")
+
+outbreak_data <- outbreaks %>%
+  filter(location %in% locations)
+
+# Create outbreak ID mapping
+outbreak_mapping <- data.frame(
+  location = locations,
+  outbreak_num = 1:length(locations)
+)
+
+outbreak_data <- outbreak_data %>%
+  left_join(outbreak_mapping, by = "location") %>%
+  arrange(outbreak_num, day) %>%  # CRITICAL: sort by outbreak_num FIRST, then day
+  group_by(outbreak_num) %>%
+  mutate(time_rel = day - min(day)) %>%  # Make times start at 0 for each outbreak
+  ungroup()
+
+# Verify the sorting is correct
+head(outbreak_data, 20)
+tail(outbreak_data, 20)
+
+# Get summary info per outbreak
+outbreak_info <- outbreak_data %>%
+  group_by(outbreak_num, location) %>%
+  summarize(
+    n_days = n(),
+    max_day = max(time_rel),
+    population = first(population),
+    .groups = "drop"
+  ) %>%
+  arrange(outbreak_num)
+
+# Compute start/end positions for each outbreak
+outbreak_info <- outbreak_info %>%
+  mutate(
+    end_pos = cumsum(n_days),
+    start_pos = lag(end_pos, default = 0) + 1
+  )
+
+print(outbreak_info)
+
+# Verify indexing is correct
+for (k in 1:nrow(outbreak_info)) {
+  cat("Outbreak", k, ":", outbreak_info$location[k], "\n")
+  cat("  Start pos:", outbreak_info$start_pos[k], "\n")
+  cat("  End pos:", outbreak_info$end_pos[k], "\n")
+  cat("  Times:", outbreak_data$time_rel[outbreak_info$start_pos[k]:outbreak_info$end_pos[k]][1:5], "...\n")
+}
+
+# Prepare Stan data
+dat_hier <- list(
+  N_outbreaks = length(locations),
+  T_obs = outbreak_info$n_days,
+  N_total = nrow(outbreak_data),
+  ts = outbreak_data$time_rel,
+  y = as.integer(outbreak_data$deaths),
+  outbreak_id = outbreak_data$outbreak_num,
+  N_pop = outbreak_info$population,
+  t_max = outbreak_info$max_day,
+  start_pos = outbreak_info$start_pos,
+  end_pos = outbreak_info$end_pos,
+  x_r = numeric(0),
+  x_i = integer(0)
+)
+
+str(dat_hier)
+```
+
+```{stan output.var="model2",data="dat_list",chains=4,iter=1000}
+functions {
+  real lambda_of_t(real t, real amp, real t_peak, real sigma) {
+    real z = (t - t_peak) / sigma;
+    return amp * exp(-0.5 * z * z);
+  }
+  
+  array[] real plague_ode(real t, array[] real y, array[] real theta,
+                          array[] real x_r, array[] int x_i) {
+    real amp     = theta[1];
+    real t_peak  = theta[2];
+    real sigma   = theta[3];
+    real delta   = theta[4];
+    real p_death = theta[5];
+    real S = y[1];
+    real I = y[2];
+    real lambda = lambda_of_t(t, amp, t_peak, sigma);
+    array[4] real dy;
+    dy[1] = -lambda * S;
+    dy[2] =  lambda * S - delta * I;
+    dy[3] =  p_death * delta * I;
+    dy[4] = (1 - p_death) * delta * I;
+    return dy;
+  }
+}
+
+data {
+  int<lower=1> N_outbreaks;
+  array[N_outbreaks] int<lower=1> T_obs;
+  int<lower=1> N_total;
+  array[N_total] real ts;
+  array[N_total] int<lower=0> y;
+  array[N_total] int<lower=1, upper=N_outbreaks> outbreak_id;
+  array[N_outbreaks] real<lower=0> N_pop;
+  array[N_outbreaks] real<lower=0> t_max;
+  array[N_outbreaks] int<lower=1> start_pos;  // NEW
+  array[N_outbreaks] int<lower=1> end_pos;    // NEW
+  array[0] real x_r;
+  array[0] int x_i;
+}
+
+parameters {
+  // Hyperparameters
+  real mu_log_A;
+  real<lower=0> sigma_log_A;
+  real mu_t_peak;
+  real<lower=0> sigma_t_peak;
+  real mu_log_sigma;
+  real<lower=0> sigma_log_sigma;
+  
+  // Outbreak-specific parameters (non-centered)
+  vector[N_outbreaks] log_A_raw;
+  vector[N_outbreaks] t_peak_raw;
+  vector[N_outbreaks] log_sigma_raw;
+  
+  // Fixed effects (shared across outbreaks)
+  real<lower=0> delta;
+  real<lower=0.70, upper=0.98> p_death;
+  
+  // Overdispersion
+  real<lower=0> phi;
+}
+
+transformed parameters {
+  // Non-centered parameterization
+  vector[N_outbreaks] log_A = mu_log_A + sigma_log_A * log_A_raw;
+  vector[N_outbreaks] A = exp(log_A);
+  vector[N_outbreaks] t_peak = mu_t_peak + sigma_t_peak * t_peak_raw;
+  vector[N_outbreaks] log_sigma_param = mu_log_sigma + sigma_log_sigma * log_sigma_raw;
+  vector[N_outbreaks] sigma_param = exp(log_sigma_param);
+  
+  // Compute trajectories for each outbreak
+  vector[N_total] mu;
+  
+  for (k in 1:N_outbreaks) {
+    array[4] real y0;
+    y0[1] = N_pop[k];
+    y0[2] = 0;
+    y0[3] = 0;
+    y0[4] = 0;
+    
+    real amp = A[k] / (sqrt(2 * pi()) * sigma_param[k]);
+    array[5] real theta = { amp, t_peak[k], sigma_param[k], delta, p_death };
+    
+    // Extract time points for this outbreak using pre-computed indices
+    int n_t = T_obs[k];
+    int s_pos = start_pos[k];
+    int e_pos = end_pos[k];
+    array[n_t] real t_k;
+    for (i in 1:n_t) {
+      t_k[i] = ts[s_pos + i - 1];
+    }
+    
+    // Solve ODE
+    array[n_t, 4] real traj = integrate_ode_bdf(plague_ode, y0, -0.01, t_k, theta, x_r, x_i);
+    // Extract daily deaths
+    mu[s_pos] = traj[1, 3];
+    for (i in 2:n_t) {
+      mu[s_pos + i - 1] = traj[i, 3] - traj[i-1, 3];
+    }
+  }
+}
+
+model {
+  // Hyperpriors (vague)
+  mu_log_A ~ normal(log(0.3), 0.5);
+  sigma_log_A ~ exponential(1);
+  mu_t_peak ~ normal(80, 5);
+  sigma_t_peak ~ exponential(0.5);
+  mu_log_sigma ~ normal(log(15), 1);
+  sigma_log_sigma ~ exponential(1);
+  
+  // Non-centered parameters
+  log_A_raw ~ std_normal();
+  t_peak_raw ~ std_normal();
+  log_sigma_raw ~ std_normal();
+  
+  // Fixed effects (tight priors)
+  delta ~ lognormal(log(0.10), 0.4);
+  p_death ~ uniform(0.70,0.90);
+  
+  // Overdispersion
+  phi ~ exponential(1);
+  
+  // Likelihood
+  y ~ neg_binomial_2(mu + 1e-9, phi);
+}
+
+generated quantities {
+  // Posterior predictive checks
+  array[N_total] int y_rep;
+  vector[N_total] log_lik;
+  
+  for (i in 1:N_total) {
+    y_rep[i] = neg_binomial_2_rng(mu[i] + 1e-9, phi);
+    log_lik[i] = neg_binomial_2_lpmf(y[i] | mu[i] + 1e-9, phi);
+  }
+}
+```
+
+```{r}
+# Fit hierarchical model using the already-compiled model
+model_hier <- sampling(
+  object = model2,  # Use the compiled stanmodel object
+  data = dat_hier,
+  chains = 4,
+  iter = 1000,
+  warmup = 500,
+  cores = 4,
+  control = list(adapt_delta = 0.95, max_treedepth = 12),
+  seed = 42
+)
+```
+
+# Point Prior 
+
+### No Probability
+
+```{stan output.var=np}
+functions {
+  // Force of infection function
+  real lambda_of_t(real t, real amp, real t_peak, real sigma) {
+    real z = (t - t_peak) / sigma;
+    return amp * exp(-0.5 * z * z); // Not sure why, but z * z runs faster than z^2
+  }
+  // ODE system
+  array[] real plague_ode(real t, array[] real y, array[] real theta,
+                          array[] real x_r, array[] int x_i) {
+    real amp     = theta[1]; // amplitude = intensity of spillover, approx num of infectious fleas per human × bite rate × per‑bite transmission probability
+    real t_peak  = theta[2]; // peak time = when spillover is at its highest (i.e., time shortly after fleas leave dying rats and seek alternative hosts)
+    real sigma   = theta[3]; // hazard width = reflects duration of rat epidemic, flea survival off‑host, climate/seasonality, and human behaviors or interventions
+    real delta   = theta[4]; // infection duration
+    
+    real S = y[1];
+    real I = y[2];
+    real lambda = lambda_of_t(t, amp, t_peak, sigma);
+
+    array[4] real dy;
+    dy[1] = -lambda * S;
+    dy[2] =  lambda * S - delta * I;
+    dy[3] =  .80 * delta * I;
+    dy[4] = (1 - 0.80) * delta * I;
+    return dy;
+  }
+}
+data {
+  int<lower=1> T;              // Number of rows
+  real t0;
+  array[T] real ts;           // time steps
+  array[T] int<lower=0> y;    // Deaths
+  real<lower=0> N;            // Human population
+  real<lower=0> t_max;
+  array[0] real x_r;          // empty real data to satisfy signature
+  array[0] int x_i;           // empty int data
+}
+parameters {
+  real<lower=0> A;
+  real<lower=0, upper=t_max> t_peak;
+  real<lower=0> sigma;
+  real<lower=0> delta;
+  real<lower=0> phi;
+}
+transformed parameters {
+  array[4] real y0;
+  y0[1] = N;  // use scalar N
+  y0[2] = 0;
+  y0[3] = 0;
+  y0[4] = 0;
+
+  real amp = A / (sqrt(2 * pi()) * sigma);
+  array[4] real theta = { amp, t_peak, sigma, delta};
+
+  array[T, 4] real traj = integrate_ode_bdf(plague_ode, y0, t0, ts, theta, x_r, x_i);
+
+  vector[T] mu;
+  mu[1] = traj[1, 3];
+  for (t in 2:T) mu[t] = traj[t, 3] - traj[t-1, 3];
+}
+model {
+  A       ~ lognormal(log(0.3), 0.5);
+  t_peak  ~ uniform(0, t_max);
+  sigma   ~ lognormal(log(5), 0.4);
+  delta   ~ lognormal(log(0.10), 0.4);
+  phi     ~ exponential(1);
+  y ~ neg_binomial_2(mu + 1e-9, phi);
+}
+```
+
+### Barcelona
+
+```{r}
+dat <- outbreaks |>
+  dplyr::filter(location == 'Barcelona') |>
+  dplyr::select(time = day, deaths)
+
+N_city_dat <- outbreaks |>
+  dplyr::filter(location == 'Barcelona') |>
+  dplyr::select(population)
+
+N_city <- N_city_dat[[1,1]]
+
+dat_list <- list(
+  T      = nrow(dat), 
+  t0     = 0.0,
+  ts     = as.numeric(dat$time),
+  y      = as.integer(dat$deaths),
+  N      = as.numeric(N_city),  # scalar
+  t_max  = max(dat$time),       # 
+  x_r    = numeric(0),          # empty arrays to match Stan
+  x_i    = integer(0)
+)
+```
+
+```{r}
+model_2 <- rstan::sampling(np, data = dat_list, cores = 4, chains = 4, iter = 2000, seed = 81)
+```
+
+```{r}
+post_arr <- rstan::extract(model_2, permuted = FALSE)  # array: iterations x chains x parameters
+param_names <- dimnames(post_arr)[[3]]
+idx <- function(name) match(name, param_names)
+
+iter   <- dim(post_arr)[1]
+chains <- dim(post_arr)[2]
+params <- c("A","t_peak","sigma","delta")
+
+A_arr       <- post_arr[,, idx("A")]
+sigma_arr   <- post_arr[,, idx("sigma")]
+t_peak_arr  <- post_arr[,, idx("t_peak")]
+delta_arr   <- post_arr[,, idx("delta")]
+
+
+#amp_arr <- A_arr / (sqrt(2*pi) * sigma_arr)
+
+post_3d <- array(NA_real_, dim = c(iter, chains, length(params)),
+                 dimnames = list(NULL, NULL, params))
+post_3d[,,1] <- A_arr
+post_3d[,,2] <- t_peak_arr
+post_3d[,,3] <- sigma_arr
+post_3d[,,4] <- delta_arr
+
+bayesplot::color_scheme_set("teal")
+p_pairs <- bayesplot::mcmc_pairs(
+  post_3d,
+  off_diag_args = list(alpha = 0.25, size = 0.4),
+  diag_fun = "dens"
+)
+
+p_pairs
+
+post_df <- as.data.frame(post_3d[1, , ])
+
+cor(post_df)
+cor(post_df)^2
+```
+
+### Malta
+
+```{r}
+dat <- outbreaks |>
+  dplyr::filter(location == 'Malta') |>
+  dplyr::select(time = day, deaths)
+
+N_city_dat <- outbreaks |>
+  dplyr::filter(location == 'Malta') |>
+  dplyr::select(population)
+
+N_city <- N_city_dat[[1,1]]
+
+dat_list <- list(
+  T      = nrow(dat), 
+  t0     = 0.0,
+  ts     = as.numeric(dat$time),
+  y      = as.integer(dat$deaths),
+  N      = as.numeric(N_city),  # scalar
+  t_max  = max(dat$time),       # 
+  x_r    = numeric(0),          # empty arrays to match Stan
+  x_i    = integer(0)
+)
+```
+
+```{r}
+model_2.M <- rstan::sampling(np, data = dat_list, cores = 4, chains = 4, iter = 2000, seed = 81)
+```
+
+```{r}
+post_arr <- rstan::extract(model_2.M, permuted = FALSE)  # array: iterations x chains x parameters
+param_names <- dimnames(post_arr)[[3]]
+idx <- function(name) match(name, param_names)
+
+iter   <- dim(post_arr)[1]
+chains <- dim(post_arr)[2]
+params <- c("A","t_peak","sigma","delta")
+
+A_arr       <- post_arr[,, idx("A")]
+sigma_arr   <- post_arr[,, idx("sigma")]
+t_peak_arr  <- post_arr[,, idx("t_peak")]
+delta_arr   <- post_arr[,, idx("delta")]
+
+
+#amp_arr <- A_arr / (sqrt(2*pi) * sigma_arr)
+
+post_3d <- array(NA_real_, dim = c(iter, chains, length(params)),
+                 dimnames = list(NULL, NULL, params))
+post_3d[,,1] <- A_arr
+post_3d[,,2] <- t_peak_arr
+post_3d[,,3] <- sigma_arr
+post_3d[,,4] <- delta_arr
+
+bayesplot::color_scheme_set("teal")
+p_pairs <- bayesplot::mcmc_pairs(
+  post_3d,
+  off_diag_args = list(alpha = 0.25, size = 0.4),
+  diag_fun = "dens"
+)
+
+p_pairs
+
+post_df <- as.data.frame(post_3d[1, , ])
+
+cor(post_df)
+cor(post_df)^2
+```
+
+```{stan output.var=pprior}
+functions {
+  // Force of infection function
+  real lambda_of_t(real t, real amp, real sigma) {
+    real z = (t - 80) / sigma;
+    return amp * exp(-0.5 * z * z); // Not sure why, but z * z runs faster than z^2
+  }
+  // ODE system
+  array[] real plague_ode(real t, array[] real y, array[] real theta,
+                          array[] real x_r, array[] int x_i) {
+    real amp     = theta[1]; // amplitude = intensity of spillover, approx num of infectious fleas per human × bite rate × per‑bite transmission probability
+    real sigma   = theta[2]; // hazard width = reflects duration of rat epidemic, flea survival off‑host, climate/seasonality, and human behaviors or interventions
+    real delta   = theta[3]; // infection duration
+    
+    real S = y[1];
+    real I = y[2];
+    real lambda = lambda_of_t(t, amp, sigma);
+
+    array[4] real dy;
+    dy[1] = -lambda * S;
+    dy[2] =  lambda * S - delta * I;
+    dy[3] =  .80 * delta * I;
+    dy[4] = (1 - 0.80) * delta * I;
+    return dy;
+  }
+}
+data {
+  int<lower=1> T;              // Number of rows
+  real t0;
+  array[T] real ts;           // time steps
+  array[T] int<lower=0> y;    // Deaths
+  real<lower=0> N;            // Human population
+  real<lower=0> t_max;
+  array[0] real x_r;          // empty real data to satisfy signature
+  array[0] int x_i;           // empty int data
+}
+parameters {
+  real<lower=0> A;
+  real<lower=0> sigma;
+  real<lower=0> delta;
+  real<lower=0> phi;
+}
+transformed parameters {
+  array[4] real y0;
+  y0[1] = N;  // use scalar N
+  y0[2] = 0;
+  y0[3] = 0;
+  y0[4] = 0;
+
+  real amp = A / (sqrt(2 * pi()) * sigma);
+  array[3] real theta = { amp, sigma, delta};
+
+  array[T, 4] real traj = integrate_ode_bdf(plague_ode, y0, t0, ts, theta, x_r, x_i);
+
+  vector[T] mu;
+  mu[1] = traj[1, 3];
+  for (t in 2:T) mu[t] = traj[t, 3] - traj[t-1, 3];
+}
+model {
+  A       ~ lognormal(log(0.3), 0.5);
+  sigma   ~ lognormal(log(5), 0.4);
+  delta   ~ lognormal(log(0.10), 0.4);
+  phi     ~ exponential(1);
+  y ~ neg_binomial_2(mu + 1e-9, phi);
+}
+```
+
+```{r}
+model_3 <- rstan::sampling(pprior, data = dat_list, cores = 4, chains = 4, iter = 2000, seed = 42)
+```
+
+```{r}
+post_arr <- rstan::extract(model_3, permuted = FALSE)  # array: iterations x chains x parameters
+param_names <- dimnames(post_arr)[[3]]
+idx <- function(name) match(name, param_names)
+
+iter   <- dim(post_arr)[1]
+chains <- dim(post_arr)[2]
+params <- c("A","sigma","delta")
+
+A_arr       <- post_arr[,, idx("A")]
+sigma_arr   <- post_arr[,, idx("sigma")]
+delta_arr   <- post_arr[,, idx("delta")]
+
+
+#amp_arr <- A_arr / (sqrt(2*pi) * sigma_arr)
+
+post_3d <- array(NA_real_, dim = c(iter, chains, length(params)),
+                 dimnames = list(NULL, NULL, params))
+post_3d[,,1] <- A_arr
+post_3d[,,2] <- sigma_arr
+post_3d[,,3] <- delta_arr
+
+bayesplot::color_scheme_set("teal")
+p_pairs <- bayesplot::mcmc_pairs(
+  post_3d,
+  off_diag_args = list(alpha = 0.25, size = 0.4),
+  diag_fun = "dens"
+)
+
+p_pairs
+
+post_df <- as.data.frame(post_3d[1, , ])
+
+cor(post_df)
+cor(post_df)^2
+```
