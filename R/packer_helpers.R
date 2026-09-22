@@ -168,3 +168,67 @@ with_briere_seasonal <- function(packer, group_temp,
   class(out) <- class(packer)
   out
 }
+
+#' Compute per-group thermal forcing on transmission (beta formulation).
+#'
+#' The beta-forcing counterpart to [with_briere_seasonal()]. For each group,
+#' transforms that group's temperature series into a per-day multiplier on
+#' `beta_r` and `beta_h` via the odin model's `seasonal_beta` input, using
+#' [thermal_response()] parameterised by fitted `T_opt`, `hw_cold`, `hw_hot`.
+#'
+#' Three differences from [with_briere_seasonal()]:
+#'
+#' * It writes `seasonal_beta`, not `seasonal`, so carcass lifetime is left
+#'   alone and the thermal parameters no longer set the epizootic's timescale.
+#' * The response is anchored at its own maximum, so `beta_r` / `beta_h` mean
+#'   "transmission at the thermal optimum" and stay interpretable however the
+#'   shape parameters move. No `T_ref`, and no `cap`.
+#' * The parameters are the ones the mortality data can actually constrain.
+#'   See `docs/identifiability-audit.md` for why `T_max` is not among them.
+#'
+#' Bad proposals (non-positive half-widths) yield a floored response rather
+#' than an error, which drives the likelihood down and pushes the sampler away.
+#'
+#' @param packer A grouped packer or wrapper around one. Must carry `T_opt`,
+#'   `hw_cold`, `hw_hot` as shared scalar parameters.
+#' @param group_temp Named list keyed by group; each entry is a numeric per-day
+#'   temperature vector (degrees C, length = number of simulation days).
+#' @param form One of `"gaussian"` (default, visible coordinates) or
+#'   `"briere"`. With `"briere"` the packer must instead carry `T_min`,
+#'   `T_max`, `q_briere`.
+#' @return A packer with wrapped `$unpack`.
+#' @export
+with_thermal_beta <- function(packer, group_temp, form = c("gaussian", "briere")) {
+  form <- match.arg(form)
+  out <- packer
+  inner_unpack <- packer$unpack
+  out$unpack <- function(x) {
+    u <- inner_unpack(x)
+    Map(function(g, pars) {
+      if (form == "gaussian") {
+        pars$seasonal_beta <- thermal_response(
+          group_temp[[g]],
+          T_opt   = pars$T_opt,
+          hw_cold = pars$hw_cold,
+          hw_hot  = pars$hw_hot)
+        pars$T_opt <- NULL; pars$hw_cold <- NULL; pars$hw_hot <- NULL
+      } else {
+        pars$seasonal_beta <- thermal_response_briere(
+          group_temp[[g]],
+          T_min = pars$T_min,
+          T_max = pars$T_max,
+          q     = pars$q_briere)
+        pars$T_min <- NULL; pars$T_max <- NULL; pars$q_briere <- NULL
+      }
+      # delta_R forcing off: this formulation puts temperature on beta only.
+      # Exact [[ ]]: `pars$seasonal` partial-matches `seasonal_beta`, which
+      # was just set above, so the guard would never fire.
+      if (is.null(pars[["seasonal"]])) {
+        pars[["seasonal"]] <- rep(1, length(pars[["seasonal_beta"]]))
+      }
+      pars
+    }, names(u), u)
+  }
+  class(out) <- class(packer)
+  out
+}

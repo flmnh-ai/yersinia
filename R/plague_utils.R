@@ -709,6 +709,9 @@ validate_contact_matrix <- function(contact_r, npop, tol = 1e-8,
 #'   `D_h` / `D_r` (default 1L; requires `timestep = "daily"` if > 1).
 #' @param seasonal Optional length-`n_days` per-day multiplier on carcass
 #'   decay (defaults to no seasonality).
+#' @param seasonal_beta Optional length-`n_days` per-day thermal multiplier on
+#'   `beta_r` and `beta_h` (defaults to no thermal forcing). This is the
+#'   beta-forcing placement; see [thermal_response()].
 #' @param ... Additional scalar parameter overrides (`beta_r`, `rho`, ...).
 #' @return `plague_results` tibble with `population` column running 1..npop.
 #' @export
@@ -730,6 +733,7 @@ run_plague_metapop_model <- function(scenario = "defaults",
                                      n_threads = 1,
                                      obs_period = 1L,
                                      seasonal = NULL,
+                                     seasonal_beta = NULL,
                                      ...) {
 
   timestep <- match.arg(timestep)
@@ -774,6 +778,11 @@ run_plague_metapop_model <- function(scenario = "defaults",
 
   n_days <- as.integer(365 * years)
   timesteps <- seq_len(as.integer(n_days / tau_days))
+  if (is.null(seasonal_beta)) {
+    seasonal_beta <- rep(1, max(timesteps))
+  } else if (length(seasonal_beta) < max(timesteps)) {
+    cli::cli_abort("seasonal_beta must have length >= {max(timesteps)} (got {length(seasonal_beta)})")
+  }
   if (is.null(seasonal)) {
     seasonal <- rep(1, max(timesteps))
   } else if (length(seasonal) < max(timesteps)) {
@@ -792,7 +801,8 @@ run_plague_metapop_model <- function(scenario = "defaults",
       I_ini = I_ini, R_ini = R_ini,
       I_h_ini = I_h_ini, R_h_ini = R_h_ini,
       obs_period = as.integer(obs_period),
-      seasonal = seasonal
+      seasonal = seasonal,
+      seasonal_beta = seasonal_beta
     ),
     scn
   )
@@ -877,7 +887,7 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
   model_param_names <- c("tau", "I_ini", "R_ini", "K_r", "K_h", "r_r", "r_h",
                          "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho",
                          "m_r", "m_h", "g_r", "g_h", "delta_R", "kappa", "p_obs",
-                         "iota", "seasonal", "I_h_ini", "R_h_ini",
+                         "iota", "seasonal", "seasonal_beta", "I_h_ini", "R_h_ini",
                          "lambda_baseline", "obs_period")
   model_params <- params[intersect(names(params), model_param_names)]
   # I_ini may arrive as length-1 vector from run_plague_model's spatial prep;
@@ -888,8 +898,15 @@ run_human_stochastic_model <- function(params, timesteps, n_particles, n_threads
   # Default seasonal forcing to 1 (no seasonality) when not supplied. The odin
   # model indexes seasonal[time + 1] for time = 0..max(timesteps)-1, so length
   # must be at least max(timesteps).
-  if (is.null(model_params$seasonal)) {
-    model_params$seasonal <- rep(1, max(timesteps))
+  # Exact [[ ]], never $: `$` partial-matches on lists, so once
+  # `seasonal_beta` is set above, `model_params$seasonal` resolves to it, the
+  # guard passes, `seasonal` is never added, and dust2 aborts with
+  # "A value is expected for 'seasonal'".
+  if (is.null(model_params[["seasonal_beta"]])) {
+    model_params[["seasonal_beta"]] <- rep(1, max(timesteps))
+  }
+  if (is.null(model_params[["seasonal"]])) {
+    model_params[["seasonal"]] <- rep(1, max(timesteps))
   }
 
   sys <- dust2::dust_system_create(

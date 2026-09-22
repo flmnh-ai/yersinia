@@ -66,7 +66,7 @@ rat_birth_rate_R_clipped <- if(rat_birth_rate_R > 0) rat_birth_rate_R else 0
 ## helpers, which makes beta_r / beta_h the values at the thermal optimum and
 ## R0 the peak reproduction number. Defaults to 1s via the R wrappers, so a
 ## model run that does not supply it behaves exactly as before.
-w_beta <- seasonal_beta[time + 1]
+w_beta <- 1
 
 ## Infection forces (Didelot formulation)
 # From carcasses to rats: fleas preferentially seek live rats
@@ -91,7 +91,7 @@ lambda_hh <- if(K_h > 0) beta_I * I_h / K_h else 0
 ## lasts). Supply one or the other, not both, unless you mean to. Forcing
 ## delta_R also changes the epizootic's timescale, which entangles the
 ## thermal parameters with epidemic duration; forcing beta does not.
-delta_R_eff <- delta_R * seasonal[time + 1]
+delta_R_eff <- delta_R
 
 ## Individual probabilities of transition for rats. The if-else clamps
 ## guard against the rare case where 1 - exp(-rate * tau) returns a tiny
@@ -203,7 +203,8 @@ initial(D_h) <- 0
 ## Defaults aligned with inst/scenarios/defaults.yaml (Didelot + K&G blend).
 ## Fitting pipelines override via the monty packer.
 tau <- parameter(1)         # time step in days
-I_ini <- parameter(10)          # initial infected rats (absolute count)
+log_I_ini <- parameter(differentiate = TRUE)
+I_ini <- exp(log_I_ini)
 R_ini <- parameter(0)           # initial heritably-resistant rats (absolute count)
 K_r <- parameter(2500)          # rat carrying capacity
 K_h <- parameter(5000)          # human carrying capacity
@@ -212,8 +213,10 @@ r_h <- parameter(0.000123)      # human population growth rate (per day, = 0.045
 p <- parameter(0.975)           # probability of inherited resistance
 d_r <- parameter(0.000548)      # natural death rate of rats (per day, = 0.2/365)
 d_h <- parameter(0.000110)      # natural death rate of humans (per day, = 0.04/365)
-beta_r <- parameter(0.77)       # transmission rate from carcasses to rats (per day)
-beta_h <- parameter(0.0145)     # transmission rate from carcasses to humans (per day)
+log_beta_r <- parameter(differentiate = TRUE)
+beta_r <- exp(log_beta_r)
+log_beta_h <- parameter(differentiate = TRUE)
+beta_h <- exp(log_beta_h)
 beta_I <- parameter(0.0)        # human-to-human transmission rate (per day)
 rho <- parameter(2.63)          # rat carcass infectivity range (dimensionless)
 m_r <- parameter(0.056)         # plague resolution rate in rats (per day)
@@ -226,7 +229,8 @@ p_obs <- parameter(1)           # observation / ascertainment probability (0-1);
 iota <- parameter(0.75)         # fecundity multiplier for resistant rats
 I_h_ini <- parameter(0)         # initial infected humans (for mid-outbreak data)
 R_h_ini <- parameter(0)         # initial recovered/immune humans (residual immunity)
-lambda_baseline <- parameter(1) # baseline non-plague deaths reported as plague (per day)
+log_lambda_baseline <- parameter(differentiate = TRUE)
+lambda_baseline <- exp(log_lambda_baseline)
 # Observation window in days (integer). 1 = daily reporting (default,
 # pre-2026 behaviour). 7 = weekly reporting; the D_h / D_r accumulators
 # reset every 7 steps so the value at time = 7, 14, ... is the death count
@@ -235,10 +239,6 @@ obs_period <- parameter(1)
 # Per-day seasonal multiplier on carcass decay (dimensionless). Length must
 # equal the number of simulation days. Required by the model itself, but the
 # R wrappers default to rep(1, n_days) when not supplied (= no seasonality).
-seasonal <- parameter()
-dim(seasonal) <- parameter(rank = 1)
 # Per-day thermal multiplier on beta_r and beta_h (dimensionless, normally in
 # [0, 1] and anchored so that its maximum is 1). Same length rule as
 # `seasonal`; R wrappers default to rep(1, n_days) = no thermal forcing.
-seasonal_beta <- parameter()
-dim(seasonal_beta) <- parameter(rank = 1)

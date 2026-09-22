@@ -17,7 +17,8 @@ plague_model_param_names <- function() {
   c("tau", "I_ini", "R_ini", "K_r", "K_h", "r_r", "r_h",
     "p", "d_r", "d_h", "beta_r", "beta_h", "beta_I", "rho",
     "m_r", "m_h", "g_r", "g_h", "delta_R", "kappa", "p_obs", "iota",
-    "seasonal", "I_h_ini", "R_h_ini", "lambda_baseline", "obs_period")
+    "seasonal", "seasonal_beta", "I_h_ini", "R_h_ini", "lambda_baseline",
+    "obs_period")
 }
 
 #' Default fitted parameter names for plague humans fits.
@@ -170,8 +171,14 @@ plague_fit_setup <- function(data,
   # Default seasonal forcing to 1 (no seasonality) when neither the scenario
   # nor the caller supplied one. Length matches the data extent so the odin
   # model's seasonal[time + 1] indexing is in-range for every observation.
-  if (is.null(fixed_pars$seasonal)) {
-    fixed_pars$seasonal <- rep(1, max(data$time))
+  # Exact [[ ]] indexing: `$` partial-matches, so `fixed_pars$seasonal`
+  # would resolve to `seasonal_beta` once that is set, leaving `seasonal`
+  # unset and dust2 aborting with "A value is expected for 'seasonal'".
+  if (is.null(fixed_pars[["seasonal_beta"]])) {
+    fixed_pars[["seasonal_beta"]] <- rep(1, max(data$time))
+  }
+  if (is.null(fixed_pars[["seasonal"]])) {
+    fixed_pars[["seasonal"]] <- rep(1, max(data$time))
   }
   filter <- plague_fit_filter(data, n_particles = n_particles,
                               n_threads = n_threads)

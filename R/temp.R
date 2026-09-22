@@ -61,3 +61,81 @@ delta_R_multiplier <- function(temperature,
 
   return(mult)
 }
+
+
+# ==============================================================================
+# Thermal response on TRANSMISSION (added 2026-09)
+#
+# These replace `delta_R_multiplier()` for the beta-forcing formulation. Three
+# differences that matter:
+#
+#   1. They return a multiplier on beta_r / beta_h, not on delta_R. Carcass
+#      lifetime stays fixed, so the thermal parameters no longer control the
+#      epizootic's timescale as well as its intensity.
+#   2. They are anchored at their own maximum, so w <= 1 everywhere and w = 1
+#      at the optimum. beta_r / beta_h are then "transmission at the thermal
+#      optimum" and R0 is peak R0 -- no reference-temperature bookkeeping, and
+#      no drift in meaning as the shape parameters move.
+#   3. `thermal_response()` is parameterised by what the data can see -- where
+#      the curve peaks and how far you go either side before it halves --
+#      rather than by the temperatures at which it hits zero, which for this
+#      dataset are pure extrapolation (see docs/identifiability-audit.md).
+# ==============================================================================
+
+#' Thermal response on transmission, in visible coordinates
+#'
+#' Asymmetric Gaussian in log space, anchored so `max(w) = 1` at `T_opt`.
+#'
+#' @param temperature Numeric vector of temperatures (degrees Celsius).
+#' @param T_opt Temperature at which transmission peaks.
+#' @param hw_cold Degrees BELOW `T_opt` at which the response halves.
+#' @param hw_hot Degrees ABOVE `T_opt` at which the response halves.
+#' @param floor Smallest value returned; keeps the likelihood finite when a
+#'   proposal pushes the response to numerical zero. Default 1e-8.
+#' @return Numeric vector in `(0, 1]`, one per input temperature.
+#' @export
+thermal_response <- function(temperature, T_opt, hw_cold, hw_hot,
+                             floor = 1e-8) {
+  if (!is.finite(T_opt) || hw_cold <= 0 || hw_hot <= 0) {
+    return(rep(floor, length(temperature)))
+  }
+  # half-width -> Gaussian sd
+  k <- sqrt(2 * log(2))
+  sd <- ifelse(temperature < T_opt, hw_cold / k, hw_hot / k)
+  pmax(exp(-0.5 * ((temperature - T_opt) / sd)^2), floor)
+}
+
+#' Thermal response on transmission, Briere form
+#'
+#' Same anchoring (`max(w) = 1`), but in the familiar Briere coordinates, for
+#' model comparison against [thermal_response()]. Note that `T_max` is not
+#' identifiable from the mortality data in this repository -- no outbreak
+#' reaches 29 C. Treat it as an assumption, not an estimate.
+#'
+#' @param temperature Numeric vector of temperatures (degrees Celsius).
+#' @param T_min,T_max Lower and upper temperatures at which transmission is zero.
+#' @param q Warm-side asymmetry exponent.
+#' @param floor Smallest value returned. Default 1e-8.
+#' @return Numeric vector in `(0, 1]`, one per input temperature.
+#' @export
+thermal_response_briere <- function(temperature, T_min, T_max, q,
+                                    floor = 1e-8) {
+  if (!is.finite(T_min) || !is.finite(T_max) || T_max <= T_min || q <= 0) {
+    return(rep(floor, length(temperature)))
+  }
+  L <- function(x) ifelse(x > T_min & x < T_max, (x - T_min) * (T_max - x)^q, 0)
+  # Analytic peak: dL/dT = 0 at (T_max + q T_min) / (1 + q)
+  peak <- L((T_max + q * T_min) / (1 + q))
+  if (!is.finite(peak) || peak <= 0) return(rep(floor, length(temperature)))
+  pmax(L(temperature) / peak, floor)
+}
+
+#' Temperature at which a Briere response peaks
+#'
+#' Convenience for converting Briere coordinates to the optimum, e.g. when
+#' summarising posterior draws.
+#'
+#' @param T_min,T_max,q Briere parameters.
+#' @return The optimum temperature.
+#' @export
+briere_T_opt <- function(T_min, T_max, q) (T_max + q * T_min) / (1 + q)
