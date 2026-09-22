@@ -4,7 +4,7 @@
 \alias{status_bar_server}
 \title{Status bar module — server.}
 \usage{
-status_bar_server(id, lab_session)
+status_bar_server(id, lab_session, library_dir = NULL)
 }
 \arguments{
 \item{id}{Module namespace id.}

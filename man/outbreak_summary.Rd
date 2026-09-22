@@ -2,22 +2,53 @@
 % Please edit documentation in R/app_cohort.R
 \name{outbreak_summary}
 \alias{outbreak_summary}
-\title{Per-outbreak summary table for the cohort picker.}
+\title{Per-outbreak summary table for the outbreak explorer.}
 \usage{
 outbreak_summary(data = NULL)
 }
 \arguments{
 \item{data}{Long-format outbreaks tibble. Defaults to the package's
-bundled \link{outbreaks} dataset.}
+bundled \link{outbreaks_all} dataset.}
 }
 \value{
 A tibble with one row per \code{outbreak_id}, sorted by year.
 }
 \description{
-Aggregates the long-format \link{outbreaks} dataset to one row per outbreak,
-with the metadata + summary stats the cohort picker displays (location,
-year, population, duration, total deaths, peak day, observation period).
+Aggregates the long-format \link{outbreaks_all} dataset to one row per outbreak,
+with the metadata, summary statistics and screening flags the explorer
+filters, sorts, maps and flags on.
+}
+\details{
+The returned columns beyond the obvious ones:
+
+\describe{
+\item{\code{label}}{Display string (\code{"Barcelona 1489"}), disambiguated by
+start month where place and year collide. For reading, never joining —
+join on \code{outbreak_id}.}
+\item{\code{fittable}}{Whether the app can fit this record at all. Requires
+both a population (\code{lab_fit_assemble()} pins \code{K_h} and \code{K_r} to it) and
+a fixed reporting window (the \code{D_h} accumulator resets every
+\code{obs_period} steps, which monthly records have no whole-day value for).
+52 of the 130 qualify.}
+\item{\code{unfit_reason}}{Which gate failed, in a phrase fit to show the
+user. \code{NA} when \code{fittable}.}
+\item{\code{attack_rate}}{Recorded deaths divided by population.}
+\item{\code{attack_flag}}{\code{"impossible"} above 100\% (Klaipeda 1710 records
+9,797 deaths in a population of 4,000), \code{"high"} above 35\% — the
+threshold at which a closed-population model stops being able to
+reproduce the series. It is a warning, not a filter: Prague 1713 and
+Eyam 1665 both sit at 37\% and are in the curated nine.}
+\item{\code{peak_doy}}{Day of year (1-366) on which the largest observed
+count falls -- the outbreak's seasonal phase. Correlates with latitude
+at r = 0.64 across the catalogue: north of 52 N the mean peak is day
+242, south of 45 N it is day 180.}
+\item{\code{type}}{\code{"plague mortality"} or \code{"all-cause mortality"}. 54 of the
+130 are all-cause burials, for which \code{lambda_baseline} is carrying a
+different quantity — see the fitting notes in \code{CLAUDE.md}.}
+}
 }
 \examples{
 outbreak_summary()
+# Just the ones that can actually be fitted:
+subset(outbreak_summary(), fittable)
 }

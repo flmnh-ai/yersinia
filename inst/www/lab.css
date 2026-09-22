@@ -1,51 +1,115 @@
 /* yersinia Virtual Lab — single-screen redesign */
 
+/* ---- Tokens -------------------------------------------------------------
+   Defined once so surfaces, ink and the accent stay in step. `--yl-data` is
+   the sparkline's own colour and is deliberately brighter than `--yl-ink-*`:
+   text and data have different jobs, and the deep navy that reads well as a
+   heading reads as a dull grey-blue when it is a 2px line on white. */
+:root {
+  --yl-surface:     #ffffff;   /* cards and the page behind them alike */
+  --yl-line:        #e6e8ec;   /* hairline borders */
+  --yl-line-strong: #d3d7de;
+  --yl-ink:         #232833;   /* primary text */
+  --yl-ink-soft:    #5a6273;   /* secondary text */
+  /* 4.83:1 on white. The previous #98a0ae was 2.63:1 and carried the filter
+     labels, the detail-card keys and every tile's year -- all small text,
+     all below the 4.5:1 AA floor. */
+  --yl-ink-mute:    #6b7280;   /* tertiary / disabled */
+  /* 3.57:1 -- clears the 3:1 floor for graphical objects while staying
+     clearly recessive against --yl-data. Was #9fb0c4, at 2.21:1. */
+  --yl-data-mute:   #6f8aa8;
+  --yl-accent:      #1f4e79;   /* brand: chips, selected fills, headings */
+  --yl-accent-soft: #eef3f9;
+  --yl-data:        #2a78d6;   /* sparkline ink */
+  --yl-radius:      14px;
+  --yl-radius-lg:   18px;
+  --yl-shadow:      0 1px 2px rgba(24, 36, 56, 0.05);
+  --yl-shadow-lift: 0 4px 14px rgba(24, 36, 56, 0.10);
+}
+
 /* ---- Layout shell ------------------------------------------------------- */
 .yl-sidebar { padding: 0.5rem 0.25rem; }
 .yl-sidebar .card { margin-bottom: 0.75rem; }
 
 /* ---- Cohort chips ------------------------------------------------------- */
-.yl-chips-empty { color: #999; font-style: italic; font-size: 0.9rem; }
+.yl-chips-empty {
+  color: var(--yl-ink-mute); font-style: italic; font-size: 0.88rem;
+}
 
 .yl-chip {
   display: inline-flex; align-items: center; gap: 0.35rem;
-  padding: 0.18rem 0.55rem; margin: 0.15rem 0.2rem 0.15rem 0;
-  background: #e9eef7; color: #1f4e79; border-radius: 999px;
-  font-size: 0.85rem; font-weight: 500;
+  padding: 0.2rem 0.6rem; margin: 0.15rem 0.2rem 0.15rem 0;
+  background: var(--yl-accent-soft); color: var(--yl-accent);
+  border-radius: 999px; font-size: 0.85rem; font-weight: 500;
 }
 .yl-chip-x {
-  color: #1f4e79; opacity: 0.6; line-height: 1; padding: 0 0.15rem;
+  color: var(--yl-accent); opacity: 0.55; line-height: 1; padding: 0 0.15rem;
 }
 .yl-chip-x:hover { opacity: 1; color: #c12; text-decoration: none; }
 
 /* ---- Cohort tile grid --------------------------------------------------- */
 .yl-tile-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 .yl-tile {
   display: flex; flex-direction: column; align-items: stretch;
-  padding: 0.35rem 0.45rem 0.3rem; border: 1px solid #d0d4dc;
-  background: #fff; border-radius: 6px; cursor: pointer;
-  color: #4a5160; transition: all 0.12s ease;
-  text-align: left;
+  padding: 0.45rem 0.55rem 0.4rem; border: 1px solid var(--yl-line);
+  background: var(--yl-surface); border-radius: var(--yl-radius);
+  cursor: pointer; color: var(--yl-ink-soft); text-align: left;
+  box-shadow: var(--yl-shadow);
+  transition: border-color 0.14s ease, box-shadow 0.14s ease,
+              transform 0.14s ease, background 0.14s ease;
 }
+/* The tile's own colour is the caption ink; the sparkline overrides it, so a
+   tile can have quiet text and a bright series at the same time. */
+.yl-tile .yl-tile-spark { color: var(--yl-data); }
 .yl-tile:hover {
-  border-color: #1f4e79; color: #1f4e79;
-  box-shadow: 0 1px 3px rgba(31, 78, 121, 0.12);
+  border-color: var(--yl-line-strong); color: var(--yl-ink);
+  box-shadow: var(--yl-shadow-lift); transform: translateY(-1px);
 }
-.yl-tile-selected {
-  background: #1f4e79; color: #fff; border-color: #1f4e79;
+.yl-tile-selected,
+.yl-tile-selected:hover {
+  background: var(--yl-accent); color: #fff; border-color: var(--yl-accent);
 }
-.yl-tile-selected:hover { color: #fff; background: #25588a; }
-.yl-tile-spark { height: 36px; line-height: 0; }
+.yl-tile-selected .yl-tile-spark { color: #fff; }
+.yl-tile-spark { height: 40px; line-height: 0; }
 .yl-tile-spark svg { display: block; width: 100%; height: 100%; }
 .yl-tile-meta {
   display: flex; justify-content: space-between; align-items: baseline;
-  margin-top: 0.15rem; font-size: 0.78rem;
+  gap: 0.4rem; margin-top: 0.3rem; font-size: 0.78rem;
 }
-.yl-tile-meta strong { font-size: 0.82rem; }
-.yl-tile-meta small { opacity: 0.75; }
+/* The name group is allowed to shrink and ellipsis; the count never is, so a
+   long place name eats its own label rather than pushing the number off. */
+.yl-tile-name {
+  display: flex; align-items: baseline; gap: 0.3rem; min-width: 0;
+}
+.yl-tile-meta strong {
+  font-size: 0.82rem; font-weight: 600; letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.yl-tile-meta small { opacity: 0.7; font-variant-numeric: tabular-nums; }
+.yl-tile-count {
+  flex: none; font-size: 0.74rem; font-weight: 600; opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Attack-rate meter. 3px of track, so the whole channel costs ~5px of tile.
+   Track and fill are separate colours rather than one colour at two
+   opacities: `opacity` on the track would apply to the fill nested inside it
+   too, and the fill would come out as faint as its own track. */
+.yl-tile-meter {
+  height: 3px; margin-top: 0.35rem; border-radius: 999px;
+  background: var(--yl-line); overflow: hidden;
+}
+.yl-meter-fill {
+  height: 100%; border-radius: 999px; background: var(--yl-data);
+}
+.yl-meter-flagged { background: #d68a1f; }
+/* Selected tiles sit on navy, unfittable ones read one step back. */
+.yl-tile-selected .yl-tile-meter { background: rgba(255, 255, 255, 0.28); }
+.yl-tile-selected .yl-meter-fill { background: #fff; }
+.yl-tile-unfittable .yl-meter-fill { background: var(--yl-data-mute); }
 
 /* ---- Priors panel ------------------------------------------------------- */
 .yl-prior-shorthand { font-size: 0.78rem; margin-left: 0.5rem; }
@@ -160,3 +224,316 @@
 
 /* Icon-only status bar buttons keep a consistent square footprint. */
 .yl-iconbtn { padding: 0.25rem 0.5rem; }
+
+
+/* Hero mode badge ---------------------------------------------------------
+   Names which posterior the hero is showing. Pilot and production are
+   deliberately different hues, not different shades of one: the distinction
+   is categorical, not a severity ramp. Both carry a text label, so the
+   colour is redundant rather than load-bearing. */
+.yl-hero-header {
+  padding: 0.3rem 0.6rem;
+  background: transparent;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+.yl-hero-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.yl-hero-badge-pilot {
+  background: #e7f0fb;
+  color: #1a4c86;
+}
+.yl-hero-badge-stochastic {
+  background: #fdece4;
+  color: #8a3a14;
+}
+.yl-hero-badge-empty {
+  font-size: 0.72rem;
+}
+
+/* ---- Outbreak explorer -------------------------------------------------- */
+.yl-explore-filters { padding: 0.85rem 0.9rem; }
+.yl-explore-filters .form-label,
+.yl-explore-filters label {
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--yl-ink-mute);
+  margin-bottom: 0.3rem;
+}
+.yl-explore-filters .form-check-label {
+  font-size: 0.85rem; font-weight: 400; letter-spacing: 0;
+  text-transform: none; color: var(--yl-ink-soft);
+}
+.yl-explore-filters .form-control,
+.yl-explore-filters .form-select,
+.yl-explore-filters .selectize-input {
+  border-radius: 8px; border-color: var(--yl-line);
+}
+.yl-reset-link { font-size: 0.82rem; }
+
+.yl-explore-main {
+  padding: 0.85rem 1.1rem 1.5rem; overflow-y: auto;
+  background: var(--yl-surface);
+}
+
+.yl-explore-count {
+  font-size: 0.85rem; color: var(--yl-ink-soft); margin-bottom: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.yl-explore-count strong { color: var(--yl-ink); font-weight: 600; }
+.yl-explore-count .yl-dot { margin: 0 0.5rem; color: var(--yl-ink-mute); }
+.yl-sel-on  { color: var(--yl-accent); font-weight: 600; }
+.yl-sel-off { color: var(--yl-ink-mute); }
+
+.yl-grid-empty {
+  padding: 2.5rem; text-align: center; color: var(--yl-ink-mute);
+  font-style: italic; border: 1px dashed var(--yl-line-strong);
+  border-radius: var(--yl-radius-lg);
+}
+
+/* The tiles themselves are .yl-tile, styled once above for the cohort
+   sidebar. Only the grid changes here: auto-fill rather than the sidebar's
+   fixed two columns, because this panel gets the whole window and should use
+   whatever it is given instead of stretching two tiles across it. */
+.yl-explore-grid {
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 0.6rem;
+}
+
+/* Unfittable tiles read as present-but-unavailable, not as absent. The
+   sparkline keeps a colour of its own (just a desaturated one) — the record
+   is real and its shape is still worth reading; it only can't reach a
+   sampler. */
+/* With the page and the cards both white there is no grey left to grey a
+   tile out with, so unfittability is carried by a dashed border and muted
+   ink instead of a fill. That reads better anyway: dashed says "provisional",
+   a grey fill just said "disabled". */
+.yl-tile-unfittable {
+  background: var(--yl-surface); color: var(--yl-ink-mute);
+  border-style: dashed; box-shadow: none;
+}
+.yl-tile-unfittable .yl-tile-spark { color: var(--yl-data-mute); }
+.yl-tile-unfittable:hover {
+  border-color: var(--yl-line-strong); color: var(--yl-ink-soft);
+  box-shadow: var(--yl-shadow);
+}
+
+.yl-badge {
+  display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 600; white-space: nowrap; cursor: help;
+  letter-spacing: 0.01em;
+}
+.yl-badge-mute { background: #eef0f4; color: var(--yl-ink-soft); }
+.yl-badge-warn { background: #fdf0d5; color: #8a5a00; }
+.yl-badge-bad  { background: #fbe3e3; color: #a11626; }
+
+/* ---- Explorer detail card ----------------------------------------------- */
+.yl-detail-empty {
+  margin-top: 1.1rem; padding: 1.5rem; text-align: center;
+  color: var(--yl-ink-mute); font-style: italic; font-size: 0.9rem;
+  border: 1px dashed var(--yl-line-strong); border-radius: var(--yl-radius-lg);
+}
+.yl-detail {
+  margin-top: 1.1rem; padding: 1.1rem 1.25rem; background: var(--yl-surface);
+  border: 1px solid var(--yl-line); border-radius: var(--yl-radius-lg);
+  box-shadow: var(--yl-shadow);
+}
+.yl-detail-head {
+  display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+.yl-detail-head h5 {
+  margin: 0; font-size: 1.05rem; font-weight: 600; color: var(--yl-ink);
+  letter-spacing: -0.01em;
+}
+.yl-detail-spark {
+  color: var(--yl-data); line-height: 0; margin-bottom: 0.9rem;
+}
+.yl-detail-spark svg { display: block; width: 100%; height: 96px; }
+.yl-detail-meta {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 0.3rem 1.1rem; margin: 0; font-size: 0.85rem;
+}
+.yl-detail-meta dt {
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--yl-ink-mute);
+  align-self: center;
+}
+.yl-detail-meta dd { margin: 0; color: var(--yl-ink); }
+
+/* ---- Explorer views: map + timeline ------------------------------------- */
+.yl-views {
+  display: grid; gap: 0.75rem; margin-bottom: 1rem;
+  grid-template-columns: minmax(280px, 400px) minmax(0, 1fr);
+}
+@media (max-width: 900px) {
+  .yl-views { grid-template-columns: minmax(0, 1fr); }
+}
+.yl-view {
+  border: 1px solid var(--yl-line); border-radius: var(--yl-radius-lg);
+  padding: 0.6rem 0.75rem 0.5rem; background: var(--yl-surface);
+  box-shadow: var(--yl-shadow); min-width: 0;
+}
+.yl-view-head {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--yl-ink-mute);
+}
+.yl-view-hint {
+  font-size: 0.7rem; font-weight: 400; letter-spacing: 0;
+  text-transform: none; opacity: 0.8;
+}
+.yl-chip-sm { padding: 0.05rem 0.45rem; font-size: 0.75rem; }
+
+.yl-map { display: block; width: 100%; max-height: 260px; }
+.yl-map-land { fill: #f1f2f5; stroke: var(--yl-line-strong); stroke-width: 1; }
+
+/* Dots on both views share one language: solid data blue = in view, navy =
+   in the cohort, hollow grey = filtered out. Dimmed marks keep their
+   position so the distribution stays readable through a filter. */
+.yl-geo-dot, .yl-tl-dot, .yl-ph-dot {
+  fill: var(--yl-data); fill-opacity: 0.7; cursor: pointer;
+  stroke: var(--yl-surface); stroke-width: 1.5;
+  transition: fill-opacity 0.12s ease;
+}
+.yl-geo-dot:hover, .yl-tl-dot:hover, .yl-ph-dot:hover { fill-opacity: 1; }
+/* Selected marks carry a ring, filtered-out marks are hollow. Both are
+   channels other than hue, so the three states stay distinguishable with no
+   colour vision -- the dots were previously separated by colour alone. */
+.yl-geo-sel, .yl-tl-sel, .yl-ph-sel {
+  fill: var(--yl-accent); fill-opacity: 1;
+  stroke: var(--yl-accent); stroke-width: 3; paint-order: stroke;
+}
+.yl-geo-dim, .yl-tl-dim, .yl-ph-dim {
+  fill: var(--yl-surface); fill-opacity: 1;
+  stroke: var(--yl-ink-mute); stroke-width: 1.2; stroke-opacity: 0.55;
+}
+.yl-ph-unfit { fill: var(--yl-data-mute); fill-opacity: 0.75; }
+.yl-geo-focus { stroke: var(--yl-accent); stroke-width: 2.5; }
+
+/* Keyboard focus. The marks are tabbable, so they need a visible ring --
+   and one drawn outside the mark, which is why it is a stroke rather than
+   an outline (SVG outlines clip unpredictably across browsers). */
+.yl-geo-dot:focus-visible, .yl-tl-dot:focus-visible,
+.yl-ph-dot:focus-visible {
+  outline: none; stroke: var(--yl-ink); stroke-width: 3;
+  paint-order: stroke;
+}
+.yl-tl-unfit { fill: var(--yl-data-mute); fill-opacity: 0.75; }
+
+/* No max-height: the SVG box grows with the tallest stack, and capping it
+   here would just reintroduce the clipping the adaptive height removes. */
+.yl-timeline { display: block; width: 100%; }
+.yl-tl-axis, .yl-tl-grid { stroke: var(--yl-line); stroke-width: 1; }
+.yl-tl-grid { stroke-dasharray: 2 3; }
+.yl-tl-lab {
+  fill: var(--yl-ink-mute); font-size: 15px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* ---- Explorer view: provenance ------------------------------------------ */
+.yl-view-src { grid-column: 1 / -1; }
+.yl-src-list {
+  display: grid; gap: 0.18rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.yl-src-row {
+  display: grid; grid-template-columns: 11.5rem 1fr 2rem;
+  align-items: center; gap: 0.5rem; width: 100%;
+  padding: 0.15rem 0.35rem; border: 1px solid transparent;
+  border-radius: 7px; background: none; cursor: pointer;
+  font-size: 0.78rem; color: var(--yl-ink-soft); text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.yl-src-row:hover { background: var(--yl-accent-soft); }
+.yl-src-on {
+  border-color: var(--yl-accent); background: var(--yl-accent-soft);
+  color: var(--yl-accent); font-weight: 600;
+}
+.yl-src-name {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* The track holds two fills: the source's whole contribution, and the part
+   of it surviving the current filters drawn over the top. */
+.yl-src-bar {
+  position: relative; display: block; height: 7px;
+  border-radius: 999px; background: var(--yl-line); overflow: hidden;
+}
+.yl-src-fill, .yl-src-fill-vis {
+  position: absolute; left: 0; top: 0; height: 100%; border-radius: 999px;
+}
+.yl-src-fill { background: #c6d8ee; }
+.yl-src-fill-vis { background: var(--yl-data); }
+.yl-src-n {
+  text-align: right; font-variant-numeric: tabular-nums; font-weight: 600;
+  font-size: 0.74rem; opacity: 0.75;
+}
+.yl-src-rest {
+  grid-column: 1 / -1; padding: 0.3rem 0.35rem 0;
+  font-size: 0.74rem; color: var(--yl-ink-mute); font-style: italic;
+}
+
+/* ---- Provenance warning on the cohort ----------------------------------- */
+.yl-prov-note {
+  display: flex; align-items: flex-start; gap: 0.45rem;
+  margin-top: 0.5rem; padding: 0.5rem 0.7rem;
+  background: #fdf6e7; border: 1px solid #f0dfb8; border-radius: 9px;
+  font-size: 0.8rem; line-height: 1.4; color: #6f4e12;
+}
+.yl-prov-note .fa, .yl-prov-note svg { margin-top: 0.15rem; flex: none; }
+
+.yl-detail-sub { color: var(--yl-ink-mute); }
+
+/* ---- Explorer view: seasonal phase -------------------------------------- */
+.yl-view-phase { grid-column: 1 / -1; }
+.yl-phase { display: block; width: 100%; max-height: 380px; }
+.yl-ax-grid { stroke: var(--yl-line); stroke-width: 1; }
+.yl-ax-lab {
+  fill: var(--yl-ink-mute); font-size: 15px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* ---- Table view + export ------------------------------------------------ */
+.yl-table-wrap { margin-top: 1.25rem; }
+.yl-table-wrap > summary {
+  cursor: pointer; font-size: 0.8rem; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--yl-ink-mute); padding: 0.3rem 0;
+}
+.yl-table-wrap > summary:focus-visible {
+  outline: 2px solid var(--yl-accent); outline-offset: 2px; border-radius: 4px;
+}
+.yl-dl-btn { margin: 0.4rem 0 0.7rem; font-size: 0.82rem; border-radius: 8px; }
+.yl-table-empty { color: var(--yl-ink-mute); font-style: italic; }
+.yl-table {
+  width: 100%; border-collapse: collapse; font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.yl-table caption {
+  text-align: left; padding-bottom: 0.4rem; color: var(--yl-ink-mute);
+  font-size: 0.8rem;
+}
+.yl-table th, .yl-table td {
+  padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--yl-line);
+  text-align: left; white-space: nowrap;
+}
+.yl-table thead th {
+  position: sticky; top: 0; background: var(--yl-surface);
+  font-size: 0.72rem; letter-spacing: 0.03em; text-transform: uppercase;
+  color: var(--yl-ink-mute); border-bottom: 1px solid var(--yl-line-strong);
+}
+.yl-table tbody th { font-weight: 600; color: var(--yl-ink); }
+.yl-table tbody tr:hover { background: var(--yl-accent-soft); }
+
+/* ---- Motion ------------------------------------------------------------- */
+/* Hover lift and fades are decoration; anyone who has asked the OS for less
+   motion gets the same interface without them. */
+@media (prefers-reduced-motion: reduce) {
+  .yl-tile, .yl-card, .yl-src-row,
+  .yl-geo-dot, .yl-tl-dot, .yl-ph-dot { transition: none; }
+  .yl-tile:hover, .yl-card:hover { transform: none; }
+}

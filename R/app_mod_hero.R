@@ -20,6 +20,10 @@ hero_ui <- function(id) {
   ns <- shiny::NS(id)
   bslib::card(
     full_screen = TRUE,
+    bslib::card_header(
+      class = "yl-hero-header",
+      shiny::uiOutput(ns("badge"), inline = TRUE)
+    ),
     bslib::card_body(
       padding = 8L,
       shiny::plotOutput(ns("plot"), height = "100%")
@@ -28,7 +32,8 @@ hero_ui <- function(id) {
 }
 
 # Build the hero ggplot. Pure function so it's easy to test.
-.hero_plot <- function(data, posterior_long = NULL) {
+.hero_plot <- function(data, posterior_long = NULL, mode_label = NULL,
+                       stochastic_fan = FALSE) {
   if (is.null(data) || nrow(data) == 0) {
     return(
       ggplot2::ggplot() +
@@ -49,8 +54,23 @@ hero_ui <- function(id) {
       colour = "#1f4e79", alpha = 0.08, linewidth = 0.35, na.rm = TRUE
     )
   }
+  # The subtitle travels with the figure, so it carries the two facts a
+  # screenshot otherwise loses: which posterior these draws come from, and
+  # whether each line is a deterministic expectation or one stochastic
+  # realisation.
   subtitle <- if (has_post) {
-    sprintf("data + %d posterior draws", length(unique(posterior_long$draw)))
+    n <- length(unique(posterior_long$draw))
+    kind <- if (isTRUE(stochastic_fan)) {
+      "stochastic realisations"
+    } else {
+      "deterministic trajectories"
+    }
+    if (is.null(mode_label)) {
+      sprintf("data + %d posterior draws (%s)", n, kind)
+    } else {
+      sprintf("data + %d draws from the %s posterior (%s)", n,
+              mode_label, kind)
+    }
   } else {
     "data only — run a pilot to overlay the posterior trajectory fan"
   }
@@ -101,8 +121,12 @@ hero_server <- function(id, lab_session, n_draws = 80L) {
     posterior_long <- shiny::reactive({
       st <- lab_session$fit_state
       if (is.null(st$samples) || is.null(st$setup)) return(NULL)
+      # A stochastic fit was fitted against the particle filter, so its fan
+      # should show demographic stochasticity too — otherwise the picture
+      # hides the variation that fit was paying for.
       tryCatch(
-        lab_fit_forward_sim(st$setup, st$samples, n_draws = n_draws),
+        lab_fit_forward_sim(st$setup, st$samples, n_draws = n_draws,
+                            deterministic = !.fit_is_stochastic(st)),
         error = function(e) {
           message("[hero] forward sim failed: ", conditionMessage(e))
           NULL
@@ -110,8 +134,32 @@ hero_server <- function(id, lab_session, n_draws = 80L) {
       )
     })
 
+    output$badge <- shiny::renderUI({
+      st <- lab_session$fit_state
+      lbl <- .fit_mode_label(st)
+      if (is.null(lbl)) {
+        return(shiny::tags$span(class = "text-muted yl-hero-badge-empty",
+                                "No fit yet"))
+      }
+      cls <- if (.fit_is_stochastic(st)) {
+        "yl-hero-badge yl-hero-badge-stochastic"
+      } else {
+        "yl-hero-badge yl-hero-badge-pilot"
+      }
+      shiny::tagList(
+        shiny::tags$span(class = cls, lbl),
+        if (!is.null(st$pilot_samples) && .fit_is_stochastic(st)) {
+          shiny::tags$small(class = "text-muted",
+                            " pilot retained \u2014 compare it in the library")
+        }
+      )
+    })
+
     output$plot <- shiny::renderPlot({
-      .hero_plot(cohort_long(), posterior_long())
+      st <- lab_session$fit_state
+      .hero_plot(cohort_long(), posterior_long(),
+                 mode_label = .fit_mode_label(st),
+                 stochastic_fan = .fit_is_stochastic(st))
     })
   })
 }

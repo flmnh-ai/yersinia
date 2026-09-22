@@ -28,7 +28,7 @@ diag_strip_ui <- function(id) {
 }
 
 # Height (px) of trace/density plots, scaled by parameter count.
-.diag_plot_height <- function(n_pars, per_row = 3, row_px = 110) {
+.diag_plot_height <- function(n_pars, per_row = 3, row_px = 150) {
   rows <- max(1L, ceiling(n_pars / per_row))
   rows * row_px
 }
@@ -54,6 +54,90 @@ diag_strip_ui <- function(id) {
     shiny::p(shiny::tags$strong("Suggested fix:")),
     shiny::p(rec$suggested_fix)
   )
+}
+
+# Trace and density panels, built directly from the draws.
+#
+# These were bayesplot::mcmc_trace() / mcmc_dens_overlay() with a theme added
+# on top, and the panels kept coming back with no tick values and no parameter
+# names. bayesplot appends its own theme stack (bayesplot_theme_get() plus
+# yaxis_text(FALSE), yaxis_title(FALSE), yaxis_ticks(FALSE) and
+# xaxis_title(on = n_param == 1)) after building the plot, and layering a
+# complete theme over that did not reliably restore the axes.
+#
+# Rather than keep guessing at another library's theme internals, these two
+# plots are now plain ggplot2 over a long data frame. Same content, axes we
+# control, one less dependency in the path.
+
+# Draws (any posterior-compatible object) -> long data frame.
+.diag_long <- function(d) {
+  arr <- posterior::as_draws_array(d)
+  vars <- posterior::variables(arr)
+  df <- as.data.frame(posterior::as_draws_df(arr))
+  out <- do.call(rbind, lapply(vars, function(v) {
+    data.frame(variable = v,
+               chain = df$.chain,
+               iteration = df$.iteration,
+               value = df[[v]],
+               stringsAsFactors = FALSE)
+  }))
+  out$variable <- factor(out$variable, levels = vars)
+  out$chain <- factor(out$chain)
+  out
+}
+
+# Per-chain colours. The first four are the validated categorical hues used by
+# the compare view, so a chain and a fit series never carry conflicting
+# meanings for the same colour. Beyond four chains — unusual — fall back to a
+# generated qualitative ramp rather than cycling the validated four, since
+# cycling would make two chains indistinguishable.
+.diag_chain_colours <- function(n) {
+  base <- c("#2a78d6", "#eb6834", "#1baf7a", "#eda100")
+  if (n <= length(base)) base[seq_len(n)]
+  else grDevices::hcl.colors(n, "Dark 3")
+}
+
+.diag_plot_theme <- function(base_size = 10) {
+  ggplot2::theme_minimal(base_size = base_size) +
+    ggplot2::theme(
+      legend.position = "top",
+      legend.margin = ggplot2::margin(b = 0),
+      axis.text  = ggplot2::element_text(size = base_size - 2,
+                                         colour = "grey30"),
+      axis.ticks = ggplot2::element_line(colour = "grey80"),
+      axis.title = ggplot2::element_text(size = base_size - 1),
+      strip.text = ggplot2::element_text(size = base_size, face = "bold",
+                                         margin = ggplot2::margin(b = 4)),
+      panel.spacing = ggplot2::unit(0.9, "lines"),
+      plot.margin = ggplot2::margin(4, 8, 4, 4)
+    )
+}
+
+# Trace: value against iteration, one line per chain, free y per parameter
+# (parameters span orders of magnitude; a shared y would flatten most panels).
+.diag_trace_plot <- function(long) {
+  n_chain <- nlevels(long$chain)
+  ggplot2::ggplot(long, ggplot2::aes(x = .data$iteration, y = .data$value,
+                                     colour = .data$chain)) +
+    ggplot2::geom_line(linewidth = 0.3, alpha = 0.8, na.rm = TRUE) +
+    ggplot2::scale_colour_manual(values = .diag_chain_colours(n_chain)) +
+    ggplot2::facet_wrap(~ variable, scales = "free_y",
+                        labeller = .param_labeller()) +
+    ggplot2::labs(x = "Iteration", y = "Value", colour = "Chain") +
+    .diag_plot_theme()
+}
+
+# Density: one curve per chain per parameter. Chains that disagree here are
+# the visual form of a bad R-hat.
+.diag_dens_plot <- function(long) {
+  n_chain <- nlevels(long$chain)
+  ggplot2::ggplot(long, ggplot2::aes(x = .data$value, colour = .data$chain)) +
+    ggplot2::geom_density(linewidth = 0.6, na.rm = TRUE) +
+    ggplot2::scale_colour_manual(values = .diag_chain_colours(n_chain)) +
+    ggplot2::facet_wrap(~ variable, scales = "free",
+                        labeller = .param_labeller()) +
+    ggplot2::labs(x = "Parameter value", y = "Density", colour = "Chain") +
+    .diag_plot_theme()
 }
 
 #' Diagnostics strip module — server.
@@ -104,8 +188,14 @@ diag_strip_server <- function(id, lab_session) {
       }
       n_pars <- length(posterior::variables(d))
       h <- paste0(.diag_plot_height(n_pars), "px")
+      # Name the posterior in the title: these plots read fit_state$samples,
+      # which is the production draws after a stochastic run and the pilot
+      # otherwise, and the two can disagree.
+      lbl <- .fit_mode_label(lab_session$fit_state)
       shiny::showModal(shiny::modalDialog(
-        title = "Posterior diagnostics",
+        title = if (is.null(lbl)) "Posterior diagnostics" else {
+          sprintf("Posterior diagnostics \u2014 %s", lbl)
+        },
         shiny::tags$h6(class = "yl-diag-plots-subhead", "Trace"),
         shiny::plotOutput(ns("trace"), height = h),
         shiny::tags$hr(),
@@ -116,20 +206,30 @@ diag_strip_server <- function(id, lab_session) {
       ))
     })
 
-    output$trace <- shiny::renderPlot({
+    long_draws <- shiny::reactive({
       d <- draws()
-      shiny::req(d)
-      bayesplot::mcmc_trace(d) +
-        ggplot2::theme_minimal(base_size = 10) +
-        ggplot2::theme(legend.position = "none")
+      if (is.null(d)) return(NULL)
+      .diag_long(d)
+    })
+
+    output$trace <- shiny::renderPlot({
+      l <- long_draws()
+      shiny::req(l)
+      .diag_trace_plot(l)
     })
 
     output$density <- shiny::renderPlot({
-      d <- draws()
-      shiny::req(d)
-      bayesplot::mcmc_dens_overlay(d) +
-        ggplot2::theme_minimal(base_size = 10) +
-        ggplot2::theme(legend.position = "none")
+      l <- long_draws()
+      shiny::req(l)
+      .diag_dens_plot(l)
     })
+
+    # These outputs only ever live inside a modal, so they are hidden when
+    # the module first renders. Shiny suspends hidden outputs; depending on
+    # the shiny/bslib version, outputs inserted later via showModal() are not
+    # always resumed, which shows up as a correctly-sized but blank plot area
+    # with no error. Opting out of suspension keeps them rendering.
+    shiny::outputOptions(output, "trace", suspendWhenHidden = FALSE)
+    shiny::outputOptions(output, "density", suspendWhenHidden = FALSE)
   })
 }

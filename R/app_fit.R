@@ -28,11 +28,13 @@ cohort_data <- function(cohort_ids, data = NULL) {
   if (length(cohort_ids) == 0) {
     cli::cli_abort("Empty cohort — pick at least one outbreak.")
   }
-  if (is.null(data)) data <- get("outbreaks", envir = asNamespace("yersinia"))
+  if (is.null(data)) data <- get("outbreaks_all", envir = asNamespace("yersinia"))
+  cohort_ids <- outbreak_resolve_id(cohort_ids, data)
   sub <- data[data$outbreak_id %in% cohort_ids, , drop = FALSE]
   if (nrow(sub) == 0) {
     cli::cli_abort("No data found for cohort {.val {cohort_ids}}.")
   }
+  cohort_check_fittable(cohort_ids, data)
   # The bundled outbreaks dataset uses `day` for the time axis; dust2's
   # likelihood expects a column named `time`. Rename here so the rest of
   # the pipeline (and dust2) sees `time`.
@@ -45,6 +47,36 @@ cohort_data <- function(cohort_ids, data = NULL) {
     dplyr::arrange(.data$group, .data$time)
 }
 
+#' Stop early when a cohort contains outbreaks that cannot be fitted.
+#'
+#' Most of Krauer's catalogue is not fittable: 78 of the 130 records lack a
+#' population (which `lab_fit_assemble()` pins `K_h` and `K_r` to), a
+#' whole-day reporting window (which the `D_h` accumulator resets on), or
+#' both. The explorer greys those out rather than offering them, so reaching
+#' this error means an id arrived from a saved session or a script. Failing
+#' here, naming the outbreak and the reason, beats an `NA` propagating into
+#' dust2 and surfacing as an inscrutable sampler error.
+#'
+#' @inheritParams cohort_data
+#' @return `cohort_ids`, invisibly, when every outbreak is fittable.
+#' @export
+cohort_check_fittable <- function(cohort_ids, data = NULL) {
+  if (is.null(data)) data <- get("outbreaks_all", envir = asNamespace("yersinia"))
+  if (is.null(data$fittable)) return(invisible(cohort_ids))
+  cohort_ids <- outbreak_resolve_id(cohort_ids, data)
+  sub <- data[data$outbreak_id %in% cohort_ids & !data$fittable, , drop = FALSE]
+  if (nrow(sub) == 0) return(invisible(cohort_ids))
+  bad <- sub[!duplicated(sub$outbreak_id), , drop = FALSE]
+  reasons <- stats::setNames(
+    sprintf("%s: %s", bad$label %||% bad$outbreak_id, bad$unfit_reason),
+    rep("x", nrow(bad))
+  )
+  cli::cli_abort(c(
+    "Cohort contains {nrow(bad)} outbreak{?s} that cannot be fitted.",
+    reasons
+  ))
+}
+
 #' Per-outbreak population values (K_h / K_r when fixed).
 #'
 #' @param cohort_ids Character vector of `outbreak_id`s.
@@ -52,8 +84,13 @@ cohort_data <- function(cohort_ids, data = NULL) {
 #' @return Named numeric, one entry per outbreak.
 #' @export
 cohort_population <- function(cohort_ids, data = NULL) {
-  if (is.null(data)) data <- get("outbreaks", envir = asNamespace("yersinia"))
-  out <- vapply(cohort_ids, function(id) {
+  if (is.null(data)) data <- get("outbreaks_all", envir = asNamespace("yersinia"))
+  # Look the populations up by resolved id, but name the result with the ids
+  # the CALLER passed. Callers index this by the same vector they handed in
+  # (`pop[[cohort_ids]]`), so renaming it to the resolved form underneath them
+  # turns every legacy id into a subscript-out-of-bounds.
+  resolved <- outbreak_resolve_id(cohort_ids, data)
+  out <- vapply(resolved, function(id) {
     sub <- data[data$outbreak_id == id, ]
     pop <- unique(sub$population)
     if (length(pop) != 1L) {
@@ -75,7 +112,8 @@ cohort_population <- function(cohort_ids, data = NULL) {
 #' @return Single integer.
 #' @export
 cohort_obs_period <- function(cohort_ids, data = NULL) {
-  if (is.null(data)) data <- get("outbreaks", envir = asNamespace("yersinia"))
+  if (is.null(data)) data <- get("outbreaks_all", envir = asNamespace("yersinia"))
+  cohort_ids <- outbreak_resolve_id(cohort_ids, data)
   sub <- data[data$outbreak_id %in% cohort_ids, ]
   vals <- unique(sub$obs_period)
   if (length(vals) != 1L) {
@@ -191,6 +229,26 @@ cohort_obs_period <- function(cohort_ids, data = NULL) {
   out
 }
 
+# Which posterior is on screen, in words.
+#
+# `fit_state$samples` is the *canonical* posterior: the production draws when a
+# stochastic run happened, the pilot otherwise. Everything in the app reads that
+# one field, so nothing ever mixes the two — but without a label you cannot tell
+# by looking which of them you are seeing, and the pilot's deterministic
+# approximation and the production filter can disagree in ways that matter.
+.fit_mode_label <- function(st, stage = c("canonical", "pilot")) {
+  stage <- match.arg(stage)
+  if (is.null(st) || is.null(st$samples)) return(NULL)
+  if (identical(stage, "pilot")) return("pilot (deterministic)")
+  if (identical(st$mode, "stochastic")) "production (stochastic)"
+  else "pilot (deterministic)"
+}
+
+# TRUE when the canonical posterior came from the particle filter.
+.fit_is_stochastic <- function(st) {
+  !is.null(st) && identical(st$mode, "stochastic")
+}
+
 #' Assemble a deterministic-pilot fit from a LabSession.
 #'
 #' Returns a list containing the posterior model, sampler, packer, fixed
@@ -218,7 +276,13 @@ lab_fit_assemble <- function(lab_session, data = NULL) {
   # agree. Without this, click-order from the UI ends up disagreeing with
   # the data's group order, and dust2 errors with "Groups for 'packer' do
   # not match those of 'obj'".
-  cohort_ids   <- sort(lab_session$cohort_ids)
+  # Resolve here, once, so everything downstream speaks one id scheme: the
+  # groups `cohort_data()` builds, the names on `cohort_population()`, the
+  # per-group prior names, and `setup$cohort_ids` as the library stores it.
+  # A saved session from before the 2026-09 rekey carries legacy strings, and
+  # resolving them lazily in each helper instead left the local `cohort_ids`
+  # disagreeing with the values those helpers returned.
+  cohort_ids   <- sort(outbreak_resolve_id(lab_session$cohort_ids))
   model_config <- lab_session$model_config
   priors       <- lab_session$priors
   if (is.null(priors)) priors <- list()
@@ -231,8 +295,16 @@ lab_fit_assemble <- function(lab_session, data = NULL) {
                             configurable_param_names())
   fixed_pars <- plague_fit_fixed_pars(model_config$scenario, fitted_names)
   fixed_pars$obs_period <- obs_period
-  if (is.null(fixed_pars$seasonal)) {
-    fixed_pars$seasonal <- rep(1, max(d$time))
+  # NB: exact [[ ]] indexing, not $. `$` partial-matches on lists, so
+  # `fixed_pars$seasonal` resolves to `seasonal_beta` once that has been
+  # set above — the is.null() guard then passes, `seasonal` is never
+  # added, and dust2 fails the fit with "A value is expected for
+  # 'seasonal'".
+  if (is.null(fixed_pars[["seasonal_beta"]])) {
+    fixed_pars[["seasonal_beta"]] <- rep(1, max(d$time))
+  }
+  if (is.null(fixed_pars[["seasonal"]])) {
+    fixed_pars[["seasonal"]] <- rep(1, max(d$time))
   }
   # odin2/dust2 declares every parameter in this model as real_type and
   # strict-type-checks at read time. YAML parses whole-number values

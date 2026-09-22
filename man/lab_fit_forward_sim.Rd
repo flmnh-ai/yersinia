@@ -4,7 +4,14 @@
 \alias{lab_fit_forward_sim}
 \title{Posterior predictive forward simulation from a Lab fit.}
 \usage{
-lab_fit_forward_sim(setup, samples, n_draws = 100, t_grid = NULL)
+lab_fit_forward_sim(
+  setup,
+  samples,
+  n_draws = 100,
+  t_grid = NULL,
+  deterministic = TRUE,
+  seed = NULL
+)
 }
 \arguments{
 \item{setup}{Output of \code{\link[=lab_fit_assemble]{lab_fit_assemble()}}.}
@@ -15,6 +22,21 @@ lab_fit_forward_sim(setup, samples, n_draws = 100, t_grid = NULL)
 
 \item{t_grid}{Optional integer vector of simulation times. Defaults to
 \code{seq(0, max(setup$data$time))}.}
+
+\item{deterministic}{Run the model deterministically (\code{TRUE}, default) or
+draw one stochastic realisation per posterior draw (\code{FALSE}).
+
+Deterministic runs show \emph{parameter} uncertainty alone: each draw traces
+the expected epidemic for its parameters. That matches the deterministic
+unfilter the pilot was fitted with, so it is the honest picture of a
+pilot. A stochastic fit was fitted against a particle filter, where
+demographic stochasticity is part of the likelihood — extinction of a
+small infected seed, the timing jitter of an epizootic — and a
+deterministic fan hides exactly the variation that fit was paying for.
+Pass \code{FALSE} to show it.}
+
+\item{seed}{Optional integer seed for the stochastic path, for
+reproducible fans. Ignored when \code{deterministic = TRUE}.}
 }
 \value{
 Tibble with columns \code{draw}, \code{group}, \code{time}, \code{mu} (predicted

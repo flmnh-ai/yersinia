@@ -4,12 +4,23 @@
 \alias{lab_app}
 \title{Launch the yersinia Virtual Lab Shiny app.}
 \usage{
-lab_app(saved_session = NULL)
+lab_app(saved_session = NULL, library_dir = NULL, restore_last = TRUE)
 }
 \arguments{
 \item{saved_session}{Optional \link{LabSession} instance. If \code{NULL} (default),
 a fresh empty session is created. Pass a previously saved session via
 \code{\link[=lab_session_from_list]{lab_session_from_list()}} to resume a lab.}
+
+\item{library_dir}{Directory backing the saved-fit library. \code{NULL}
+(default) uses \code{\link[=lab_library_dir]{lab_library_dir()}} — a per-user data directory that
+persists across sessions. Point it at a project folder to keep a
+project's fits together.}
+
+\item{restore_last}{Reopen the most recently saved fit (autosaves
+included) when the app starts and no \code{saved_session} was supplied.
+Default \code{TRUE}, so the lab picks up where you left off. Set \code{FALSE}
+to always open on an empty session. A failure to restore is never
+fatal — the app opens empty and says so.}
 }
 \value{
 A \code{\link[shiny:shinyApp]{shiny::shinyApp()}} object.
@@ -21,6 +32,6 @@ host/port.
 }
 \details{
 Requires the optional packages \code{shiny}, \code{bslib}, \code{R6}, \code{ggplot2},
-\code{posterior}, and \code{bayesplot}. They live in \code{Suggests}; install with
-\code{install.packages(c("shiny", "bslib", "R6", "ggplot2", "posterior", "bayesplot"))}.
+\code{posterior}, and \code{DT}. They live in \code{Suggests}; install with
+\code{install.packages(c("shiny", "bslib", "R6", "ggplot2", "posterior", "DT"))}.
 }

@@ -37,7 +37,8 @@ Imports:
     checkmate,
     glue,
     cli,
-    Matrix
+    Matrix,
+    withr
 Suggests:
     testthat,
     ggplot2,

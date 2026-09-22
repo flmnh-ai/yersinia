@@ -27,10 +27,24 @@
 #' @param n_draws Target number of posterior draws to simulate. Default 100.
 #' @param t_grid Optional integer vector of simulation times. Defaults to
 #'   `seq(0, max(setup$data$time))`.
+#' @param deterministic Run the model deterministically (`TRUE`, default) or
+#'   draw one stochastic realisation per posterior draw (`FALSE`).
+#'
+#'   Deterministic runs show *parameter* uncertainty alone: each draw traces
+#'   the expected epidemic for its parameters. That matches the deterministic
+#'   unfilter the pilot was fitted with, so it is the honest picture of a
+#'   pilot. A stochastic fit was fitted against a particle filter, where
+#'   demographic stochasticity is part of the likelihood — extinction of a
+#'   small infected seed, the timing jitter of an epizootic — and a
+#'   deterministic fan hides exactly the variation that fit was paying for.
+#'   Pass `FALSE` to show it.
+#' @param seed Optional integer seed for the stochastic path, for
+#'   reproducible fans. Ignored when `deterministic = TRUE`.
 #' @return Tibble with columns `draw`, `group`, `time`, `mu` (predicted
 #'   observation expectation per posterior draw).
 #' @export
-lab_fit_forward_sim <- function(setup, samples, n_draws = 100, t_grid = NULL) {
+lab_fit_forward_sim <- function(setup, samples, n_draws = 100, t_grid = NULL,
+                                deterministic = TRUE, seed = NULL) {
   if (!requireNamespace("posterior", quietly = TRUE)) {
     cli::cli_abort("Forward sim needs {.pkg posterior}.")
   }
@@ -61,7 +75,8 @@ lab_fit_forward_sim <- function(setup, samples, n_draws = 100, t_grid = NULL) {
       sys <- dust2::dust_system_create(plague_stochastic_humans,
                                        pars = pars,
                                        n_particles = 1L,
-                                       deterministic = TRUE)
+                                       deterministic = deterministic,
+                                       seed = seed)
       dust2::dust_system_set_state_initial(sys)
       yy <- dust2::dust_system_simulate(sys, t_grid)
       D_h <- drop(dust2::dust_unpack_state(sys, yy)$D_h)
