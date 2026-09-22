@@ -144,6 +144,3 @@ lab_session_from_list <- function(state) {
     fit_state    = state$fit_state    %||% NULL
   )
 }
-
-# Local null-coalescing so we don't pull in rlang for one operator.
-`%||%` <- function(a, b) if (is.null(a)) b else a

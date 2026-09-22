@@ -1,15 +1,9 @@
 # ------------------------------------------------------------------------------
-# app_mod_cohort.R — Shiny module: cohort selection as chips + thumbnail grid.
+# app_mod_cohort.R — Shiny module: the current cohort as a strip of chips.
 #
-# Replaces the old DT-based cohort_picker. Two parts:
-#
-#   1. Selected chips strip at the top — one chip per outbreak in the cohort,
-#      with an `x` to remove.
-#   2. Thumbnail grid below — every outbreak as a clickable tile showing a
-#      hand-rolled SVG sparkline + name/year. Clicking toggles inclusion.
-#
-# Sparklines are inline SVG (no extra dependency, no plotOutput overhead).
-# Selection state lives in `lab_session$cohort_ids`.
+# One chip per outbreak in the cohort, each with an `x` to remove it.
+# Selection state lives in `lab_session$cohort_ids`; outbreaks are added from
+# the Explore panel. `.sparkline_svg()` also lives here and is used by Explore.
 #
 # 2026-09-22: the thumbnail grid is gone. Choosing from 130 records is the
 # Explore panel's job and it has the width for it; this card is now just the
@@ -102,29 +96,10 @@
   )
 }
 
-# A single picker tile. Selected tiles get the .yl-tile-selected class.
-.cohort_tile <- function(ns, row, selected, deaths_series) {
-  cls <- if (selected) "yl-tile yl-tile-selected" else "yl-tile"
-  shiny::tags$button(
-    type = "button",
-    class = cls,
-    id = ns(paste0("tile_", row$outbreak_id)),
-    onclick = sprintf(
-      "Shiny.setInputValue('%s', {id: '%s', t: Math.random()})",
-      ns("tile_click"), row$outbreak_id
-    ),
-    shiny::tags$div(class = "yl-tile-spark", .sparkline_svg(deaths_series)),
-    shiny::tags$div(class = "yl-tile-meta",
-      shiny::tags$strong(row$location),
-      shiny::tags$small(as.character(row$year))
-    )
-  )
-}
-
 #' Cohort module — UI.
 #'
 #' @param id Module namespace id.
-#' @return A `bslib::card()` with the cohort chips + picker grid.
+#' @return A `bslib::card()` with the cohort chips.
 #' @export
 cohort_ui <- function(id) {
   ns <- shiny::NS(id)
@@ -167,18 +142,6 @@ cohort_server <- function(id, lab_session, data = NULL) {
       labels <- outbreak_label(ids, data)
       do.call(shiny::tagList,
               Map(function(id, lab) .cohort_chip(ns, id, lab), ids, labels))
-    })
-
-    # Tile click — toggle.
-    shiny::observeEvent(input$tile_click, {
-      id <- input$tile_click$id
-      if (is.null(id)) return()
-      current <- shiny::isolate(lab_session$cohort_ids)
-      if (id %in% current) {
-        lab_session$cohort_ids <- setdiff(current, id)
-      } else {
-        lab_session$cohort_ids <- c(current, id)
-      }
     })
 
     # Remove-chip clicks. Inputs are dynamically named remove_<id> and the
