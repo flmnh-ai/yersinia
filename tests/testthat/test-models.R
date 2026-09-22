@@ -45,7 +45,6 @@ test_that("initial infected rats are carved out of K_r", {
       beta_r = 0,
       beta_h = 0,
       beta_I = 0,
-      seasonal = rep(1, 1),
       seasonal_beta = rep(1, 1)
     ),
     n_particles = 1
@@ -66,7 +65,7 @@ test_that("R_ini > 0 partitions K_r into S + I + R", {
       K_r = 100, I_ini = 5, R_ini = 20,
       r_r = 0, d_r = 0, r_h = 0, d_h = 0,
       beta_r = 0, beta_h = 0, beta_I = 0,
-      seasonal = rep(1, 1), seasonal_beta = rep(1, 1)
+      seasonal_beta = rep(1, 1)
     ),
     n_particles = 1
   )
@@ -119,7 +118,6 @@ test_that("obs_period = 1 reproduces the pre-accumulator deterministic LL", {
     dplyr::rename(time = "day") |>
     dplyr::select("time", "deaths")
   fixed_pars <- plague_fit_fixed_pars("didelot")
-  fixed_pars$seasonal <- rep(1, max(barcelona$time))
   fixed_pars$seasonal_beta <- rep(1, max(barcelona$time))
   fixed_pars$obs_period <- 1
   unfilter <- dust2::dust_unfilter_create(plague_stochastic_humans,
@@ -138,7 +136,6 @@ test_that("obs_period = 7 aggregates daily increments into weekly windows", {
   # multiple of 7). Then verify that summing the daily series in
   # 7-day windows matches the weekly series at week boundaries.
   fixed_pars <- plague_fit_fixed_pars("didelot")
-  fixed_pars$seasonal <- rep(1, 182)
   fixed_pars$seasonal_beta <- rep(1, 182)
 
   run_one <- function(obs_period) {

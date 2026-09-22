@@ -19,7 +19,7 @@
 #' Excludes parameters that aren't user-fittable in practice:
 #'
 #' - `tau` (timestep — system, not biological)
-#' - `seasonal` (vector — handled separately as climate input)
+#' - `seasonal_beta` (vector — handled separately as climate input)
 #' - `obs_period` (integer flag — derived from the cohort data)
 #' - `iota` (resistance fecundity multiplier — always-fixed per CLAUDE.md)
 #'
@@ -30,7 +30,7 @@
 #' @export
 configurable_param_names <- function() {
   setdiff(plague_model_param_names(),
-          c("tau", "seasonal", "obs_period", "iota"))
+          c("tau", "seasonal_beta", "obs_period", "iota"))
 }
 
 #' Names of bundled scenario YAML files.

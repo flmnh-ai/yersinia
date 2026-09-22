@@ -84,8 +84,7 @@ with_R0_to_beta_r <- function(packer) {
 #' For each group, turns that group's daily temperature series into a per-day
 #' multiplier on `beta_r` and `beta_h` via the odin model's `seasonal_beta`
 #' input, using [thermal_response()] with fitted `T_opt`, `hw_cold`, `hw_hot`.
-#' Carcass decay is left unforced: `seasonal` is set to all ones if the packer
-#' has not already supplied it.
+#' Carcass decay is not forced.
 #'
 #' Bad proposals (non-positive widths) yield a floored response rather than
 #' an error, which drives the likelihood down and pushes the sampler away.
@@ -110,11 +109,6 @@ with_thermal_beta <- function(packer, group_temp) {
         hw_cold = pars$hw_cold,
         hw_hot  = pars$hw_hot)
       pars$T_opt <- NULL; pars$hw_cold <- NULL; pars$hw_hot <- NULL
-      # Exact [[ ]]: `pars$seasonal` partial-matches `seasonal_beta`, which
-      # was just set above, so the guard would never fire.
-      if (is.null(pars[["seasonal"]])) {
-        pars[["seasonal"]] <- rep(1, length(pars[["seasonal_beta"]]))
-      }
       pars
     }, names(u), u)
   }

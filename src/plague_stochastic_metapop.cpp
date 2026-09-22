@@ -32,7 +32,7 @@
 // [[dust2::parameter(delta_R, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(iota, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(obs_period, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
-// [[dust2::parameter(seasonal, type = "real_type", rank = 1, required = TRUE, constant = FALSE)]]
+// [[dust2::parameter(seasonal_beta, type = "real_type", rank = 2, required = TRUE, constant = FALSE)]]
 class plague_stochastic_metapop {
 public:
   plague_stochastic_metapop() = delete;
@@ -62,6 +62,7 @@ public:
       dust2::array::dimensions<1> rat_birth_rate_R;
       dust2::array::dimensions<1> rat_birth_rate_S_clipped;
       dust2::array::dimensions<1> rat_birth_rate_R_clipped;
+      dust2::array::dimensions<1> w_beta;
       dust2::array::dimensions<1> lambda_r;
       dust2::array::dimensions<1> lambda_h;
       dust2::array::dimensions<1> lambda_hh;
@@ -122,7 +123,7 @@ public:
       dust2::array::dimensions<2> S_h_flow;
       dust2::array::dimensions<2> I_h_flow;
       dust2::array::dimensions<2> R_h_flow;
-      dust2::array::dimensions<1> seasonal;
+      dust2::array::dimensions<2> seasonal_beta;
     } dim;
     int npop;
     real_type tau;
@@ -146,12 +147,13 @@ public:
     real_type obs_period;
     real_type p_IR;
     real_type p_rat_death;
+    real_type p_carcass_decay;
     real_type p_migrate_r;
     real_type p_migrate_h;
     real_type p_human_death;
     real_type birth_rate_h;
     real_type p_IR_h;
-    std::vector<real_type> seasonal;
+    std::vector<real_type> seasonal_beta;
     real_type birth_rate_h_clipped;
     std::vector<real_type> contact_r;
     std::vector<real_type> contact_h;
@@ -171,9 +173,11 @@ public:
   };
   struct internal_state {
     std::vector<real_type> T_r;
+    std::vector<real_type> w_beta;
     std::vector<real_type> n_deaths_S;
     std::vector<real_type> n_deaths_I;
     std::vector<real_type> n_deaths_R;
+    std::vector<real_type> n_carcass_decay;
     std::vector<real_type> n_deaths_S_h;
     std::vector<real_type> n_deaths_I_h;
     std::vector<real_type> n_deaths_R_h;
@@ -190,7 +194,6 @@ public:
     std::vector<real_type> rat_birth_rate_R_clipped;
     std::vector<real_type> p_SI_raw;
     std::vector<real_type> n_recovered;
-    std::vector<real_type> n_carcass_decay;
     std::vector<real_type> n_emigrate_I;
     std::vector<real_type> p_SI_h_raw;
     std::vector<real_type> births_h;
@@ -248,9 +251,10 @@ public:
     const real_type delta_R = dust2::r::read_real(parameters, "delta_R", static_cast<real_type>(0.26700000000000002));
     const real_type iota = dust2::r::read_real(parameters, "iota", static_cast<real_type>(0.75));
     const real_type obs_period = dust2::r::read_real(parameters, "obs_period", 1);
-    dim.seasonal = dust2::r::read_dimensions<1>(parameters, "seasonal");
+    dim.seasonal_beta = dust2::r::read_dimensions<2>(parameters, "seasonal_beta");
     const real_type p_IR = 1 - monty::math::exp<real_type>(-m_r * tau);
     const real_type p_rat_death = 1 - monty::math::exp<real_type>(-d_r * tau);
+    const real_type p_carcass_decay = 1 - monty::math::exp<real_type>(-delta_R * tau);
     const real_type p_migrate_r = 1 - monty::math::exp<real_type>(-mu_r * tau);
     const real_type p_migrate_h = 1 - monty::math::exp<real_type>(-mu_h * tau);
     const real_type p_human_death = 1 - monty::math::exp<real_type>(-d_h * tau);
@@ -270,6 +274,7 @@ public:
     dim.rat_birth_rate_R.set({static_cast<size_t>(npop)});
     dim.rat_birth_rate_S_clipped.set({static_cast<size_t>(npop)});
     dim.rat_birth_rate_R_clipped.set({static_cast<size_t>(npop)});
+    dim.w_beta.set({static_cast<size_t>(npop)});
     dim.lambda_r.set({static_cast<size_t>(npop)});
     dim.lambda_h.set({static_cast<size_t>(npop)});
     dim.lambda_hh.set({static_cast<size_t>(npop)});
@@ -330,8 +335,8 @@ public:
     dim.S_h_flow.set({static_cast<size_t>(npop), static_cast<size_t>(npop)});
     dim.I_h_flow.set({static_cast<size_t>(npop), static_cast<size_t>(npop)});
     dim.R_h_flow.set({static_cast<size_t>(npop), static_cast<size_t>(npop)});
-    std::vector<real_type> seasonal(dim.seasonal.size);
-    dust2::r::read_real_array(parameters, dim.seasonal, seasonal.data(), "seasonal", true);
+    std::vector<real_type> seasonal_beta(dim.seasonal_beta.size);
+    dust2::r::read_real_array(parameters, dim.seasonal_beta, seasonal_beta.data(), "seasonal_beta", true);
     const real_type birth_rate_h_clipped = (birth_rate_h > 0 ? birth_rate_h : 0);
     std::vector<real_type> contact_r(dim.contact_r.size);
     dust2::r::read_real_array(parameters, dim.contact_r, contact_r.data(), "contact_r", true);
@@ -373,13 +378,13 @@ public:
     std::vector<real_type> cond_p_r(dim.cond_p_r.size);
     for (size_t i = 1; i <= dim.cond_p_r.dim[0]; ++i) {
       for (size_t j = 1; j <= dim.cond_p_r.dim[1]; ++j) {
-        cond_p_r[i - 1 + (j - 1) * dim.cond_p_r.mult[1]] = (sum_remaining_contact[i - 1 + (j - 1) * dim.sum_remaining_contact.mult[1]] > 0 ? contact_r[i - 1 + (j - 1) * dim.contact_r.mult[1]] / sum_remaining_contact[i - 1 + (j - 1) * dim.sum_remaining_contact.mult[1]] : 0);
+        cond_p_r[i - 1 + (j - 1) * dim.cond_p_r.mult[1]] = contact_r[i - 1 + (j - 1) * dim.contact_r.mult[1]] / monty::math::max<real_type>(sum_remaining_contact[i - 1 + (j - 1) * dim.sum_remaining_contact.mult[1]], static_cast<real_type>(9.9999999999999936e-301));
       }
     }
     std::vector<real_type> cond_p_h(dim.cond_p_h.size);
     for (size_t i = 1; i <= dim.cond_p_h.dim[0]; ++i) {
       for (size_t j = 1; j <= dim.cond_p_h.dim[1]; ++j) {
-        cond_p_h[i - 1 + (j - 1) * dim.cond_p_h.mult[1]] = (sum_remaining_contact_h[i - 1 + (j - 1) * dim.sum_remaining_contact_h.mult[1]] > 0 ? contact_h[i - 1 + (j - 1) * dim.contact_h.mult[1]] / sum_remaining_contact_h[i - 1 + (j - 1) * dim.sum_remaining_contact_h.mult[1]] : 0);
+        cond_p_h[i - 1 + (j - 1) * dim.cond_p_h.mult[1]] = contact_h[i - 1 + (j - 1) * dim.contact_h.mult[1]] / monty::math::max<real_type>(sum_remaining_contact_h[i - 1 + (j - 1) * dim.sum_remaining_contact_h.mult[1]], static_cast<real_type>(9.9999999999999936e-301));
       }
     }
     shared_state::odin_internals_type odin;
@@ -395,13 +400,15 @@ public:
       {"D_h", std::vector<size_t>(dim.D_h.dim.begin(), dim.D_h.dim.end())}
     };
     odin.packing.state.copy_offset(odin.offset.state.begin());
-    return shared_state{odin, dim, npop, tau, mu_r, mu_h, r_r, r_h, p, d_r, d_h, beta_r, beta_h, beta_I, rho, m_r, m_h, g_r, g_h, delta_R, iota, obs_period, p_IR, p_rat_death, p_migrate_r, p_migrate_h, p_human_death, birth_rate_h, p_IR_h, seasonal, birth_rate_h_clipped, contact_r, contact_h, K_r, K_h, I_ini, R_ini, I_h_ini, R_h_ini, sum_remaining_contact, p_human_birth, sum_remaining_contact_h, initial_S, initial_S_h, cond_p_r, cond_p_h};
+    return shared_state{odin, dim, npop, tau, mu_r, mu_h, r_r, r_h, p, d_r, d_h, beta_r, beta_h, beta_I, rho, m_r, m_h, g_r, g_h, delta_R, iota, obs_period, p_IR, p_rat_death, p_carcass_decay, p_migrate_r, p_migrate_h, p_human_death, birth_rate_h, p_IR_h, seasonal_beta, birth_rate_h_clipped, contact_r, contact_h, K_r, K_h, I_ini, R_ini, I_h_ini, R_h_ini, sum_remaining_contact, p_human_birth, sum_remaining_contact_h, initial_S, initial_S_h, cond_p_r, cond_p_h};
   }
   static internal_state build_internal(const shared_state& shared) {
     std::vector<real_type> T_r(shared.dim.T_r.size);
+    std::vector<real_type> w_beta(shared.dim.w_beta.size);
     std::vector<real_type> n_deaths_S(shared.dim.n_deaths_S.size);
     std::vector<real_type> n_deaths_I(shared.dim.n_deaths_I.size);
     std::vector<real_type> n_deaths_R(shared.dim.n_deaths_R.size);
+    std::vector<real_type> n_carcass_decay(shared.dim.n_carcass_decay.size);
     std::vector<real_type> n_deaths_S_h(shared.dim.n_deaths_S_h.size);
     std::vector<real_type> n_deaths_I_h(shared.dim.n_deaths_I_h.size);
     std::vector<real_type> n_deaths_R_h(shared.dim.n_deaths_R_h.size);
@@ -418,7 +425,6 @@ public:
     std::vector<real_type> rat_birth_rate_R_clipped(shared.dim.rat_birth_rate_R_clipped.size);
     std::vector<real_type> p_SI_raw(shared.dim.p_SI_raw.size);
     std::vector<real_type> n_recovered(shared.dim.n_recovered.size);
-    std::vector<real_type> n_carcass_decay(shared.dim.n_carcass_decay.size);
     std::vector<real_type> n_emigrate_I(shared.dim.n_emigrate_I.size);
     std::vector<real_type> p_SI_h_raw(shared.dim.p_SI_h_raw.size);
     std::vector<real_type> births_h(shared.dim.births_h.size);
@@ -449,7 +455,7 @@ public:
     std::vector<real_type> S_h_flow(shared.dim.S_h_flow.size);
     std::vector<real_type> n_immigrate_S(shared.dim.n_immigrate_S.size);
     std::vector<real_type> n_immigrate_S_h(shared.dim.n_immigrate_S_h.size);
-    return internal_state{T_r, n_deaths_S, n_deaths_I, n_deaths_R, n_deaths_S_h, n_deaths_I_h, n_deaths_R_h, rat_birth_rate_S, rat_birth_rate_R, lambda_r, lambda_h, lambda_hh, n_IR, n_emigrate_R, n_IR_h, n_emigrate_R_h, rat_birth_rate_S_clipped, rat_birth_rate_R_clipped, p_SI_raw, n_recovered, n_carcass_decay, n_emigrate_I, p_SI_h_raw, births_h, n_recovered_h, n_emigrate_I_h, p_SI, p_rat_birth_S, p_rat_birth_R, n_new_carcasses, I_flow, R_flow, p_SI_h, I_h_flow, R_h_flow, n_SI, n_births_S, n_births_R, n_immigrate_I, n_immigrate_R, n_SI_h, n_immigrate_I_h, n_immigrate_R_h, n_resistant_births, n_emigrate_S, n_emigrate_S_h, n_susceptible_births, S_flow, S_h_flow, n_immigrate_S, n_immigrate_S_h};
+    return internal_state{T_r, w_beta, n_deaths_S, n_deaths_I, n_deaths_R, n_carcass_decay, n_deaths_S_h, n_deaths_I_h, n_deaths_R_h, rat_birth_rate_S, rat_birth_rate_R, lambda_r, lambda_h, lambda_hh, n_IR, n_emigrate_R, n_IR_h, n_emigrate_R_h, rat_birth_rate_S_clipped, rat_birth_rate_R_clipped, p_SI_raw, n_recovered, n_emigrate_I, p_SI_h_raw, births_h, n_recovered_h, n_emigrate_I_h, p_SI, p_rat_birth_S, p_rat_birth_R, n_new_carcasses, I_flow, R_flow, p_SI_h, I_h_flow, R_h_flow, n_SI, n_births_S, n_births_R, n_immigrate_I, n_immigrate_R, n_SI_h, n_immigrate_I_h, n_immigrate_R_h, n_resistant_births, n_emigrate_S, n_emigrate_S_h, n_susceptible_births, S_flow, S_h_flow, n_immigrate_S, n_immigrate_S_h};
   }
   static void update_shared(cpp11::list parameters, shared_state& shared) {
     shared.tau = dust2::r::read_real(parameters, "tau", shared.tau);
@@ -473,12 +479,13 @@ public:
     shared.obs_period = dust2::r::read_real(parameters, "obs_period", shared.obs_period);
     shared.p_IR = 1 - monty::math::exp<real_type>(-shared.m_r * shared.tau);
     shared.p_rat_death = 1 - monty::math::exp<real_type>(-shared.d_r * shared.tau);
+    shared.p_carcass_decay = 1 - monty::math::exp<real_type>(-shared.delta_R * shared.tau);
     shared.p_migrate_r = 1 - monty::math::exp<real_type>(-shared.mu_r * shared.tau);
     shared.p_migrate_h = 1 - monty::math::exp<real_type>(-shared.mu_h * shared.tau);
     shared.p_human_death = 1 - monty::math::exp<real_type>(-shared.d_h * shared.tau);
     shared.birth_rate_h = shared.r_h;
     shared.p_IR_h = 1 - monty::math::exp<real_type>(-shared.m_h * shared.tau);
-    dust2::r::read_real_array(parameters, shared.dim.seasonal, shared.seasonal.data(), "seasonal", false);
+    dust2::r::read_real_array(parameters, shared.dim.seasonal_beta, shared.seasonal_beta.data(), "seasonal_beta", false);
     shared.birth_rate_h_clipped = (shared.birth_rate_h > 0 ? shared.birth_rate_h : 0);
     dust2::r::read_real_array(parameters, shared.dim.contact_r, shared.contact_r.data(), "contact_r", false);
     dust2::r::read_real_array(parameters, shared.dim.contact_h, shared.contact_h.data(), "contact_h", false);
@@ -507,12 +514,12 @@ public:
     }
     for (size_t i = 1; i <= shared.dim.cond_p_r.dim[0]; ++i) {
       for (size_t j = 1; j <= shared.dim.cond_p_r.dim[1]; ++j) {
-        shared.cond_p_r[i - 1 + (j - 1) * shared.dim.cond_p_r.mult[1]] = (shared.sum_remaining_contact[i - 1 + (j - 1) * shared.dim.sum_remaining_contact.mult[1]] > 0 ? shared.contact_r[i - 1 + (j - 1) * shared.dim.contact_r.mult[1]] / shared.sum_remaining_contact[i - 1 + (j - 1) * shared.dim.sum_remaining_contact.mult[1]] : 0);
+        shared.cond_p_r[i - 1 + (j - 1) * shared.dim.cond_p_r.mult[1]] = shared.contact_r[i - 1 + (j - 1) * shared.dim.contact_r.mult[1]] / monty::math::max<real_type>(shared.sum_remaining_contact[i - 1 + (j - 1) * shared.dim.sum_remaining_contact.mult[1]], static_cast<real_type>(9.9999999999999936e-301));
       }
     }
     for (size_t i = 1; i <= shared.dim.cond_p_h.dim[0]; ++i) {
       for (size_t j = 1; j <= shared.dim.cond_p_h.dim[1]; ++j) {
-        shared.cond_p_h[i - 1 + (j - 1) * shared.dim.cond_p_h.mult[1]] = (shared.sum_remaining_contact_h[i - 1 + (j - 1) * shared.dim.sum_remaining_contact_h.mult[1]] > 0 ? shared.contact_h[i - 1 + (j - 1) * shared.dim.contact_h.mult[1]] / shared.sum_remaining_contact_h[i - 1 + (j - 1) * shared.dim.sum_remaining_contact_h.mult[1]] : 0);
+        shared.cond_p_h[i - 1 + (j - 1) * shared.dim.cond_p_h.mult[1]] = shared.contact_h[i - 1 + (j - 1) * shared.dim.contact_h.mult[1]] / monty::math::max<real_type>(shared.sum_remaining_contact_h[i - 1 + (j - 1) * shared.dim.sum_remaining_contact_h.mult[1]], static_cast<real_type>(9.9999999999999936e-301));
       }
     }
   }
@@ -560,7 +567,9 @@ public:
     for (size_t i = 1; i <= shared.dim.T_r.size; ++i) {
       internal.T_r[i - 1] = S[i - 1] + I[i - 1] + R[i - 1];
     }
-    const real_type delta_R_eff = shared.delta_R * shared.seasonal[time + 1 - 1];
+    for (size_t i = 1; i <= shared.dim.w_beta.size; ++i) {
+      internal.w_beta[i - 1] = shared.seasonal_beta[i - 1 + (time + 1 - 1) * shared.dim.seasonal_beta.mult[1]];
+    }
     for (size_t i = 1; i <= shared.dim.n_deaths_S.size; ++i) {
       internal.n_deaths_S[i - 1] = monty::random::binomial<real_type>(rng_state, S[i - 1], shared.p_rat_death);
     }
@@ -569,6 +578,9 @@ public:
     }
     for (size_t i = 1; i <= shared.dim.n_deaths_R.size; ++i) {
       internal.n_deaths_R[i - 1] = monty::random::binomial<real_type>(rng_state, R[i - 1], shared.p_rat_death);
+    }
+    for (size_t i = 1; i <= shared.dim.n_carcass_decay.size; ++i) {
+      internal.n_carcass_decay[i - 1] = monty::random::binomial<real_type>(rng_state, Q[i - 1], shared.p_carcass_decay);
     }
     for (size_t i = 1; i <= shared.dim.n_deaths_S_h.size; ++i) {
       internal.n_deaths_S_h[i - 1] = monty::random::binomial<real_type>(rng_state, S_h[i - 1], shared.p_human_death);
@@ -586,15 +598,14 @@ public:
       internal.rat_birth_rate_R[i - 1] = shared.r_r * shared.iota * (1 - internal.T_r[i - 1] / shared.K_r[i - 1]);
     }
     for (size_t i = 1; i <= shared.dim.lambda_r.size; ++i) {
-      internal.lambda_r[i - 1] = (internal.T_r[i - 1] > 0 ? shared.beta_r * Q[i - 1] * (1 - monty::math::exp<real_type>(-shared.rho * internal.T_r[i - 1] / shared.K_r[i - 1])) / internal.T_r[i - 1] : 0);
+      internal.lambda_r[i - 1] = (internal.T_r[i - 1] > 0 ? shared.beta_r * internal.w_beta[i - 1] * Q[i - 1] * (1 - monty::math::exp<real_type>(-shared.rho * internal.T_r[i - 1] / shared.K_r[i - 1])) / internal.T_r[i - 1] : 0);
     }
     for (size_t i = 1; i <= shared.dim.lambda_h.size; ++i) {
-      internal.lambda_h[i - 1] = (shared.K_r[i - 1] > 0 ? shared.beta_h * Q[i - 1] * monty::math::exp<real_type>(-shared.rho * internal.T_r[i - 1] / shared.K_r[i - 1]) / shared.K_r[i - 1] : 0);
+      internal.lambda_h[i - 1] = (shared.K_r[i - 1] > 0 ? shared.beta_h * internal.w_beta[i - 1] * Q[i - 1] * monty::math::exp<real_type>(-shared.rho * internal.T_r[i - 1] / shared.K_r[i - 1]) / shared.K_r[i - 1] : 0);
     }
     for (size_t i = 1; i <= shared.dim.lambda_hh.size; ++i) {
       internal.lambda_hh[i - 1] = (shared.K_h[i - 1] > 0 ? shared.beta_I * I_h[i - 1] / shared.K_h[i - 1] : 0);
     }
-    const real_type p_carcass_decay = 1 - monty::math::exp<real_type>(-delta_R_eff * shared.tau);
     for (size_t i = 1; i <= shared.dim.n_IR.size; ++i) {
       internal.n_IR[i - 1] = monty::random::binomial<real_type>(rng_state, I[i - 1] - internal.n_deaths_I[i - 1], shared.p_IR);
     }
@@ -618,9 +629,6 @@ public:
     }
     for (size_t i = 1; i <= shared.dim.n_recovered.size; ++i) {
       internal.n_recovered[i - 1] = monty::random::binomial<real_type>(rng_state, internal.n_IR[i - 1], shared.g_r);
-    }
-    for (size_t i = 1; i <= shared.dim.n_carcass_decay.size; ++i) {
-      internal.n_carcass_decay[i - 1] = monty::random::binomial<real_type>(rng_state, Q[i - 1], p_carcass_decay);
     }
     for (size_t i = 1; i <= shared.dim.n_emigrate_I.size; ++i) {
       internal.n_emigrate_I[i - 1] = monty::random::binomial<real_type>(rng_state, I[i - 1] - internal.n_deaths_I[i - 1] - internal.n_IR[i - 1], shared.p_migrate_r);

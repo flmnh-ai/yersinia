@@ -200,9 +200,9 @@ PI <- list(
     paste0(
       "Rate at which infectious rat carcasses become non-infectious ",
       "(fleas die off, body decomposes). <code>1 / delta_R</code> is the ",
-      "mean carcass infectious period. Temperature- and humidity-sensitive; ",
-      "the <code>seasonal</code> vector multiplies this rate to model ",
-      "wet/dry season effects."),
+      "mean carcass infectious period. Constant over an outbreak: ",
+      "temperature acts on transmission (<code>seasonal_beta</code>), ",
+      "not on carcass decay."),
     prior = list(family = "Uniform", params = list(min = 0.05, max = 1.5)),
     judgement = paste0(
       "Empirical lab observations of <em>X. cheopis</em> persistence on ",
@@ -539,22 +539,21 @@ PI <- list(
       "with London 1563 &mdash; you'd lose information without ",
       "gaining anything.")),
 
-  P("seasonal", "per-day delta_R multiplier vector", "length-T_max numeric",
-    "observation", "fixed", show_scenario = FALSE,
+  P("seasonal_beta", "per-day thermal multiplier on transmission",
+    "length-T_max numeric", "observation", "fixed", show_scenario = FALSE,
     description = paste0(
-      "Per-day multiplier on <code>delta_R</code>. Encodes seasonal ",
-      "modulation of carcass decay (and hence carcass-mediated ",
-      "transmission). Defaults to <code>rep(1, T_max)</code> (no ",
-      "seasonality). Length must match the number of simulation days."),
+      "Per-day multiplier on <code>beta_r</code> and <code>beta_h</code>, ",
+      "in [0, 1] and equal to 1 at the thermal optimum. Defaults to ",
+      "<code>rep(1, T_max)</code> (no thermal forcing). Length must cover ",
+      "the number of simulation days."),
     judgement = paste0(
-      "Not inferred &mdash; it's <em>input data</em>. Build from climate ",
-      "records via the <code>with_briere_seasonal()</code> packer wrapper ",
-      "(temperature &rarr; Bri&egrave;re function &rarr; multiplier), or ",
-      "from a hand-built annual sine via <code>with_alpha_seasonal()</code>. ",
-      "Seasonal forcing's <em>strength</em> can be inferred via a fitted ",
-      "<code>alpha</code> reparameterization (see the Barcelona mechanistic ",
-      "vignette). The lab v1 doesn't expose alpha/Bri&egrave;re; ",
-      "<code>seasonal</code> stays at 1.")),
+      "Not inferred directly &mdash; it's built from each outbreak's daily ",
+      "temperatures by <code>with_thermal_beta()</code>, using ",
+      "<code>thermal_response()</code> (Bri&egrave;re in visible ",
+      "coordinates: <code>T_opt</code>, <code>hw_cold</code>, ",
+      "<code>hw_hot</code>), whose three parameters are what gets fitted. ",
+      "The lab v1 doesn't expose thermal forcing; ",
+      "<code>seasonal_beta</code> stays at 1.")),
 
   NULL
 )
@@ -902,13 +901,13 @@ a scenario.</p>
   <li><code>K_h</code> &mdash; known historical population.</li>
   <li><code>K_r</code> &mdash; defaults to <code>K_h</code>.</li>
   <li><code>obs_period</code> &mdash; record cadence (daily / weekly).</li>
-  <li><code>seasonal</code> &mdash; when constructed from climate data.</li>
+  <li><code>seasonal_beta</code> &mdash; when constructed from climate data.</li>
 </ul>
 
 <h3>Within-outbreak variation</h3>
 <p>The only parameter that varies <em>within</em> a single outbreak is
-<code>seasonal</code> &mdash; a length-T vector of per-day multipliers on
-<code>delta_R</code>. Everything else is constant over the outbreak&rsquo;s
+<code>seasonal_beta</code> &mdash; a length-T vector of per-day multipliers on
+<code>beta_r</code> and <code>beta_h</code>. Everything else is constant over the outbreak&rsquo;s
 duration. Time-varying transmission rates are not currently supported without
 extending the model.</p>
 '
@@ -954,8 +953,8 @@ scenario_philosophy <- '
     <p>The right starting point for medieval / early modern European fits
     (Givry 1348, Florence 1400, Eyam 1665). The 95% CFR reflects the
     overwhelming clinical evidence from that era. Watch out for cold-season
-    starts &mdash; if seasonality matters, add the seasonal vector or use the
-    Bri&egrave;re wrapper from <code>packer_helpers.R</code>.</p>
+    starts &mdash; if temperature matters, add thermal forcing with
+    <code>with_thermal_beta()</code>.</p>
   </div>
 </div>
 

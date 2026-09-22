@@ -80,19 +80,6 @@ lambda_h <- if(K_r > 0) beta_h * w_beta * Q * exp(-rho * T_r / K_r) / K_r else 0
 # that population-scale parameter, even when births/deaths move T_h slightly.
 lambda_hh <- if(K_h > 0) beta_I * I_h / K_h else 0
 
-## Seasonal forcing on carcass decay. `seasonal` is a per-day vector
-## supplied at run time; when omitted, the R-side wrappers fill in 1s
-## (no forcing). Indexing assumes tau = 1 (the model is daily) so that
-## `time` is integer-valued and `time + 1` is the 1-based R index.
-##
-## NOTE: this is the SECOND of two possible placements for temperature.
-## `seasonal` forces carcass decay (how long a carcass stays infectious);
-## `seasonal_beta` above forces transmission (how infectious it is while it
-## lasts). Supply one or the other, not both, unless you mean to. Forcing
-## delta_R also changes the epizootic's timescale, which entangles the
-## thermal parameters with epidemic duration; forcing beta does not.
-delta_R_eff <- delta_R * seasonal[time + 1]
-
 ## Individual probabilities of transition for rats. The if-else clamps
 ## guard against the rare case where 1 - exp(-rate * tau) returns a tiny
 ## negative value due to floating-point rounding when rate is very small;
@@ -121,7 +108,7 @@ n_susceptible_births <- n_births_S + n_births_R - n_resistant_births
 # Rats that die of plague become infectious carcasses
 n_new_carcasses <- n_IR - n_recovered
 # Carcasses lose infectivity (flea death/dispersal)
-p_carcass_decay <- 1 - exp(-delta_R_eff * tau)
+p_carcass_decay <- 1 - exp(-delta_R * tau)
 n_carcass_decay <- Binomial(Q, p_carcass_decay)
 
 ## Human transitions
@@ -232,13 +219,9 @@ lambda_baseline <- parameter(1) # baseline non-plague deaths reported as plague 
 # reset every 7 steps so the value at time = 7, 14, ... is the death count
 # for the preceding week. Requires tau = 1 -- the R wrappers enforce this.
 obs_period <- parameter(1)
-# Per-day seasonal multiplier on carcass decay (dimensionless). Length must
-# equal the number of simulation days. Required by the model itself, but the
-# R wrappers default to rep(1, n_days) when not supplied (= no seasonality).
-seasonal <- parameter()
-dim(seasonal) <- parameter(rank = 1)
 # Per-day thermal multiplier on beta_r and beta_h (dimensionless, normally in
-# [0, 1] and anchored so that its maximum is 1). Same length rule as
-# `seasonal`; R wrappers default to rep(1, n_days) = no thermal forcing.
+# [0, 1] and anchored so that its maximum is 1). Length must be at least the
+# number of simulation days; R wrappers default to rep(1, n_days) = no
+# thermal forcing. Carcass decay (delta_R) is not forced.
 seasonal_beta <- parameter()
 dim(seasonal_beta) <- parameter(rank = 1)

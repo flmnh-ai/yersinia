@@ -42,9 +42,8 @@ test_that("metapop with mu_r = 0 (deterministic) matches single-population per p
     rho = 2.63, m_r = 0.056, m_h = 0.125,
     g_r = 0.02, g_h = 0.1, delta_R = 0.267,
     iota = 0.75, p = 0.975, obs_period = 1,
-    seasonal = rep(1, 365),
-    # seasonal_beta is required by the model, same as seasonal: the R
-    # wrappers default it, but a direct dust_system_create() must supply it.
+    # seasonal_beta is required by both models: the R wrappers default it,
+    # but a direct dust_system_create() must supply it.
     seasonal_beta = rep(1, 365)
   )
 
@@ -58,6 +57,9 @@ test_that("metapop with mu_r = 0 (deterministic) matches single-population per p
                       0.5, 0, 0.5,
                       0.5, 0.5, 0), 3, 3, byrow = TRUE)
   mp_pars <- shared
+  mp_pars$seasonal_beta <- matrix(shared$seasonal_beta, nrow = 3,
+                                  ncol = length(shared$seasonal_beta),
+                                  byrow = TRUE)
   mp_pars$npop <- 3L
   mp_pars$mu_r <- 0
   mp_pars$contact_r <- contact
@@ -81,6 +83,94 @@ test_that("metapop with mu_r = 0 (deterministic) matches single-population per p
   }
 })
 
+test_that("metapop seasonal_beta scales both transmission rates in every patch", {
+  # w = 0.5 everywhere must be identical to halving beta_r and beta_h, and
+  # w -> 0 must shut transmission off -- the same checks the humans model has.
+  contact <- matrix(c(0, 1, 1, 0), 2, 2)
+  n <- 200
+  base <- list(
+    npop = 2L, mu_r = 0.02, contact_r = contact,
+    mu_h = 0, contact_h = contact,
+    K_r = c(2500, 2500), K_h = c(5000, 5000),
+    I_ini = c(10, 0), R_ini = c(0, 0),
+    I_h_ini = c(0, 0), R_h_ini = c(0, 0),
+    r_r = 0, d_r = 0, r_h = 0, d_h = 0,
+    beta_r = 0.5, beta_h = 0.02, beta_I = 0,
+    rho = 2.5, m_r = 0.2, g_r = 0, delta_R = 0.2,
+    seasonal_beta = matrix(1, 2, n)
+  )
+  run <- function(pars) {
+    sys <- dust2::dust_system_create(plague_stochastic_metapop, pars = pars,
+                                     n_particles = 1, deterministic = TRUE)
+    dust2::dust_system_set_state_initial(sys)
+    y <- dust2::dust_system_simulate(sys, 0:(n - 1))
+    rowSums(matrix(dust2::dust_unpack_state(sys, y)$D_h, nrow = 2))
+  }
+  unforced <- run(base)
+  expect_true(all(unforced > 0))
+
+  half_w    <- run(modifyList(base, list(seasonal_beta = matrix(0.5, 2, n))))
+  half_beta <- run(modifyList(base, list(beta_r = 0.25, beta_h = 0.01)))
+  expect_equal(half_w, half_beta, tolerance = 1e-8)
+
+  expect_true(all(run(modifyList(base, list(seasonal_beta = matrix(1e-8, 2, n)))) < 1e-6))
+})
+
+test_that("metapop seasonal_beta acts per patch", {
+  # Transmission off in patch 2 only: infected rats still migrate there and
+  # die, but their carcasses infect nobody, so patch 2 has no human deaths
+  # while patch 1 carries on.
+  contact <- matrix(c(0, 1, 1, 0), 2, 2)
+  n <- 200
+  pars <- list(
+    npop = 2L, mu_r = 0.02, contact_r = contact,
+    mu_h = 0, contact_h = contact,
+    K_r = c(2500, 2500), K_h = c(5000, 5000),
+    I_ini = c(10, 0), R_ini = c(0, 0),
+    I_h_ini = c(0, 0), R_h_ini = c(0, 0),
+    r_r = 0, d_r = 0, r_h = 0, d_h = 0,
+    beta_r = 0.5, beta_h = 0.02, beta_I = 0,
+    rho = 2.5, m_r = 0.2, g_r = 0, delta_R = 0.2,
+    seasonal_beta = rbind(rep(1, n), rep(1e-8, n))
+  )
+  sys <- dust2::dust_system_create(plague_stochastic_metapop, pars = pars,
+                                   n_particles = 1, deterministic = TRUE)
+  dust2::dust_system_set_state_initial(sys)
+  y <- dust2::dust_system_simulate(sys, 0:(n - 1))
+  deaths <- rowSums(matrix(dust2::dust_unpack_state(sys, y)$D_h, nrow = 2))
+  expect_gt(deaths[1], 1)
+  expect_lt(deaths[2], 1e-6)
+})
+
+test_that("metapop_seasonal_beta builds the [npop, n_steps] matrix", {
+  expect_equal(metapop_seasonal_beta(NULL, 3, 5), matrix(1, 3, 5))
+  # a shared series becomes identical rows
+  m <- metapop_seasonal_beta(c(0.1, 0.2, 0.3), 2, 3)
+  expect_equal(m, rbind(c(0.1, 0.2, 0.3), c(0.1, 0.2, 0.3)))
+  # a per-patch matrix passes through
+  per_patch <- rbind(c(1, 0.5, 0.2), c(0.3, 0.6, 0.9))
+  expect_equal(metapop_seasonal_beta(per_patch, 2, 3), per_patch)
+  # longer than needed is fine
+  expect_equal(ncol(metapop_seasonal_beta(rep(1, 10), 2, 3)), 10)
+})
+
+test_that("metapop_seasonal_beta rejects the wrong shape", {
+  expect_error(metapop_seasonal_beta(matrix(1, 3, 5), 2, 5), "one row per patch")
+  expect_error(metapop_seasonal_beta(rep(1, 4), 2, 5), "every step")
+  expect_error(metapop_seasonal_beta(matrix(1, 2, 4), 2, 5), "every step")
+})
+
+test_that("run_plague_metapop_model accepts a per-patch seasonal_beta", {
+  contact <- matrix(c(0, 1, 1, 0), 2, 2)
+  n <- 365
+  res <- run_plague_metapop_model(
+    scenario = "defaults", npop = 2, contact_r = contact, mu_r = 0.01,
+    K_r = c(2500, 2500), K_h = c(5000, 5000), I_ini = c(10, 0),
+    n_particles = 2, years = 1,
+    seasonal_beta = rbind(rep(1, n), rep(0.5, n)))
+  expect_s3_class(res, "plague_results")
+})
+
 test_that("rat counts are conserved under migration when births, deaths, and plague are off", {
   # Total rats summed across all patches changes only via births/deaths and
   # plague mortality. With all four off, migration must be a pure relabeling --
@@ -96,7 +186,7 @@ test_that("rat counts are conserved under migration when births, deaths, and pla
     r_r = 0, d_r = 0, r_h = 0, d_h = 0,
     beta_r = 0, beta_h = 0, beta_I = 0,
     delta_R = 0, m_r = 0,
-    seasonal = rep(1, 100)
+    seasonal_beta = matrix(1, 2, 100)
   )
   sys <- dust2::dust_system_create(plague_stochastic_metapop, pars = pars,
                                    n_particles = 30, seed = 1)
@@ -125,10 +215,9 @@ test_that("plague propagates between patches via rat migration", {
     rho = 2.63, m_r = 0.056, m_h = 0.125,
     g_r = 0.02, g_h = 0.1, delta_R = 0.267,
     iota = 0.75, p = 0.975, obs_period = 1,
-    seasonal = rep(1, 365),
-    # seasonal_beta is required by the model, same as seasonal: the R
-    # wrappers default it, but a direct dust_system_create() must supply it.
-    seasonal_beta = rep(1, 365)
+    # seasonal_beta is required by both models: the R wrappers default it,
+    # but a direct dust_system_create() must supply it.
+    seasonal_beta = matrix(1, 3, 365)
   )
   sys <- dust2::dust_system_create(plague_stochastic_metapop, pars = pars,
                                    n_particles = 50, seed = 2)
@@ -197,10 +286,9 @@ test_that("mu_h = 0 reproduces the rat-only metapop trajectory exactly", {
     rho = 2.63, m_r = 0.056, m_h = 0.125,
     g_r = 0.02, g_h = 0.1, delta_R = 0.267,
     iota = 0.75, p = 0.975, obs_period = 1,
-    seasonal = rep(1, 365),
-    # seasonal_beta is required by the model, same as seasonal: the R
-    # wrappers default it, but a direct dust_system_create() must supply it.
-    seasonal_beta = rep(1, 365)
+    # seasonal_beta is required by both models: the R wrappers default it,
+    # but a direct dust_system_create() must supply it.
+    seasonal_beta = matrix(1, 3, 365)
   )
 
   pars_a <- c(shared_pars, list(mu_h = 0, contact_h = contact))
@@ -242,7 +330,7 @@ test_that("human counts are conserved under mu_h alone when plague and demograph
     r_r = 0, d_r = 0, r_h = 0, d_h = 0,
     beta_r = 0, beta_h = 0, beta_I = 0,
     delta_R = 0, m_r = 0, m_h = 0,
-    seasonal = rep(1, 100)
+    seasonal_beta = matrix(1, 2, 100)
   )
   sys <- dust2::dust_system_create(plague_stochastic_metapop, pars = pars,
                                    n_particles = 30, seed = 3)
@@ -276,10 +364,9 @@ test_that("plague propagates between patches via human migration alone", {
     rho = 2.63, m_r = 0.056, m_h = 0.05,
     g_r = 0.02, g_h = 0.1, delta_R = 0.267,
     iota = 0.75, p = 0.975, obs_period = 1,
-    seasonal = rep(1, 365),
-    # seasonal_beta is required by the model, same as seasonal: the R
-    # wrappers default it, but a direct dust_system_create() must supply it.
-    seasonal_beta = rep(1, 365)
+    # seasonal_beta is required by both models: the R wrappers default it,
+    # but a direct dust_system_create() must supply it.
+    seasonal_beta = matrix(1, 3, 365)
   )
   sys <- dust2::dust_system_create(plague_stochastic_metapop, pars = pars,
                                    n_particles = 50, seed = 4)

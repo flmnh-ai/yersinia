@@ -1,55 +1,83 @@
-# Tests for the beta-forcing thermal response (added 2026-09).
+# Tests for the thermal response on transmission (Brière, visible
+# coordinates) and its packer wrapper.
 #
 # The load-bearing checks:
-#   1. thermal_response() is anchored: max = 1 at T_opt, and the half-widths
-#      mean what they say.
-#   2. Degenerate parameters return a floor rather than erroring, so a bad
+#   1. thermal_response() peaks at exactly 1 at T_opt and reaches zero at
+#      T_opt - hw_cold and T_opt + hw_hot.
+#   2. It is the textbook simplified Brière-2 under the mapping
+#      T_min = T_opt - hw_cold, T_max = T_opt + hw_hot, q = hw_hot / hw_cold.
+#   3. Degenerate parameters return a floor rather than erroring, so a bad
 #      MCMC proposal drives the likelihood down instead of crashing the chain.
-#   3. seasonal_beta = 1 reproduces the pre-edit model exactly (backward
-#      compatibility).
-#   4. seasonal_beta = c is exactly equivalent to scaling beta_r and beta_h
-#      by c -- i.e. the forcing enters where it is supposed to and nowhere else.
+#   4. seasonal_beta = 1 reproduces the unforced model exactly, and
+#      seasonal_beta = c is exactly equivalent to scaling beta_r and beta_h
+#      by c -- the forcing enters where it is supposed to and nowhere else.
+#   5. with_thermal_beta() writes seasonal_beta per group and removes the
+#      curve parameters.
 
-test_that("thermal_response is anchored at its own maximum", {
-  T <- seq(-20, 50, by = 0.25)
-  w <- thermal_response(T, T_opt = 18, hw_cold = 12, hw_hot = 7)
-  expect_equal(max(w), 1)
-  expect_equal(T[which.max(w)], 18)
+test_that("thermal_response peaks at 1 at T_opt", {
+  T <- seq(-10, 30, by = 0.05)
+  w <- thermal_response(T, T_opt = 17.45, hw_cold = 22.13, hw_hot = 6.35)
+  expect_equal(thermal_response(17.45, 17.45, 22.13, 6.35), 1)
   expect_true(all(w <= 1))
+  expect_equal(T[which.max(w)], 17.45, tolerance = 0.05)
 })
 
-test_that("half-widths are the temperatures at which the response halves", {
-  expect_equal(thermal_response(18 - 12, 18, 12, 7), 0.5, tolerance = 1e-10)
-  expect_equal(thermal_response(18 + 7,  18, 12, 7), 0.5, tolerance = 1e-10)
+test_that("thermal_response reaches the floor at and beyond both zeros", {
+  f <- 1e-8
+  expect_equal(thermal_response(18 - 12, 18, 12, 7), f)   # cold zero
+  expect_equal(thermal_response(18 + 7,  18, 12, 7), f)   # hot zero
+  expect_equal(thermal_response(c(-40, 50), 18, 12, 7), c(f, f))
+  expect_gt(thermal_response(18 - 11.9, 18, 12, 7), f)
+  expect_gt(thermal_response(18 + 6.9,  18, 12, 7), f)
 })
 
-test_that("asymmetry works in the expected direction", {
-  # narrow hot side: response falls off faster above the optimum
-  w_lo <- thermal_response(18 - 5, 18, 12, 4)
-  w_hi <- thermal_response(18 + 5, 18, 12, 4)
-  expect_gt(w_lo, w_hi)
+test_that("thermal_response is textbook simplified Briere-2 under the mapping", {
+  T_opt <- 17.45; hc <- 22.13; hh <- 6.35
+  T_min <- T_opt - hc; T_max <- T_opt + hh; q <- hh / hc
+  T <- seq(T_min + 0.01, T_max - 0.01, length.out = 500)
+  L <- function(t) (t - T_min) * (T_max - t)^q
+  expect_equal(thermal_response(T, T_opt, hc, hh), L(T) / L(T_opt),
+               tolerance = 1e-10)
+})
+
+test_that("a narrow hot side falls off faster above the optimum", {
+  expect_gt(thermal_response(18 - 3, 18, 12, 4),
+            thermal_response(18 + 3, 18, 12, 4))
 })
 
 test_that("degenerate parameters floor rather than error", {
   expect_equal(thermal_response(10, 18, -1, 7), 1e-8)
   expect_equal(thermal_response(10, 18, 12, 0), 1e-8)
-  expect_equal(thermal_response_briere(10, T_min = 30, T_max = 5, q = 1), 1e-8)
-  expect_equal(thermal_response_briere(10, T_min = 5, T_max = 30, q = -1), 1e-8)
+  expect_equal(thermal_response(c(10, 20), NA, 12, 7), c(1e-8, 1e-8))
 })
 
-test_that("Briere form is anchored at its analytic optimum", {
-  T <- seq(-10, 45, by = 0.01)
-  w <- thermal_response_briere(T, T_min = 5, T_max = 37, q = 1.5)
-  expect_equal(max(w), 1, tolerance = 1e-6)
-  expect_equal(T[which.max(w)], briere_T_opt(5, 37, 1.5), tolerance = 0.02)
-  expect_equal(briere_T_opt(5, 37, 1.5), 17.8, tolerance = 1e-9)
+test_that("with_thermal_beta writes per-group seasonal_beta", {
+  groups <- c("a", "b")
+  packer <- monty::monty_packer_grouped(
+    groups = groups,
+    scalar = c("beta_h", "T_opt", "hw_cold", "hw_hot"),
+    shared = c("T_opt", "hw_cold", "hw_hot"))
+  temps <- list(a = c(5, 10, 17, 22), b = c(15, 17, 19, 30))
+  wrapped <- with_thermal_beta(packer, temps)
+
+  theta <- setNames(rep(1, length(wrapped$names())), wrapped$names())
+  theta[["T_opt"]] <- 17; theta[["hw_cold"]] <- 20; theta[["hw_hot"]] <- 6
+  out <- wrapped$unpack(theta)
+
+  for (g in groups) {
+    expect_equal(out[[g]]$seasonal_beta,
+                 thermal_response(temps[[g]], 17, 20, 6))
+    expect_null(out[[g]]$T_opt)
+    expect_null(out[[g]]$hw_cold)
+    expect_null(out[[g]]$hw_hot)
+  }
 })
 
 test_that("seasonal_beta = 1 leaves the model unchanged, and scales beta otherwise", {
   skip_on_cran()
   n <- 200
   base <- list(K_r = 2500, K_h = 5000, I_ini = 5,
-               seasonal = rep(1, n), seasonal_beta = rep(1, n),
+               seasonal_beta = rep(1, n),
                beta_r = 0.5, beta_h = 0.02, delta_R = 0.2,
                m_r = 0.2, g_r = 0, rho = 2.5, tau = 1)
   run <- function(pars) {

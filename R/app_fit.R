@@ -295,16 +295,9 @@ lab_fit_assemble <- function(lab_session, data = NULL) {
                             configurable_param_names())
   fixed_pars <- plague_fit_fixed_pars(model_config$scenario, fitted_names)
   fixed_pars$obs_period <- obs_period
-  # NB: exact [[ ]] indexing, not $. `$` partial-matches on lists, so
-  # `fixed_pars$seasonal` resolves to `seasonal_beta` once that has been
-  # set above — the is.null() guard then passes, `seasonal` is never
-  # added, and dust2 fails the fit with "A value is expected for
-  # 'seasonal'".
+  # No thermal forcing unless the caller supplied it.
   if (is.null(fixed_pars[["seasonal_beta"]])) {
     fixed_pars[["seasonal_beta"]] <- rep(1, max(d$time))
-  }
-  if (is.null(fixed_pars[["seasonal"]])) {
-    fixed_pars[["seasonal"]] <- rep(1, max(d$time))
   }
   # odin2/dust2 declares every parameter in this model as real_type and
   # strict-type-checks at read time. YAML parses whole-number values

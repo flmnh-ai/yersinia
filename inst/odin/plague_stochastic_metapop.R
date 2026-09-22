@@ -53,15 +53,16 @@ rat_birth_rate_R[] <- r_r * iota * (1 - T_r[i] / K_r[i])
 rat_birth_rate_S_clipped[] <- if (rat_birth_rate_S[i] > 0) rat_birth_rate_S[i] else 0
 rat_birth_rate_R_clipped[] <- if (rat_birth_rate_R[i] > 0) rat_birth_rate_R[i] else 0
 
-## Infection forces (per patch, Didelot formulation)
-lambda_r[] <- if (T_r[i] > 0) beta_r * Q[i] * (1 - exp(-rho * T_r[i] / K_r[i])) / T_r[i] else 0
-lambda_h[] <- if (K_r[i] > 0) beta_h * Q[i] * exp(-rho * T_r[i] / K_r[i]) / K_r[i] else 0
-lambda_hh[] <- if (K_h[i] > 0) beta_I * I_h[i] / K_h[i] else 0
+## Thermal response on transmission, as in plague_stochastic_humans.R:
+## `seasonal_beta` multiplies both carcass-to-rat and carcass-to-human
+## transmission. It is a [npop, n_steps] matrix, so each patch can follow its
+## own temperature series; row i is patch i, column t + 1 is step t.
+w_beta[] <- seasonal_beta[i, time + 1]
 
-## Seasonal forcing on carcass decay (shared across patches in v1; same
-## calendar everywhere). Indexing assumes tau = 1 -- the R wrapper enforces
-## this when seasonal is non-trivial.
-delta_R_eff <- delta_R * seasonal[time + 1]
+## Infection forces (per patch, Didelot formulation)
+lambda_r[] <- if (T_r[i] > 0) beta_r * w_beta[i] * Q[i] * (1 - exp(-rho * T_r[i] / K_r[i])) / T_r[i] else 0
+lambda_h[] <- if (K_r[i] > 0) beta_h * w_beta[i] * Q[i] * exp(-rho * T_r[i] / K_r[i]) / K_r[i] else 0
+lambda_hh[] <- if (K_h[i] > 0) beta_I * I_h[i] / K_h[i] else 0
 
 ## Probabilities (scalars are per-step survival/transition rates;
 ## arrays are per-patch infection probabilities)
@@ -71,7 +72,7 @@ p_IR <- 1 - exp(-m_r * tau)
 p_rat_birth_S[] <- 1 - exp(-rat_birth_rate_S_clipped[i] * tau)
 p_rat_birth_R[] <- 1 - exp(-rat_birth_rate_R_clipped[i] * tau)
 p_rat_death <- 1 - exp(-d_r * tau)
-p_carcass_decay <- 1 - exp(-delta_R_eff * tau)
+p_carcass_decay <- 1 - exp(-delta_R * tau)
 p_migrate_r <- 1 - exp(-mu_r * tau)
 p_migrate_h <- 1 - exp(-mu_h * tau)
 
@@ -105,11 +106,15 @@ n_emigrate_R[] <- Binomial(R[i] - n_deaths_R[i], p_migrate_r)
 ## conditional probability contact_r[i, j] / sum(contact_r[i, j:npop]).
 ##
 ## sum_remaining_contact[i, j] = sum(contact_r[i, j:npop]) -- equals
-## 1 - sum(contact_r[i, 1:(j-1)]) when contact_r is row-stochastic. Guards
-## division-by-zero when all probability has been consumed (rare; see
-## cond_p_r below).
+## 1 - sum(contact_r[i, 1:(j-1)]) when contact_r is row-stochastic.
+##
+## Division by zero when all probability has been consumed: then
+## contact_r[i, j] is itself 0 (it is one of the non-negative terms of that
+## sum), so flooring the denominator gives 0 / 1e-300 = 0 -- the same result
+## an `if (sum > 0) ... else 0` gives, but without the conditional, which
+## odin2 cannot bounds-check for two-index arrays (it warns at compile time).
 sum_remaining_contact[, ] <- sum(contact_r[i, j:npop])
-cond_p_r[, ] <- if (sum_remaining_contact[i, j] > 0) contact_r[i, j] / sum_remaining_contact[i, j] else 0
+cond_p_r[, ] <- contact_r[i, j] / max(sum_remaining_contact[i, j], 1e-300)
 
 S_flow[, 1] <- Binomial(n_emigrate_S[i], cond_p_r[i, 1])
 S_flow[, 2:npop] <- Binomial(n_emigrate_S[i] - sum(S_flow[i, 1:(j-1)]),
@@ -156,7 +161,7 @@ n_emigrate_R_h[] <- Binomial(R_h[i] - n_deaths_R_h[i], p_migrate_h)
 ## Sequential multinomial routing for human emigrants over contact_h
 ## (analogous to contact_r routing for rats above).
 sum_remaining_contact_h[, ] <- sum(contact_h[i, j:npop])
-cond_p_h[, ] <- if (sum_remaining_contact_h[i, j] > 0) contact_h[i, j] / sum_remaining_contact_h[i, j] else 0
+cond_p_h[, ] <- contact_h[i, j] / max(sum_remaining_contact_h[i, j], 1e-300)  # see cond_p_r
 
 S_h_flow[, 1] <- Binomial(n_emigrate_S_h[i], cond_p_h[i, 1])
 S_h_flow[, 2:npop] <- Binomial(n_emigrate_S_h[i] - sum(S_h_flow[i, 1:(j-1)]),
@@ -202,6 +207,7 @@ dim(rat_birth_rate_S) <- npop
 dim(rat_birth_rate_R) <- npop
 dim(rat_birth_rate_S_clipped) <- npop
 dim(rat_birth_rate_R_clipped) <- npop
+dim(w_beta) <- npop
 dim(lambda_r) <- npop
 dim(lambda_h) <- npop
 dim(lambda_hh) <- npop
@@ -294,5 +300,9 @@ g_h <- parameter(0.1)              # probability human survives infection
 delta_R <- parameter(0.267)        # carcass decay rate (per day)
 iota <- parameter(0.75)            # fecundity multiplier for resistant rats
 obs_period <- parameter(1)         # observation window in days for D_h / D_r
-seasonal <- parameter()            # per-day multiplier on carcass decay
-dim(seasonal) <- parameter(rank = 1)
+# Per-patch, per-step thermal multiplier on beta_r and beta_h (normally in
+# [0, 1], max 1): npop rows, at least one column per step. The R wrapper
+# builds it from a shared series or a per-patch matrix, and defaults it to
+# all ones = no thermal forcing.
+seasonal_beta <- parameter()
+dim(seasonal_beta) <- parameter(rank = 2)

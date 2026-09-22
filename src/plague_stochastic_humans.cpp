@@ -31,7 +31,6 @@
 // [[dust2::parameter(R_h_ini, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(lambda_baseline, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(obs_period, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
-// [[dust2::parameter(seasonal, type = "real_type", rank = 1, required = TRUE, constant = FALSE)]]
 // [[dust2::parameter(seasonal_beta, type = "real_type", rank = 1, required = TRUE, constant = FALSE)]]
 class plague_stochastic_humans {
 public:
@@ -48,7 +47,6 @@ public:
       } offset;
     } odin;
     struct dim_type {
-      dust2::array::dimensions<1> seasonal;
       dust2::array::dimensions<1> seasonal_beta;
     } dim;
     real_type tau;
@@ -79,11 +77,11 @@ public:
     real_type obs_period;
     real_type p_IR;
     real_type p_rat_death;
+    real_type p_carcass_decay;
     real_type p_human_death;
     real_type birth_rate_h;
     real_type p_IR_h;
     real_type initial_S;
-    std::vector<real_type> seasonal;
     std::vector<real_type> seasonal_beta;
     real_type birth_rate_h_clipped;
     real_type p_human_birth;
@@ -123,16 +121,14 @@ public:
     const real_type R_h_ini = dust2::r::read_real(parameters, "R_h_ini", 0);
     const real_type lambda_baseline = dust2::r::read_real(parameters, "lambda_baseline", 1);
     const real_type obs_period = dust2::r::read_real(parameters, "obs_period", 1);
-    dim.seasonal = dust2::r::read_dimensions<1>(parameters, "seasonal");
     dim.seasonal_beta = dust2::r::read_dimensions<1>(parameters, "seasonal_beta");
     const real_type p_IR = 1 - monty::math::exp<real_type>(-m_r * tau);
     const real_type p_rat_death = 1 - monty::math::exp<real_type>(-d_r * tau);
+    const real_type p_carcass_decay = 1 - monty::math::exp<real_type>(-delta_R * tau);
     const real_type p_human_death = 1 - monty::math::exp<real_type>(-d_h * tau);
     const real_type birth_rate_h = r_h;
     const real_type p_IR_h = 1 - monty::math::exp<real_type>(-m_h * tau);
     const real_type initial_S = K_r - I_ini - R_ini;
-    std::vector<real_type> seasonal(dim.seasonal.size);
-    dust2::r::read_real_array(parameters, dim.seasonal, seasonal.data(), "seasonal", true);
     std::vector<real_type> seasonal_beta(dim.seasonal_beta.size);
     dust2::r::read_real_array(parameters, dim.seasonal_beta, seasonal_beta.data(), "seasonal_beta", true);
     const real_type birth_rate_h_clipped = (birth_rate_h > 0 ? birth_rate_h : 0);
@@ -150,7 +146,7 @@ public:
       {"D_h", {}}
     };
     odin.packing.state.copy_offset(odin.offset.state.begin());
-    return shared_state{odin, dim, tau, I_ini, R_ini, K_r, K_h, r_r, r_h, p, d_r, d_h, beta_r, beta_h, beta_I, rho, m_r, m_h, g_r, g_h, delta_R, kappa, p_obs, iota, I_h_ini, R_h_ini, lambda_baseline, obs_period, p_IR, p_rat_death, p_human_death, birth_rate_h, p_IR_h, initial_S, seasonal, seasonal_beta, birth_rate_h_clipped, p_human_birth};
+    return shared_state{odin, dim, tau, I_ini, R_ini, K_r, K_h, r_r, r_h, p, d_r, d_h, beta_r, beta_h, beta_I, rho, m_r, m_h, g_r, g_h, delta_R, kappa, p_obs, iota, I_h_ini, R_h_ini, lambda_baseline, obs_period, p_IR, p_rat_death, p_carcass_decay, p_human_death, birth_rate_h, p_IR_h, initial_S, seasonal_beta, birth_rate_h_clipped, p_human_birth};
   }
   static internal_state build_internal(const shared_state& shared) {
     return internal_state{};
@@ -188,11 +184,11 @@ public:
     shared.obs_period = dust2::r::read_real(parameters, "obs_period", shared.obs_period);
     shared.p_IR = 1 - monty::math::exp<real_type>(-shared.m_r * shared.tau);
     shared.p_rat_death = 1 - monty::math::exp<real_type>(-shared.d_r * shared.tau);
+    shared.p_carcass_decay = 1 - monty::math::exp<real_type>(-shared.delta_R * shared.tau);
     shared.p_human_death = 1 - monty::math::exp<real_type>(-shared.d_h * shared.tau);
     shared.birth_rate_h = shared.r_h;
     shared.p_IR_h = 1 - monty::math::exp<real_type>(-shared.m_h * shared.tau);
     shared.initial_S = shared.K_r - shared.I_ini - shared.R_ini;
-    dust2::r::read_real_array(parameters, shared.dim.seasonal, shared.seasonal.data(), "seasonal", false);
     dust2::r::read_real_array(parameters, shared.dim.seasonal_beta, shared.seasonal_beta.data(), "seasonal_beta", false);
     shared.birth_rate_h_clipped = (shared.birth_rate_h > 0 ? shared.birth_rate_h : 0);
     shared.p_human_birth = 1 - monty::math::exp<real_type>(-shared.birth_rate_h_clipped * shared.tau);
@@ -227,10 +223,10 @@ public:
     const real_type rat_birth_rate_S_clipped = (rat_birth_rate_S > 0 ? rat_birth_rate_S : 0);
     const real_type rat_birth_rate_R_clipped = (rat_birth_rate_R > 0 ? rat_birth_rate_R : 0);
     const real_type w_beta = shared.seasonal_beta[time + 1 - 1];
-    const real_type delta_R_eff = shared.delta_R * shared.seasonal[time + 1 - 1];
     const real_type n_deaths_S = monty::random::binomial<real_type>(rng_state, S, shared.p_rat_death);
     const real_type n_deaths_I = monty::random::binomial<real_type>(rng_state, I, shared.p_rat_death);
     const real_type n_deaths_R = monty::random::binomial<real_type>(rng_state, R, shared.p_rat_death);
+    const real_type n_carcass_decay = monty::random::binomial<real_type>(rng_state, Q, shared.p_carcass_decay);
     const real_type n_deaths_S_h = monty::random::binomial<real_type>(rng_state, S_h, shared.p_human_death);
     const real_type n_deaths_I_h = monty::random::binomial<real_type>(rng_state, I_h, shared.p_human_death);
     const real_type n_deaths_R_h = monty::random::binomial<real_type>(rng_state, R_h, shared.p_human_death);
@@ -239,13 +235,11 @@ public:
     const real_type p_rat_birth_S = 1 - monty::math::exp<real_type>(-rat_birth_rate_S_clipped * shared.tau);
     const real_type p_rat_birth_R = 1 - monty::math::exp<real_type>(-rat_birth_rate_R_clipped * shared.tau);
     const real_type n_IR = monty::random::binomial<real_type>(rng_state, I - n_deaths_I, shared.p_IR);
-    const real_type p_carcass_decay = 1 - monty::math::exp<real_type>(-delta_R_eff * shared.tau);
     const real_type n_IR_h = monty::random::binomial<real_type>(rng_state, I_h - n_deaths_I_h, shared.p_IR_h);
     const real_type p_SI_raw = 1 - monty::math::exp<real_type>(-lambda_r * shared.tau);
     const real_type n_recovered = monty::random::binomial<real_type>(rng_state, n_IR, shared.g_r);
     const real_type n_births_S = monty::random::binomial<real_type>(rng_state, S - n_deaths_S, p_rat_birth_S);
     const real_type n_births_R = monty::random::binomial<real_type>(rng_state, R - n_deaths_R, p_rat_birth_R);
-    const real_type n_carcass_decay = monty::random::binomial<real_type>(rng_state, Q, p_carcass_decay);
     const real_type p_SI_h_raw = 1 - monty::math::exp<real_type>(-(lambda_h + lambda_hh) * shared.tau);
     const real_type births_h = monty::random::binomial<real_type>(rng_state, S_h + R_h, shared.p_human_birth);
     const real_type n_recovered_h = monty::random::binomial<real_type>(rng_state, n_IR_h, shared.g_h);

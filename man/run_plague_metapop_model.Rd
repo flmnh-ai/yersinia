@@ -22,7 +22,6 @@ run_plague_metapop_model(
   n_particles = 100,
   n_threads = 1,
   obs_period = 1L,
-  seasonal = NULL,
   seasonal_beta = NULL,
   ...
 )
@@ -72,12 +71,11 @@ typically a daily-cadence process).}
 \item{obs_period}{Integer length (in days) of the observation window for
 \code{D_h} / \code{D_r} (default 1L; requires \code{timestep = "daily"} if > 1).}
 
-\item{seasonal}{Optional length-\code{n_days} per-day multiplier on carcass
-decay (defaults to no seasonality).}
-
-\item{seasonal_beta}{Optional length-\code{n_days} per-day thermal multiplier on
-\code{beta_r} and \code{beta_h} (defaults to no thermal forcing). This is the
-beta-forcing placement; see \code{\link[=thermal_response]{thermal_response()}}.}
+\item{seasonal_beta}{Optional per-step thermal multiplier on \code{beta_r}
+and \code{beta_h}. Either a numeric vector (one series shared by every
+patch) or an \code{npop}-row matrix (row \code{i} is patch \code{i}'s series); either
+way it needs at least one value per step. Defaults to no thermal
+forcing. Build series with \code{\link[=thermal_response]{thermal_response()}}.}
 
 \item{...}{Additional scalar parameter overrides (\code{beta_r}, \code{rho}, ...).}
 }

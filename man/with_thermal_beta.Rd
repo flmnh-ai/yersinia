@@ -20,8 +20,7 @@ A packer with wrapped \verb{$unpack}.
 For each group, turns that group's daily temperature series into a per-day
 multiplier on \code{beta_r} and \code{beta_h} via the odin model's \code{seasonal_beta}
 input, using \code{\link[=thermal_response]{thermal_response()}} with fitted \code{T_opt}, \code{hw_cold}, \code{hw_hot}.
-Carcass decay is left unforced: \code{seasonal} is set to all ones if the packer
-has not already supplied it.
+Carcass decay is not forced.
 }
 \details{
 Bad proposals (non-positive widths) yield a floored response rather than

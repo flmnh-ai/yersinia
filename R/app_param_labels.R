@@ -27,10 +27,8 @@
     delta_R         = "\u03b4_R",
     iota            = "\u03b9",
     lambda_baseline = "\u03bb_base",
-    alpha           = "\u03b1",
     R0              = "R\u2080",
-    seasonal_beta   = "w_\u03b2",
-    seasonal        = "w"
+    seasonal_beta   = "w_\u03b2"
   )
 }
 
@@ -64,17 +62,12 @@
     R_h_ini         = "Initial immune humans",
     lambda_baseline = "Baseline non-plague deaths",
     obs_period      = "Observation window",
-    seasonal        = "Seasonal forcing on decay",
     seasonal_beta   = "Thermal forcing on transmission",
     # Thermal-curve parameters (fitted only in the hierarchical cohort work).
     R0              = "Basic reproduction number",
-    alpha           = "Seasonality exponent",
     T_opt           = "Thermal optimum",
-    hw_cold         = "Cold-side half-width",
-    hw_hot          = "Hot-side half-width",
-    T_min           = "Lower thermal limit",
-    T_max           = "Upper thermal limit",
-    q_briere        = "Bri\u00e8re shape"
+    hw_cold         = "Cold-side width (to zero)",
+    hw_hot          = "Hot-side width (to zero)"
   )
 }
 

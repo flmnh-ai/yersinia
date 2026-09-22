@@ -15,7 +15,7 @@ Excludes parameters that aren't user-fittable in practice:
 \details{
 \itemize{
 \item \code{tau} (timestep — system, not biological)
-\item \code{seasonal} (vector — handled separately as climate input)
+\item \code{seasonal_beta} (vector — handled separately as climate input)
 \item \code{obs_period} (integer flag — derived from the cohort data)
 \item \code{iota} (resistance fecundity multiplier — always-fixed per CLAUDE.md)
 }

@@ -3,7 +3,7 @@
 
 test_that("configurable_param_names excludes system + always-fixed parameters", {
   configurable <- configurable_param_names()
-  for (excluded in c("tau", "seasonal", "obs_period", "iota")) {
+  for (excluded in c("tau", "seasonal_beta", "obs_period", "iota")) {
     expect_false(excluded %in% configurable)
   }
   # Sanity: classic fitted parameters are configurable.
