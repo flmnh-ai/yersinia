@@ -8,3 +8,15 @@
 ^pkgdown$
 ^\.github$
 ^data-raw$
+^\.claude$
+^scripts$
+^stan$
+^Claude outputs$
+^CLAUDE\.md$
+^ROADMAP\.md$
+^MIGRATION_NOTES\.md$
+^monty\.R$
+^\.Rhistory$
+\.DS_Store$
+_cache$
+_files$
