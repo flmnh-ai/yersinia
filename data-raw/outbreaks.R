@@ -1,235 +1,330 @@
-# Historical plague outbreak data compiled by Dean et al. (2018),
-# "Human ectoparasites and the spread of plague in Europe during the Second
-# Pandemic", PNAS 115(6):1304-1309. doi:10.1073/pnas.1715640115
+# ------------------------------------------------------------------------------
+# data-raw/outbreaks.R -- build the outbreak datasets from Krauer's catalogue.
 #
-# IMPORTANT: the `deaths` counts are NOT uniformly plague-specific across
-# outbreaks -- the source documents differ in whether they record
-# cause-of-death or simply all burials during the outbreak period. For
-# likelihood fitting to the plague model's D_h (plague deaths only) this
-# matters at the wave shoulders (early and late days), though for outbreaks
-# with large populations and high peaks the distinction is usually dominated
-# by the plague signal. Per-outbreak provenance is documented below.
+# SOURCE OF TRUTH: data-raw/krauer-plague-season-v3_2.csv, a vendored copy of
+# the `input/rawdata.csv` from Fabienne Krauer's plague-season v3.2 dataset
+# (130 outbreaks, 84 places, 1348-1878). Vendored rather than referenced so
+# this package rebuilds without the black-death repo present.
 #
-#   Plague-specific (cause distinguished in source record):
-#     - Barcelona 1490  "cerca de morts" municipal death-search, parishes
-#                       visited daily, plague vs non-plague distinguished
-#                       (Schwartz & Carreras i Candi 1892)
-#     - London 1563     London Bills of Mortality -- weekly counts by cause
-#     - Malta 1813      Civic epidemic records
-#     - Prague 1713     Civic mortality lists
-#     - Cairo 1835      Municipal records during the outbreak
+# WHY THIS FILE WAS REWRITTEN (2026-09-22)
 #
-#   All-cause burial records during outbreak (baseline usually negligible
-#   vs epidemic peak, so treatable as ~plague for fitting purposes):
-#     - Givry 1348      Parish register of burials (cause not recorded in
-#                       14th c. parish records; 1200-1500 population so
-#                       background ~<1/day, peaks of 20+)
-#     - Eyam 1665       Parish burial register (700-person village;
-#                       background ~1/month vs plague peaks of 6+/day)
+# The previous version hand-transcribed eight series with no dates and no
+# source citations. Checking them against Krauer value-by-value found:
 #
-#   Ambiguous / mixed:
-#     - Florence 1400   Libri dei Morti -- sometimes annotated by cause,
-#                       sometimes not; treat early/late wave values with
-#                       caution when fitting
+#   * `cairo_1835` was TWO outbreaks concatenated -- Cairo 1801 (Didelot 2017,
+#     185 days, 8,018 deaths) followed by Cairo 1835 (Gaetani 1841, 181 days,
+#     33,532 deaths). A single-epidemic model was being asked to explain two
+#     epidemics in sequence. They are now separate outbreaks.
+#   * `barcelona_1490` silently dropped the first 125 days of a 307-day record,
+#     so its day 1 was 1490-03-10, not the 1489-11-05 anyone would assume.
+#   * `malta_1813` and `prague_1713` recorded 0 where Krauer records *no
+#     observation* (11 and 17 days). A missing record is not an observed zero;
+#     the likelihood was being asked to explain troughs that may not exist.
+#   * `florence_1400` was truncated by 8 days.
+#
+# Deriving everything from Krauer removes that whole class of error and adds
+# what the seasonal-forcing work needs: a real start date and calendar system
+# per outbreak.
+#
+# TWO DATASETS
+#
+#   `outbreaks`     -- the curated nine, kept as a convenience subset.
+#   `outbreaks_all` -- all 130, the dataset the explorer works from.
+#
+# Both share one schema and one key scheme, so the app can widen its
+# selection without a migration.
+#
+# IDENTITY (changed 2026-09-22, when the explorer widened to all 130)
+#
+# `outbreak_id` is Krauer's integer `id` as a character string. It used to be
+# `place_startyear`, which is *not unique*: Krauer 5 and 6 are both
+# "Alexandria_1840", and 7 and 8 are both "Alexandria_1842". Since
+# `cohort_data()` subsets with `outbreak_id %in% cohort_ids`, each of those
+# pairs would have been spliced into a single group -- exactly the
+# concatenation bug the Cairo_1835 fix above was written to remove,
+# reintroduced one dataset over. A derived key cannot carry a uniqueness
+# guarantee; Krauer's own id can.
+#
+# `label` ("Barcelona 1489") is the human-readable display string, and is
+# disambiguated where place+year collides. It is for reading, never joining.
+#
+# The nine curated outbreaks previously carried hand-assigned string ids.
+# Eight matched their natural `place_startyear` spelling exactly; the ninth,
+# `Barcelona_1490`, did not -- Krauer's startyear for that record is 1489,
+# which is also the right one (the series begins 1489-11-05; the old
+# hand-transcribed file dropped its first 125 days and so appeared to start in
+# 1490). Those legacy strings are exported as `outbreak_aliases` so saved
+# sessions and fit-library entries keyed on them still resolve.
+# ------------------------------------------------------------------------------
 
-library(tibble)
 library(dplyr)
 
-# Barcelona 1490
-barcelona_1490 <- tibble(
-  day = 1:182,
-  deaths = c(1,0,1,1,0,1,5,3,1,0,1,1,2,3,5,0,6,3,6,3,8,1,5,2,
-             1,1,2,2,2,5,7,12,4,3,5,3,8,5,8,8,6,12,11,22,15,14,
-             24,14,15,20,20,13,11,25,28,30,24,28,42,24,32,24,27,
-             31,34,33,29,31,38,40,42,38,53,44,66,52,53,56,63,49,
-             60,57,65,55,55,47,67,62,65,57,47,46,62,54,52,48,49,
-             64,46,67,52,50,56,46,41,38,36,39,31,32,41,25,32,35,
-             36,36,33,26,42,31,19,27,23,22,15,24,32,19,10,16,12,
-             15,14,13,12,13,12,6,12,15,5,9,3,5,12,6,7,3,3,3,3,2,
-             3,3,0,3,2,3,3,1,1,4,2,3,0,2,3,2,0,1,1,4,1,2,2,1,1,2,
-             0,1,1,2),
-  population = 25000,
-  location = "Barcelona",
-  year = 1490
+RAW <- "data-raw/krauer-plague-season-v3_2.csv"
+
+# The curated nine, keyed by Krauer id, paired with the legacy string id the
+# app used before 2026-09-22. The pairing is now only an *alias* -- it is
+# exported as `outbreak_aliases` and consumed by `outbreak_resolve_id()` so
+# old saved cohorts keep resolving. It no longer sets `outbreak_id`.
+# Cairo appears twice because the old `Cairo_1835` was two outbreaks.
+CURATED <- tibble::tribble(
+  ~krauer_id, ~legacy_id,
+          18, "Barcelona_1490",  # Krauer startyear is 1489; see header
+          82, "Malta_1813",
+          42, "Florence_1400",
+          31, "Cairo_1801",     # was the first 185 days of the old Cairo_1835
+          32, "Cairo_1835",
+          41, "Eyam_1665",
+          101, "Prague_1713",
+          69, "London_1563",
+          49, "Givry_1348"
 )
 
-# Malta 1813
-malta_1813 <- tibble(
-  day = 1:209,
-  deaths = c(1, 0, 1, 2, 0, 0, 0, 0, 0, 1, 0, 0, 3, 0, 2, 8, 10, 6, 6,
-             4, 7, 4, 5, 5, 7, 16, 10, 12, 18, 8, 13, 19, 16, 24, 19,
-             28, 24, 32, 27, 33, 33, 36, 19, 19, 23, 28, 21, 18, 24,
-             32, 29, 33, 23, 34, 39, 37, 44, 47, 53, 42, 44, 53, 43,
-             49, 56, 55, 51, 52, 56, 63, 59, 55, 65, 67, 36, 50, 41,
-             43, 41, 55, 48, 45, 44, 53, 47, 64, 49, 53, 63, 58, 50,
-             48, 27, 47, 43, 35, 37, 24, 26, 28, 26, 31, 31, 29, 34,
-             28, 32, 38, 27, 32, 32, 34, 33, 34, 31, 38, 27, 25, 29,
-             28, 26, 37, 33, 32, 28, 34, 34, 38, 29, 30, 24, 20, 23,
-             17, 17, 30, 23, 12, 20, 24, 21, 12, 12, 16, 11, 11, 19,
-             12, 15, 14, 16, 12, 16, 15, 7, 6, 14, 13, 9, 8, 5, 3, 5,
-             4, 3, 5, 5, 5, 4, 7, 10, 2, 4, 7, 6, 2, 3, 5, 1, 5, 3, 1,
-             1, 3, 2, 3, 3, 1, 3, 0, 2, 0, 2, 2, 2, 1, 1, 3, 4, 2, 4,
-             1, 2, 1, 2, 1, 4, 1, 1),
-  population = 97000,
-  location = "Malta",
-  year = 1813
+# Populations Krauer does not carry. Both were in the hand-transcribed file;
+# their original source is unrecorded, so they are flagged rather than trusted
+# silently. Anything relying on these two should say so.
+POP_OVERRIDE <- tibble::tribble(
+  ~krauer_id, ~population, ~population_source,
+          42,       60000, "inherited from pre-2026 hand-transcribed file; origin unrecorded",
+          49,        3000, "inherited from pre-2026 hand-transcribed file; origin unrecorded",
+          # Cairo 1801 carries no population in Krauer, but Krauer cites
+          # Didelot 2017 as the source for the record itself, and that paper's
+          # Table 1 gives N_H = 250,000 -- the same figure inst/scenarios/
+          # didelot.yaml already uses for K_h. Same outbreak, same source.
+          31,      250000, "Didelot et al. (2017) Table 1 (N_H); Krauer carries no population for this record"
 )
 
-# Florence 1400
-florence_1400 <- tibble(
-  day = 1:180,
-  deaths = c(8, 19, 9, 7, 12, 10, 5, 16, 11, 16, 19, 22, 18, 16, 29,
-             30, 28, 29, 30, 28, 28, 28, 32, 38, 28, 46, 44, 44, 49,
-             49, 47, 52, 44, 44, 39, 57, 62, 67, 70, 64, 91, 87, 102,
-             103, 74, 81, 77, 73, 70, 82, 109, 98, 106, 104, 141, 147,
-             150, 161, 200, 161, 153, 147, 150, 173, 170, 204, 189, 176,
-             180, 180, 169, 137, 155, 170, 138, 136, 129, 152, 135, 118,
-             158, 125, 148, 153, 134, 126, 108, 121, 124, 101, 113, 70,
-             73, 73, 63, 76, 51, 84, 65, 76, 57, 55, 44, 47, 44, 32, 36,
-             27, 35, 37, 29, 35, 38, 36, 20, 51, 30, 42, 29, 27, 27, 23,
-             34, 22, 12, 21, 28, 18, 12, 18, 18, 21, 14, 28, 23, 20, 16,
-             15, 17, 23, 15, 13, 15, 8, 15, 12, 22, 5, 11, 8, 7, 13, 5,
-             10, 6, 12, 4, 13, 11, 10, 3, 5, 11, 5, 7, 5, 6, 3, 11, 5,
-             5, 11, 6, 5, 8, 6, 6, 6, 5, 6),
-  population = 60000,
-  location = "Florence",
-  year = 1400
+# encoding= is not optional: Krauer carries accented place names
+# (Conde-sur-Noireau, Malaga), and without it the strings come back marked
+# "unknown" and render as mojibake for anyone whose locale differs from
+# whoever last rebuilt the .rda.
+raw <- utils::read.csv(RAW, stringsAsFactors = FALSE, encoding = "UTF-8")
+
+# `n` is the death count; blank means no observation, which must stay NA
+# rather than becoming 0. The whole point of the rewrite.
+raw$deaths <- suppressWarnings(as.numeric(trimws(raw$n)))
+# Monthly records carry `YYYY-MM`, which `as.Date()` returns NA for -- so
+# before 2026-09-22 every one of the 577 monthly rows had NA `date`, and
+# therefore NA `start_date` and NA `day`, across all 46 monthly outbreaks.
+# Nothing fitted them so nothing caught it; the explorer plots them. Anchor
+# a month to its first day: the day index is then the first of the month the
+# window opens, and `obs_period` stays NA because the window length still
+# varies between 28 and 31 days.
+raw$dateorig <- trimws(raw$dateorig)
+raw$date <- as.Date(ifelse(nchar(raw$dateorig) == 7L,
+                           paste0(raw$dateorig, "-01"), raw$dateorig))
+
+# Reporting window in days. The odin model's D_h accumulator resets every
+# `obs_period` steps, so this has to be a whole number of days: monthly series
+# have no fixed window and are marked NA (and so are not fittable).
+interval_days <- function(x) {
+  dplyr::case_when(
+    x == "daily"    ~ 1L,
+    x == "weekly"   ~ 7L,
+    x == "biweekly" ~ 14L,
+    TRUE            ~ NA_integer_
+  )
+}
+
+per_outbreak <- raw |>
+  dplyr::group_by(krauer_id = .data$id) |>
+  dplyr::arrange(.data$date, .by_group = TRUE) |>
+  dplyr::mutate(
+    start_date = min(.data$date),
+    obs_period = interval_days(.data$interval),
+    # Day index on the model's clock: 1-based for daily series, and for
+    # coarser records the day the window CLOSES, so `deaths` is the total
+    # over the obs_period days ending at `day`. Monthly series have no fixed
+    # window (`obs_period` is NA), so they get the day the window OPENS
+    # instead -- enough to place them on a timeline, and they are unfittable
+    # anyway.
+    #
+    # Weekly and biweekly indices are SNAPPED to the reporting grid rather
+    # than taken raw from the date difference, because the historical bills
+    # are not perfectly regular: London 1563 has one six-day week
+    # (1563-07-17 to 07-23), and from that point every raw index is off the
+    # 7-multiple grid. `validate_obs_period()` requires each data `time` to
+    # be a multiple of `obs_period` -- the D_h accumulator resets on that
+    # period -- so a single six-day bill made all 27 later observations
+    # unfittable. 7 of the 50 weekly/biweekly series have this.
+    #
+    # Rounding (not flooring) to the nearest multiple keeps genuine gaps: a
+    # missing bill still steps 14 days, because it rounds to 14. Only the
+    # sub-period jitter is absorbed, which is the right call -- a six-day
+    # bill is a seven-day slot that the calendar shortened, not six days of
+    # plague.
+    raw_day = as.integer(.data$date - .data$start_date),
+    day = dplyr::if_else(
+      is.na(.data$obs_period),
+      .data$raw_day + 1L,
+      as.integer(round(.data$raw_day / .data$obs_period) *
+                   .data$obs_period) + .data$obs_period
+    )
+  ) |>
+  dplyr::ungroup()
+
+all_outbreaks <- per_outbreak |>
+  dplyr::left_join(POP_OVERRIDE, by = "krauer_id") |>
+  dplyr::mutate(
+    population_krauer = suppressWarnings(as.numeric(.data$population.x)),
+    population = dplyr::coalesce(.data$population_krauer, .data$population.y),
+    population_source = dplyr::case_when(
+      !is.na(.data$population_krauer) ~ "Krauer plague-season v3.2",
+      !is.na(.data$population.y)      ~ .data$population_source,
+      TRUE                            ~ NA_character_
+    ),
+    # Krauer's integer id, as character. Unique by construction -- see the
+    # IDENTITY note in this file's header for why a derived key is not.
+    outbreak_id = as.character(.data$krauer_id),
+    location = .data$place,
+    year = as.integer(.data$startyear)
+  )
+
+# Display label. `place year` where that is unique, and disambiguated by the
+# start month where it is not (Alexandria 1840 and 1842 each cover two
+# distinct Krauer records). Built from the per-outbreak first row so the
+# suffix is stable regardless of row order.
+label_tbl <- all_outbreaks |>
+  dplyr::distinct(.data$outbreak_id, .data$location, .data$year,
+                  .data$start_date) |>
+  dplyr::mutate(base = paste(.data$location, .data$year)) |>
+  dplyr::group_by(.data$base) |>
+  dplyr::mutate(
+    label = if (dplyr::n() == 1L) .data$base
+            else paste0(.data$base, " (",
+                        format(.data$start_date, "%b"), ")")
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::select("outbreak_id", "label")
+
+all_outbreaks <- all_outbreaks |>
+  dplyr::left_join(label_tbl, by = "outbreak_id") |>
+  dplyr::select(
+    "outbreak_id", "label", "location", "year", "population", "day", "deaths",
+    "obs_period",
+    # Provenance and the fields the seasonal-forcing work needs.
+    "krauer_id", "start_date", "date", "calendar", "interval",
+    "country", "lat", "lon", "source", "population_source",
+    # Explorer facets. `type` matters more than it looks: 54 of the 130
+    # records are all-cause burials rather than plague-specific deaths, and
+    # the likelihood's `lambda_baseline` means something different for each
+    # (see CLAUDE.md, "Fitting").
+    "type", "complete", "sourcetype"
+  ) |>
+  dplyr::arrange(.data$year, .data$outbreak_id, .data$day)
+
+# ------------------------------------------------------------------------------
+# Per-outbreak derived fields the explorer filters and flags on.
+#
+# Fittable = the app can actually fit it. Both conditions are hard
+# requirements, not preferences: lab_fit_assemble() pins K_h/K_r to
+# population, and the D_h accumulator needs a fixed-length window. Only 49 of
+# the 130 clear both. `unfit_reason` carries *which* gate failed, because a
+# greyed-out tile that cannot say why is just a broken tile.
+#
+# `attack_rate` is recorded deaths / population, and `attack_flag` marks the
+# records a closed-population model cannot reproduce. It is a warning, not a
+# filter: Prague 1713 and Eyam 1665 both sit at 37% and are in the curated
+# nine, so screening at 35% would eject two outbreaks this package fits by
+# default. Only Klaipeda 1710 (9,797 deaths in a population of 4,000 = 245%)
+# is arithmetically impossible rather than merely hard. See stan/cohort.R,
+# where the 35% screen collapsed the sampler's step size to 0.0012.
+# ------------------------------------------------------------------------------
+all_outbreaks <- all_outbreaks |>
+  dplyr::group_by(.data$outbreak_id) |>
+  dplyr::mutate(
+    total_deaths = sum(.data$deaths, na.rm = TRUE),
+    attack_rate  = .data$total_deaths / .data$population[1],
+    fittable     = !is.na(.data$population[1]) && !is.na(.data$obs_period[1]),
+    unfit_reason = dplyr::case_when(
+      .data$fittable                 ~ NA_character_,
+      is.na(.data$population[1]) &
+        is.na(.data$obs_period[1])   ~ "no population, and monthly records have no fixed reporting window",
+      is.na(.data$population[1])     ~ "no population in Krauer; K_h and K_r are pinned to it",
+      TRUE                           ~ "monthly records have no fixed reporting window"
+    ),
+    attack_flag = dplyr::case_when(
+      is.na(.data$attack_rate[1]) ~ NA_character_,
+      .data$attack_rate[1] > 1    ~ "impossible",
+      .data$attack_rate[1] > 0.35 ~ "high",
+      TRUE                        ~ NA_character_
+    )
+  ) |>
+  dplyr::ungroup()
+
+outbreaks_all <- all_outbreaks
+
+# The curated nine, as a plain subset. Same ids, same schema -- the only
+# difference is which rows are present.
+outbreaks <- all_outbreaks |>
+  dplyr::filter(.data$krauer_id %in% CURATED$krauer_id) |>
+  dplyr::arrange(.data$year, .data$outbreak_id, .data$day)
+
+# Legacy string ids -> current ids, for resolving saved cohorts.
+outbreak_aliases <- CURATED |>
+  dplyr::transmute(
+    legacy_id = .data$legacy_id,
+    outbreak_id = as.character(.data$krauer_id)
+  )
+
+# Report *which* outbreak fails rather than just that one does -- a bare
+# `all(fittable)` failure sends you hunting through 130 records.
+unfittable <- outbreaks |>
+  dplyr::filter(!.data$fittable) |>
+  dplyr::distinct(.data$outbreak_id, .data$label, .data$unfit_reason)
+if (nrow(unfittable) > 0) {
+  print(as.data.frame(unfittable))
+  stop("Curated outbreaks are not all fittable; see the table above. ",
+       "A missing population needs a POP_OVERRIDE entry; a missing ",
+       "obs_period means the series is monthly and cannot be fitted.")
+}
+
+# Identity assertions. The first is the one that matters: the whole point of
+# keying on Krauer's id is that one outbreak_id is one outbreak, and the
+# previous place_startyear scheme silently violated it four records over.
+id_per_krauer <- all_outbreaks |>
+  dplyr::distinct(.data$outbreak_id, .data$krauer_id)
+# Every fittable series must sit on its own reporting grid, and no two
+# observations may collide onto the same day index. validate_obs_period()
+# enforces the first at fit time; catching it here names the outbreak.
+grid_check <- all_outbreaks |>
+  dplyr::filter(!is.na(.data$obs_period)) |>
+  dplyr::group_by(.data$outbreak_id, .data$label) |>
+  dplyr::summarise(off_grid = sum(.data$day %% .data$obs_period != 0),
+                   collisions = dplyr::n() - dplyr::n_distinct(.data$day),
+                   .groups = "drop") |>
+  dplyr::filter(.data$off_grid > 0 | .data$collisions > 0)
+if (nrow(grid_check) > 0) {
+  print(as.data.frame(grid_check))
+  stop("Some series are off their reporting grid or have colliding day ",
+       "indices; see the table above.")
+}
+
+stopifnot(
+  nrow(id_per_krauer) == dplyr::n_distinct(all_outbreaks$krauer_id),
+  !anyDuplicated(id_per_krauer$outbreak_id),
+  # Labels are for humans, but a duplicated one still makes the picker lie.
+  !anyDuplicated(dplyr::distinct(all_outbreaks, .data$outbreak_id,
+                                 .data$label)$label),
+  dplyr::n_distinct(all_outbreaks$outbreak_id) == 130L,
+  # Nine, not eight: Cairo split into 1801 and 1835.
+  dplyr::n_distinct(outbreaks$outbreak_id) == 9L,
+  nrow(outbreak_aliases) == 9L,
+  all(outbreak_aliases$outbreak_id %in% outbreaks$outbreak_id),
+  # NAs must survive: if this is 0 the missing-vs-zero bug is back.
+  sum(is.na(outbreaks$deaths)) > 0
 )
 
-# Cairo 1835
-cairo_1835 <- tibble(
-  day = 1:366,
-  deaths = c(34, 24, 23, 18, 21, 16, 17, 26, 12, 17, 21, 25, 25,
-             17, 23, 20, 9, 19, 20, 19, 18, 28, 31, 16, 20, 29,
-             21, 14, 18, 26, 19, 32, 27, 30, 27, 33, 20, 26, 29,
-             26, 32, 20, 25, 27, 30, 23, 21, 22, 24, 29, 41, 41,
-             45, 39, 40, 34, 51, 47, 48, 57, 47, 55, 50, 63, 53,
-             54, 55, 55, 66, 44, 61, 49, 71, 66, 55, 64, 76, 73,
-             68, 82, 73, 84, 86, 66, 78, 89, 89, 92, 112, 83, 114,
-             140, 136, 126, 121, 112, 105, 122, 128, 104, 87, 95,
-             88, 91, 79, 90, 78, 96, 82, 84, 95, 86, 100, 100, 79,
-             71, 79, 64, 73, 62, 78, 68, 55, 60, 69, 75, 59, 62,
-             59, 55, 62, 49, 46, 39, 34, 27, 29, 30, 30, 16, 11,
-             21, 18, 18, 20, 11, 14, 21, 17, 13, 13, 17, 13, 20,
-             21, 10, 11, 10, 15, 15, 8, 5, 7, 6, 14, 4, 10, 6, 7,
-             10, 4, 13, 11, 9, 6, 10, 4, 6, 14, 3, 3, 3, 0, 1, 5,
-             19, 26, 17, 21, 20, 23, 18, 34, 19, 23, 17, 28, 23,
-             33, 19, 34, 17, 19, 21, 26, 14, 24, 20, 25, 15, 20,
-             27, 19, 20, 19, 19, 30, 26, 34, 23, 25, 25, 22, 18,
-             32, 27, 29, 31, 43, 34, 37, 31, 29, 32, 34, 29, 49,
-             28, 52, 36, 44, 29, 34, 44, 51, 55, 48, 68, 58, 61,
-             73, 48, 65, 47, 69, 55, 78, 73, 91, 78, 96, 79, 128,
-             114, 127, 123, 153, 130, 151, 181, 179, 207, 214,
-             234, 179, 291, 312, 337, 357, 371, 394, 421, 407,
-             461, 460, 550, 545, 560, 579, 621, 596, 596, 662,
-             697, 746, 668, 722, 695, 760, 731, 760, 660, 748,
-             659, 717, 717, 753, 680, 653, 648, 638, 535, 575,
-             472, 437, 391, 364, 266, 344, 286, 270, 240, 237,
-             233, 192, 227, 168, 158, 169, 135, 107, 119, 92,
-             89, 92, 78, 66, 66, 55, 41, 49, 73, 45, 47, 46,
-             41, 44, 34, 47, 30, 40, 43, 42, 34, 28, 38, 33,
-             27, 20, 34, 34, 26, 34, 26, 22, 20),
-  population = 263700,
-  location = "Cairo",
-  year = 1835
-)
+message("outbreaks:     ", dplyr::n_distinct(outbreaks$outbreak_id),
+        " outbreaks, ", nrow(outbreaks), " rows, ",
+        sum(is.na(outbreaks$deaths)), " missing observations")
+message("outbreaks_all: ", dplyr::n_distinct(outbreaks_all$outbreak_id),
+        " outbreaks, ",
+        dplyr::n_distinct(outbreaks_all$outbreak_id[outbreaks_all$fittable]),
+        " fittable, ",
+        dplyr::n_distinct(
+          outbreaks_all$outbreak_id[!is.na(outbreaks_all$attack_flag)]),
+        " flagged on attack rate")
 
-# Eyam 1665
-eyam_1665 <- tibble(
-  day = 1:145,
-  deaths = c(1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 3, 4, 1, 3, 1, 1, 1, 1,
-             1, 2, 1, 2, 1, 2, 1, 1, 4, 2, 2, 1, 2, 1, 1, 1, 2, 3,
-             6, 1, 3, 1, 3, 4, 1, 3, 5, 4, 2, 6, 6, 3, 3, 4, 1, 1,
-             2, 1, 2, 8, 3, 5, 1, 3, 4, 2, 4, 2, 1, 1, 1, 3, 2, 1,
-             4, 2, 1, 1, 2, 2, 1, 3, 1, 2, 1, 1, 1, 1, 3, 1, 1, 1,
-             1, 1, 2, 2, 1, 1, 1, 1, 2, 2, 2, 2, 1, 2, 1, 1, 2, 1,
-             2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-             1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1,
-             1),
-  population = 700,
-  location = "Eyam",
-  year = 1665
-)
-
-# Prague 1713
-prague_1713 <- tibble(
-  day = 1:198,
-  deaths = c(45, 62, 99, 117, 77, 59, 119, 106, 123, 111, 159,
-             106, 164, 143, 150, 160, 163, 129, 194, 171, 202,
-             155, 226, 241, 207, 198, 186, 286, 364, 198, 236,
-             243, 225, 228, 281, 246, 263, 247, 200, 154, 164,
-             134, 113, 99, 113, 136, 130, 126, 122, 142, 117,
-             90, 81, 82, 84, 104, 82, 74, 74, 64, 73, 81, 63,
-             67, 74, 82, 71, 59, 49, 48, 57, 43, 53, 72, 64,
-             48, 32, 42, 32, 27, 23, 26, 36, 35, 33, 24, 23,
-             17, 23, 12, 20, 19, 14, 12, 24, 19, 9, 17, 16,
-             21, 7, 13, 9, 21, 7, 10, 10, 8, 9, 10, 9, 6, 9,
-             7, 10, 4, 5, 11, 4, 6, 11, 9, 8, 9, 5, 7, 5, 10,
-             6, 3, 2, 7, 4, 1, 8, 1, 1, 3, 8, 6, 5, 3, 2, 4, 3,
-             7, 6, 4, 2, 5, 1, 1, 4, 2, 2, 2, 3, 3, 2, 2, 5, 1,
-             2, 3, 1, 2, 2, 2, 0, 0, 0, 1, 3, 0, 2, 0, 1, 0, 0,
-             0, 0, 1, 3, 1, 2, 1, 2, 1, 2, 0, 0, 0, 0, 0, 0, 0,
-             0, 1),
-  population = 30000,
-  location = "Prague",
-  year = 1713
-)
-
-# London 1563 (weekly Bills of Mortality). `day` is the calendar day at the
-# end of each reporting week (7, 14, ..., 231); the `obs_period` column
-# below marks this outbreak as 7-day. The model side aggregates D_h over
-# 7-day windows when fit with obs_period = 7. Earlier versions of this
-# dataset stored the same weekly counts at `day = 1, 8, 15, ...` (week
-# index renamed to `day`) with NAs in between -- internally inconsistent
-# with the rest of the dataset and incoherent against the model's daily
-# clock; replaced 2026-05.
-london_1563 <- tibble(
-  day = seq(7, 7 * 33, by = 7),
-  deaths = c(17, 25, 23, 44, 64, 131, 174, 289, 299, 542, 608, 976, 963,
-             1454, 1626, 1372, 1828, 1262, 829, 1000, 905, 380, 283, 506,
-             281, 178, 249, 239, 134, 121, 45, 26, 13),
-  population = 85000,
-  location = "London",
-  year = 1563
-)
-
-# Givry 1348 (some missing data)
-givry_1348 <- tibble(
-  day = 1:138,
-  deaths = c(2, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 1, 1,
-             NA, NA, NA, 2, NA, NA, NA, NA, NA, 3, 2, NA, NA, NA,
-             4, 4, 1, NA, 2, 1, 7, 5, 3, 1, 1, 4, 5, 3, 3, 4, 1,
-             5, 2, 4, 3, 6, 2, 2, 6, 3, 8, 4, 6, 10, 6, 9, 8, 8,
-             4, 6, 15, 3, 11, 24, 7, 10, 15, 10, 14, 11, 17, 8,
-             6, 3, 17, 6, 11, 16, 7, 16, 12, 5, 10, 7, 7, 6, 7,
-             7, 8, 7, 6, 6, 9, 4, 7, 9, 3, 14, 5, 5, 4, 8, 6, 7,
-             3, 2, 5, 4, 4, 2, 3, 1, 3, NA, 6, 3, 4, 3, 4, NA, 2,
-             1, NA, 4, 3, 2, 1, NA, NA, 5, NA, NA, NA, 3),
-  population = 3000,
-  location = "Givry",
-  year = 1348
-)
-
-# Combine all datasets into a single tibble. `obs_period` is the length in
-# days of the reporting window each `deaths` value covers -- 1 for daily
-# records, 7 for London's weekly Bills of Mortality. Fitting code uses this
-# to set the matching D_h aggregation period in the model.
-outbreaks <- bind_rows(
-  barcelona_1490,
-  malta_1813,
-  florence_1400,
-  cairo_1835,
-  eyam_1665,
-  prague_1713,
-  london_1563,
-  givry_1348
-) %>%
-  mutate(outbreak_id = paste(location, year, sep = "_"),
-         obs_period = if_else(location == "London", 7L, 1L)) %>%
-  select(outbreak_id, location, year, population, day, deaths, obs_period)
-
-# Save single dataset
 usethis::use_data(outbreaks, overwrite = TRUE)
-
-
-
+usethis::use_data(outbreaks_all, overwrite = TRUE)
+usethis::use_data(outbreak_aliases, overwrite = TRUE)

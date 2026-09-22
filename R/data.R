@@ -83,3 +83,73 @@
 #'     population = first(population)
 #'   )
 "outbreaks"
+
+#' Krauer's full plague-outbreak catalogue
+#'
+#' All 130 outbreaks from Fabienne Krauer's plague-season v3.2 dataset (84
+#' places, 22 countries, 1348--1878), in the same long format and with the
+#' same key scheme as [outbreaks], which is a nine-record subset of it. This
+#' is the dataset the outbreak explorer works from.
+#'
+#' @format A tibble in long format, one row per observation:
+#' \describe{
+#'   \item{outbreak_id}{Krauer's catalogue id as a character string. Unique
+#'     by construction. \strong{Not} \code{place_startyear}, which is not:
+#'     Krauer 5 and 6 are both Alexandria 1840, and 7 and 8 are both
+#'     Alexandria 1842.}
+#'   \item{label}{Display string, e.g. \code{"Barcelona 1489"}, disambiguated
+#'     by start month where place and year collide. For reading, not joining.}
+#'   \item{location, year, country, lat, lon}{Place and time metadata.}
+#'   \item{population}{Total population, or \code{NA}. Missing for 61 of the
+#'     130 records.}
+#'   \item{day}{Day index from the outbreak start. For daily series the day
+#'     itself; for weekly and biweekly the day the reporting window closes;
+#'     for monthly the day it opens.}
+#'   \item{deaths}{Count for the window ending at \code{day}. \code{NA} means
+#'     \emph{no observation} and must never be read as an observed zero.}
+#'   \item{obs_period}{Reporting-window length in days (1, 7 or 14), or
+#'     \code{NA} for monthly series, which have no whole-day window.}
+#'   \item{krauer_id, start_date, date, calendar, interval, source,
+#'     population_source}{Provenance, and the fields the seasonal-forcing
+#'     work joins on.}
+#'   \item{type}{\code{"plague mortality"} or \code{"all-cause mortality"};
+#'     54 of the 130 are all-cause burials.}
+#'   \item{complete, sourcetype}{Krauer's own completeness flag, and whether
+#'     the series was transcribed from a table or digitised from a graph.}
+#'   \item{fittable}{Whether the app can fit this record: needs both a
+#'     population and a whole-day reporting window. 52 of the 130 qualify.}
+#'   \item{unfit_reason}{Which requirement failed; \code{NA} when fittable.}
+#'   \item{total_deaths, attack_rate}{Recorded deaths, and that over
+#'     population.}
+#'   \item{attack_flag}{\code{"high"} above 35% and \code{"impossible"}
+#'     above 100%. A warning, not a screen — Prague 1713 and Eyam 1665 sit
+#'     at 37% and are both in the curated [outbreaks] subset.}
+#' }
+#'
+#' @source Krauer, F. plague-season v3.2 (\code{input/rawdata.csv}), vendored
+#'   at \code{data-raw/krauer-plague-season-v3_2.csv}.
+#' @seealso [outbreak_summary()] for the one-row-per-outbreak view,
+#'   [outbreak_resolve_id()] for translating pre-2026-09 identifiers.
+#' @examples
+#' # How much of the catalogue is actually modellable, and why not:
+#' table(outbreak_summary()$unfit_reason, useNA = "ifany")
+"outbreaks_all"
+
+#' Pre-2026-09 outbreak identifiers
+#'
+#' Maps the nine hand-assigned string ids the app used before outbreaks were
+#' rekeyed on Krauer's catalogue id to their current ids, so saved sessions
+#' and fit-library entries keep resolving. Consumed by
+#' [outbreak_resolve_id()].
+#'
+#' @format A tibble with 9 rows and 2 variables:
+#' \describe{
+#'   \item{legacy_id}{The old string, e.g. \code{"Barcelona_1490"}.}
+#'   \item{outbreak_id}{The current id.}
+#' }
+#'
+#' @details `"Barcelona_1490"` maps to the outbreak now labelled *Barcelona
+#' 1489*. The year really does change: Krauer's record begins 1489-11-05, and
+#' the old hand-transcribed file dropped its first 125 days. The other eight
+#' legacy ids matched their natural spelling exactly.
+"outbreak_aliases"
