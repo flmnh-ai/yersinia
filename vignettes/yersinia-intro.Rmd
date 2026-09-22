@@ -550,7 +550,6 @@ The `yersinia` package addresses these limitations while maintaining computation
 - **Parameter details**: `print()` on loaded scenarios shows metadata and sources
 - **Theoretical background**: `vignette("reference-deterministic-models")` for deterministic comparisons
 - **Bayesian fitting walkthrough**: `vignette("monty")` for pMCMC fitting to historical death-count data
-- **Demographic coupling**: `vignette("coupled-demography")` for the age-structured human + food-production + rat logistic model
 
 ## Key References
 

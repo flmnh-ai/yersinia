@@ -47,6 +47,6 @@ expected-value approximation). Returns the production samples; the
 caller is responsible for keeping the pilot around for diagnostics.
 }
 \details{
-Mirrors the two-stage workflow in
-\code{vignettes/monty-barcelona-hierarchical.qmd} and friends.
+The second half of the two-stage workflow: a deterministic pilot tunes
+the proposal, then a short stochastic production run starts from it.
 }

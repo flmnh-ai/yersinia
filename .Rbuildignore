@@ -20,3 +20,6 @@
 \.DS_Store$
 _cache$
 _files$
+^vignettes/Exogenous Force of Infection Model\.qmd$
+^vignettes/Sensitivity_8_20_26\.qmd$
+^vignettes/reference-deterministic-models\.Rmd$

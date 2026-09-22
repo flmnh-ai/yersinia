@@ -447,8 +447,8 @@ lab_fit_run <- function(setup, n_chains = 4L, n_iter = 30000L,
 #' expected-value approximation). Returns the production samples; the
 #' caller is responsible for keeping the pilot around for diagnostics.
 #'
-#' Mirrors the two-stage workflow in
-#' `vignettes/monty-barcelona-hierarchical.qmd` and friends.
+#' The second half of the two-stage workflow: a deterministic pilot tunes
+#' the proposal, then a short stochastic production run starts from it.
 #'
 #' @param pilot_setup The setup list returned by [lab_fit_assemble()].
 #' @param pilot_samples The samples returned by [lab_fit_run()].

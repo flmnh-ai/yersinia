@@ -104,8 +104,8 @@ prior_default <- function(parameter) {
     list(family = family, params = list(...))
   }
   # Defaults aligned with the canonical `plague_fit_prior()` in monty_fit.R
-  # and the wider per-outbreak priors used in `vignettes/monty-seasonal.qmd`
-  # and the Barcelona hierarchical fits. The lab is multi-outbreak by design,
+  # and the wider per-outbreak priors used in the earlier Cairo and Barcelona
+  # hierarchical monty fits. The lab is multi-outbreak by design,
   # so we take the *wider* of the vignette priors when they diverge.
   #
   # Three families are used for shape reasons (not just bounds):
