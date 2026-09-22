@@ -33,7 +33,6 @@ Imports:
     yaml,
     rlang,
     purrr,
-    cubelyr,
     checkmate,
     glue,
     cli,

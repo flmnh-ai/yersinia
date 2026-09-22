@@ -6,9 +6,9 @@
 # global fixed). dust2's grouped filter consumes that nested list directly.
 #
 # These wrappers each modify the unpack closure to apply one transformation per
-# group: splice in per-group fixed pars, convert R0 to beta_r, modulate seasonal
-# forcing by alpha, or compute seasonal from temperature via Brière. They are
-# composable via |>, applied in declaration order. The order matters for
+# group: splice in per-group fixed pars, convert R0 to beta_r, or compute the
+# thermal multiplier on transmission from temperature. They are composable via
+# |>, applied in declaration order. The order matters for
 # transformations that consume what an earlier wrapper injects (e.g.
 # with_R0_to_beta_r needs g_r/rho/delta_R already present).
 #
@@ -79,148 +79,37 @@ with_R0_to_beta_r <- function(packer) {
   out
 }
 
-#' Modulate per-group seasonal forcing by a fitted alpha exponent.
+#' Compute per-group thermal forcing on transmission.
 #'
-#' Replaces each group's `seasonal` vector with `group_seasonal[[g]] ^ alpha`.
-#' Lets the data inform the strength of seasonality — `alpha = 0` collapses
-#' seasonal to flat 1, `alpha = 1` is the raw climate signal, intermediate
-#' values dampen, larger values amplify. Removes `alpha` from unpacked pars.
+#' For each group, turns that group's daily temperature series into a per-day
+#' multiplier on `beta_r` and `beta_h` via the odin model's `seasonal_beta`
+#' input, using [thermal_response()] with fitted `T_opt`, `hw_cold`, `hw_hot`.
+#' Carcass decay is left unforced: `seasonal` is set to all ones if the packer
+#' has not already supplied it.
 #'
-#' @param packer A grouped packer or wrapper around one. Must have `alpha` as
-#'   a shared scalar parameter.
-#' @param group_seasonal Named list keyed by group; each entry is a numeric
-#'   vector of per-day seasonal multipliers (length = number of simulation
-#'   days for that outbreak).
-#' @return A packer with wrapped `$unpack`.
-#' @export
-with_alpha_seasonal <- function(packer, group_seasonal) {
-  out <- packer
-  inner_unpack <- packer$unpack
-  out$unpack <- function(x) {
-    u <- inner_unpack(x)
-    Map(function(g, pars) {
-      pars$seasonal <- group_seasonal[[g]] ^ pars$alpha
-      pars$alpha <- NULL
-      pars
-    }, names(u), u)
-  }
-  class(out) <- class(packer)
-  out
-}
-
-#' Compute per-group seasonal forcing from temperature via Brière.
-#'
-#' For each group, transforms the temperature time series into a per-day
-#' multiplier on `delta_R` (carcass decay) using the Brière function
-#' parameterised by fitted `T_min`, `T_max`, `q_briere`. The multiplier is
-#' normalised so `delta_R` equals its scenario value at `T_ref` (default
-#' 17.8°C, the typical mid-range plague-permissive temperature) — i.e.
-#' calibrating outside the Brière transformation reaches the unmodulated
-#' scenario `delta_R` at the reference temperature.
-#'
-#' If `T_ref` falls outside `[T_min, T_max]` (sampler exploring biologically
-#' implausible cliffs), returns `cap` for all temperatures, which collapses
-#' transmission and signals the proposal is bad. Per-temperature points
-#' outside `[T_min, T_max]` are also capped. Removes `T_min`, `T_max`,
-#' `q_briere` from unpacked pars.
-#'
-#' @param packer A grouped packer or wrapper around one. Must have `T_min`,
-#'   `T_max`, `q_briere` as shared scalar parameters.
-#' @param group_temp Named list keyed by group; each entry is a numeric
-#'   per-day temperature vector (°C, length = number of simulation days).
-#' @param T_ref Reference temperature at which the Brière multiplier equals
-#'   1 (i.e. the scenario `delta_R` is unchanged). Default 17.8°C.
-#' @param cap Maximum allowed multiplier — clamps the transmission-off
-#'   signal when params are out of range. Default 1000.
-#' @return A packer with wrapped `$unpack`.
-#' @export
-with_briere_seasonal <- function(packer, group_temp,
-                                 T_ref = 17.8, cap = 1000) {
-  out <- packer
-  inner_unpack <- packer$unpack
-  out$unpack <- function(x) {
-    delta_R_briere <- function(temperature, T_min, T_max, q) {
-      if (T_ref <= T_min || T_ref >= T_max) {
-        return(rep(cap, length(temperature)))
-      }
-      L_ref <- (T_ref - T_min) * (T_max - T_ref)^q
-      in_range <- temperature > T_min & temperature < T_max
-      L_T <- ifelse(in_range,
-                    (temperature - T_min) * (T_max - temperature)^q,
-                    NA_real_)
-      mult <- L_ref / L_T
-      pmin(ifelse(is.na(mult), cap, mult), cap)
-    }
-    u <- inner_unpack(x)
-    Map(function(g, pars) {
-      pars$seasonal <- delta_R_briere(
-        group_temp[[g]],
-        T_min = pars$T_min,
-        T_max = pars$T_max,
-        q     = pars$q_briere
-      )
-      pars$T_min    <- NULL
-      pars$T_max    <- NULL
-      pars$q_briere <- NULL
-      pars
-    }, names(u), u)
-  }
-  class(out) <- class(packer)
-  out
-}
-
-#' Compute per-group thermal forcing on transmission (beta formulation).
-#'
-#' The beta-forcing counterpart to [with_briere_seasonal()]. For each group,
-#' transforms that group's temperature series into a per-day multiplier on
-#' `beta_r` and `beta_h` via the odin model's `seasonal_beta` input, using
-#' [thermal_response()] parameterised by fitted `T_opt`, `hw_cold`, `hw_hot`.
-#'
-#' Three differences from [with_briere_seasonal()]:
-#'
-#' * It writes `seasonal_beta`, not `seasonal`, so carcass lifetime is left
-#'   alone and the thermal parameters no longer set the epizootic's timescale.
-#' * The response is anchored at its own maximum, so `beta_r` / `beta_h` mean
-#'   "transmission at the thermal optimum" and stay interpretable however the
-#'   shape parameters move. No `T_ref`, and no `cap`.
-#' * The parameters are the ones the mortality data can actually constrain.
-#'   See `docs/identifiability-audit.md` for why `T_max` is not among them.
-#'
-#' Bad proposals (non-positive half-widths) yield a floored response rather
-#' than an error, which drives the likelihood down and pushes the sampler away.
+#' Bad proposals (non-positive widths) yield a floored response rather than
+#' an error, which drives the likelihood down and pushes the sampler away.
 #'
 #' @param packer A grouped packer or wrapper around one. Must carry `T_opt`,
-#'   `hw_cold`, `hw_hot` as shared scalar parameters.
+#'   `hw_cold`, `hw_hot` as parameters.
 #' @param group_temp Named list keyed by group; each entry is a numeric per-day
 #'   temperature vector (degrees C, length = number of simulation days).
-#' @param form One of `"gaussian"` (default, visible coordinates) or
-#'   `"briere"`. With `"briere"` the packer must instead carry `T_min`,
-#'   `T_max`, `q_briere`.
 #' @return A packer with wrapped `$unpack`.
 #' @export
-with_thermal_beta <- function(packer, group_temp, form = c("gaussian", "briere")) {
-  form <- match.arg(form)
+with_thermal_beta <- function(packer, group_temp) {
   out <- packer
   inner_unpack <- packer$unpack
+  # Captured by value so the closure carries it to callr workers (see header).
+  thermal <- thermal_response
   out$unpack <- function(x) {
     u <- inner_unpack(x)
     Map(function(g, pars) {
-      if (form == "gaussian") {
-        pars$seasonal_beta <- thermal_response(
-          group_temp[[g]],
-          T_opt   = pars$T_opt,
-          hw_cold = pars$hw_cold,
-          hw_hot  = pars$hw_hot)
-        pars$T_opt <- NULL; pars$hw_cold <- NULL; pars$hw_hot <- NULL
-      } else {
-        pars$seasonal_beta <- thermal_response_briere(
-          group_temp[[g]],
-          T_min = pars$T_min,
-          T_max = pars$T_max,
-          q     = pars$q_briere)
-        pars$T_min <- NULL; pars$T_max <- NULL; pars$q_briere <- NULL
-      }
-      # delta_R forcing off: this formulation puts temperature on beta only.
+      pars$seasonal_beta <- thermal(
+        group_temp[[g]],
+        T_opt   = pars$T_opt,
+        hw_cold = pars$hw_cold,
+        hw_hot  = pars$hw_hot)
+      pars$T_opt <- NULL; pars$hw_cold <- NULL; pars$hw_hot <- NULL
       # Exact [[ ]]: `pars$seasonal` partial-matches `seasonal_beta`, which
       # was just set above, so the guard would never fire.
       if (is.null(pars[["seasonal"]])) {

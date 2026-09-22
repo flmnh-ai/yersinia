@@ -1,5 +1,7 @@
 # R/plague_utils.R
 
+# Null-coalescing, used across the package. Base R only has `%||%` from 4.4,
+# and DESCRIPTION allows R >= 4.1, so keep our own.
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
 # Helper functions for validation (not exported)

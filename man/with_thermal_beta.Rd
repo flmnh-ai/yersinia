@@ -2,42 +2,28 @@
 % Please edit documentation in R/packer_helpers.R
 \name{with_thermal_beta}
 \alias{with_thermal_beta}
-\title{Compute per-group thermal forcing on transmission (beta formulation).}
+\title{Compute per-group thermal forcing on transmission.}
 \usage{
-with_thermal_beta(packer, group_temp, form = c("gaussian", "briere"))
+with_thermal_beta(packer, group_temp)
 }
 \arguments{
 \item{packer}{A grouped packer or wrapper around one. Must carry \code{T_opt},
-\code{hw_cold}, \code{hw_hot} as shared scalar parameters.}
+\code{hw_cold}, \code{hw_hot} as parameters.}
 
 \item{group_temp}{Named list keyed by group; each entry is a numeric per-day
 temperature vector (degrees C, length = number of simulation days).}
-
-\item{form}{One of \code{"gaussian"} (default, visible coordinates) or
-\code{"briere"}. With \code{"briere"} the packer must instead carry \code{T_min},
-\code{T_max}, \code{q_briere}.}
 }
 \value{
 A packer with wrapped \verb{$unpack}.
 }
 \description{
-The beta-forcing counterpart to \code{\link[=with_briere_seasonal]{with_briere_seasonal()}}. For each group,
-transforms that group's temperature series into a per-day multiplier on
-\code{beta_r} and \code{beta_h} via the odin model's \code{seasonal_beta} input, using
-\code{\link[=thermal_response]{thermal_response()}} parameterised by fitted \code{T_opt}, \code{hw_cold}, \code{hw_hot}.
+For each group, turns that group's daily temperature series into a per-day
+multiplier on \code{beta_r} and \code{beta_h} via the odin model's \code{seasonal_beta}
+input, using \code{\link[=thermal_response]{thermal_response()}} with fitted \code{T_opt}, \code{hw_cold}, \code{hw_hot}.
+Carcass decay is left unforced: \code{seasonal} is set to all ones if the packer
+has not already supplied it.
 }
 \details{
-Three differences from \code{\link[=with_briere_seasonal]{with_briere_seasonal()}}:
-\itemize{
-\item It writes \code{seasonal_beta}, not \code{seasonal}, so carcass lifetime is left
-alone and the thermal parameters no longer set the epizootic's timescale.
-\item The response is anchored at its own maximum, so \code{beta_r} / \code{beta_h} mean
-"transmission at the thermal optimum" and stay interpretable however the
-shape parameters move. No \code{T_ref}, and no \code{cap}.
-\item The parameters are the ones the mortality data can actually constrain.
-See \code{docs/identifiability-audit.md} for why \code{T_max} is not among them.
-}
-
-Bad proposals (non-positive half-widths) yield a floored response rather
-than an error, which drives the likelihood down and pushes the sampler away.
+Bad proposals (non-positive widths) yield a floored response rather than
+an error, which drives the likelihood down and pushes the sampler away.
 }

@@ -10,7 +10,7 @@ cohort_ui(id)
 \item{id}{Module namespace id.}
 }
 \value{
-A \code{bslib::card()} with the cohort chips + picker grid.
+A \code{bslib::card()} with the cohort chips.
 }
 \description{
 Cohort module — UI.
